@@ -1,0 +1,64 @@
+# Trying it in quickemu
+
+[quickemu](https://github.com/quickemu-project/quickemu) runs a VM from a
+short config file. `quickemu/` has one for each architecture, both set up as
+the PC LosOS expects rather than the least it boots on:
+
+| | |
+| --- | --- |
+| Firmware | UEFI, Secure Boot off |
+| TPM | 2.0, from `swtpm` |
+| CPU | 4 cores |
+| RAM | 8 GB |
+| Disk | 64 GB, sparse |
+| Graphics | virtio GPU with GL (virgl) |
+
+The firmware has to be UEFI with Secure Boot off for the reasons in
+[Boot loader and boot screen](boot-loaders.md): GRUB chainloads a UKI
+nobody has signed. Only a UEFI boot goes through systemd-stub, which
+measures the UKI into the TPM, so with the TPM the
+[security report](security-report.md) finds both and the VM is the machine a
+laptop would be. It still never [hibernates](hibernation.md), which is only
+for laptops; `hostnamectl chassis laptop` makes it one.
+
+The disk is what first boot lays out ([Where the OS lives](layout.md)): the
+ESP, two 8 GB `/usr` slots with their verity halves, root from 8 GB, `/home`
+from 4 GB and swap the size of RAM, which comes to about 29 GB plus RAM.
+64 GB is what the [Windows installer](windows-installer.md) offers by
+default, and leaves `/home` most of the rest. 8 GB of RAM is twice what
+`nix run .#vm` gives. More RAM wants more disk, since swap grows with it.
+
+## Running it
+
+quickemu needs `swtpm` beside QEMU for the TPM. The installer ISO is in every
+nightly release on [the releases
+page](https://github.com/losos-project/losos-desktop/releases), as
+`losos-desktop_<version>_<arch>-installer.iso`. Save it next to the config,
+under the name the config gives it:
+
+```sh
+cd quickemu
+mkdir -p losos-desktop-x86_64
+mv ~/Downloads/losos-desktop_*_x86_64-installer.iso losos-desktop-x86_64/installer.iso
+quickemu --vm losos-desktop-x86_64.conf
+```
+
+The first start creates the disk and boots [the installer](installer.md),
+which installs the channel's newest release over the network. quickemu
+attaches the ISO only while the disk is still empty, so every later start
+boots the installed system. On an aarch64 host, use
+`losos-desktop-aarch64.conf` and the aarch64 ISO the same way. quickemu
+will also run it on an x86_64 host, emulated, but that is too slow to
+install from: tried that way, the installer's initrd gave up waiting for its
+CD after 90 seconds.
+
+GL needs a host that has it, under quickemu's default GTK window or
+`--display sdl` or `spice-app`. On a host without it QEMU refuses to start,
+saying `OpenGL is not supported by display backend`; `gl="off"` in the
+config starts it with a plain virtio GPU, and the desktop draws with
+llvmpipe instead.
+
+A network that re-signs TLS with its own authority, as some corporate ones
+do, fails the download. The installer then installs from a `LOSOS-RELEASE`
+disk instead ([The installer](installer.md)), attached with
+`--extra_args "-drive if=virtio,format=raw,readonly=on,file=/path/to/release.img"`.
