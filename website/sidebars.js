@@ -19,6 +19,7 @@ module.exports = {
         'boot-loaders',
         'installer',
         'windows-installer',
+        'quickemu',
         'first-boot',
         'sign-in',
         'releases',

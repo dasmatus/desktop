@@ -49,8 +49,10 @@ derisk and LosOS's WebUI share, so replacing that file replaces all of them.
   down". It runs from the initrd until the login screen takes the display.
   Nothing on it appears at once: the screen fades in from the dark ground
   when Plymouth starts, the caption and a prompt fade into each other, and
-  just before the login screen it fades back to the ground, which it leaves
-  there for the greeter to draw over. Esc shows the boot log.
+  just before the login screen it fades back to the ground, all but the
+  line, which fills and stays. The login screen starts from that frame: it
+  draws the same line in the same place and closes it into a dot that opens
+  the screen, as the launch film shows. Esc shows the boot log.
 
 ![Plymouth while the system starts: the salmon, "LosOS Desktop is starting" and the progress line in the accent colour under it](images/boot-splash.png)
 
