@@ -75,7 +75,10 @@
           machine.succeed(f"test -f {esp}/EFI/Linux/losos-desktop_1.efi")
           machine.succeed(f"test -f {esp}/EFI/Linux/losos-desktop_1.linux")
           machine.succeed(f"test -f {esp}/EFI/losos/grubenv")
-          machine.succeed("systemctl is-active losos-grub-bless.service")
+          # The bless runs after boot-complete.target, which comes after
+          # multi-user.target, so it can still be queued here; waiting
+          # still fails if its job was dropped or it failed.
+          machine.wait_for_unit("losos-grub-bless.service")
 
       with subtest("A counted UKI is blessed once it boots"):
           # The name sysupdate gives a new UKI (update.nix).
