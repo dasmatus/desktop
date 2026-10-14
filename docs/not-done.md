@@ -60,8 +60,10 @@
   login `derisk session --execute`; each takes the seat from logind and
   scans out through DRM/KMS on the first connected display, at its preferred
   mode (`nixos/modules/desktop.nix`). A second display stays dark and
-  hotplug is not handled. derisk has no XWayland yet, and no UI for
-  Bluetooth or power profiles, so those are left off. The gnome-control-center patches above
+  hotplug is not handled. X11 apps run through xwayland-satellite, a user
+  unit that starts with the session (`desktop.nix`); it was seen serving an
+  X11 client under a headless weston, not yet under derisk's compositor.
+  derisk has no UI for Bluetooth or power profiles, so those are left off. The gnome-control-center patches above
   have no Settings app to go into any more.
 - **derisk's portal has gaps.** derisk's portal backend has no
   area or color picker and does not set the lock screen's picture. Screen
