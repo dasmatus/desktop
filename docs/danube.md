@@ -4,8 +4,9 @@ Danube is the OS's web browser and the default for links and web pages
 (`nixos/modules/danube.nix`). It is [WPE WebKit](https://wpewebkit.org),
 the WebKit port with no toolkit of its own, drawn inside a window built
 from mcsapi's components in derisk's theme (`src/danube`). It is the web
-view and nothing more: derisk's command palette is its address bar and
-its tab switcher, and derisk's top bar carries its menus. It also opens
+view and nothing more: derisk's command palette is its address bar, its
+tab switcher and its list of extensions, and derisk's top bar carries its
+menus. It runs Chrome's extensions, unmodified, with a runtime of its own. It also opens
 the sign-in page of a network that wants one first (a captive portal), and
 it loads the content blockers that [system-wide ad blocking](adblock.md)
 compiles.
@@ -56,11 +57,11 @@ architecture and keeps it in the project's cache.
 ## The window
 
 The window is the page, and nothing else: no toolbar, no address bar, no
-tab strip. Danube is the web view; addresses, tabs and (later)
-extensions are derisk's command palette's to manage, and derisk's top bar
+tab strip. Danube is the web view; addresses, tabs and extensions are
+derisk's command palette's to manage, and derisk's top bar
 shows its menus. The window's title names the tab in front. Over the page
 the window draws only what has to be there: a progress line along the top
-while a page loads, a bar for a site's permission request, a notice on a
+while a page loads, an extension's popup in the top right corner, a bar for a site's permission request, a notice on a
 page whose web process died, and the link under the pointer. A phone
 window (short side under 600 logical pixels, as in
 [GTK and Qt on a phone](gtk-qt-phone.md)) sends a mobile User-Agent
@@ -81,12 +82,12 @@ The palette's Tabs and Extensions headings are derisk's bundled browser
 palette plugin (a WebAssembly plugin of the palette, like its other
 sources) showing what Danube registers: `register_palette` on the agent
 socket, with the tabs (id, title, URL, which is active) and the
-extensions (none until the extension runtime exists), sent again
+extensions (id, name, whether enabled, whether it has options), sent again
 whenever they change. What is picked there comes back as a `palette`
 event with a command: `activate_tab`, `close_tab`, `new_tab`, or `open`
 with the http(s) URL derisk made of the typed text (`https://` for a
-bare host, `http://` for localhost), which Danube opens in a new tab. The extension commands (`enable_extension`, `disable_extension`,
-`extension_options`) Danube only logs for now. Without the plugin (an
+bare host, `http://` for localhost), which Danube opens in a new tab; `enable_extension`,
+`disable_extension` and `extension_options` do what they say. Without the plugin (an
 older derisk) the registration is refused and the menus below still list
 the tabs.
 
@@ -101,6 +102,8 @@ Wikipedia" closes it:
 - **Tabs**: each by its title, New Tab, Next Tab, Previous Tab.
 - **Navigate**: Back, Forward, Reload, Stop.
 - **Close Tab**: each by its title.
+- **Extensions**: each extension's button (its popup, or what it does
+  when clicked), its options page, and Enable or Disable.
 
 Danube registers them over derisk's agent socket
 (`$XDG_RUNTIME_DIR/derisk/agent.sock`), finding its window by app id
@@ -112,10 +115,84 @@ the tabs.
 Keys: Ctrl+L (or Alt+D) the palette, Ctrl+T a new tab (and the palette
 for its address), Ctrl+W close, Ctrl+Tab and Ctrl+Shift+Tab the next and
 previous tab, Ctrl+R or F5 reload, Alt+Left and Alt+Right back and
-forward; a middle click on a link opens it in a tab behind.
+forward; a middle click on a link opens it in a tab behind. An
+extension's own shortcuts (its manifest's `commands`, Bitwarden's
+Ctrl+Shift+L to fill a login, say) work too, and Esc closes its popup.
 
 Downloads go to `~/Downloads`, never overwriting a file there, and a toast
 says when one finished.
+
+## Extensions
+
+Danube runs Chrome's extensions, Manifest V2 and V3, as they come from
+the Chrome Web Store, and Firefox's written to the same API. WPE WebKit
+has no extension runtime of its own (WebKitGTK and WPE leave that to the
+browser), so Danube has one (`src/danube/crates/danube/src/extensions`).
+Bitwarden's Chrome extension, unmodified, signs in to a self-hosted
+server, unlocks, and fills a login from its popup, from Ctrl+Shift+L and
+from its menu in the page's field.
+
+```sh
+danube install-extension bitwarden.crx   # a .zip, .crx, .xpi or a directory
+danube list-extensions
+danube uninstall-extension nngceckbapebfimnlniiiahkandclblb
+```
+
+These run outside the sandbox, since the file can be anywhere, and tell
+a running Danube to load the change. An extension is unpacked into
+`~/.local/share/danube/extensions/<id>/`, the id being the one Chrome
+gives it (from the key in its manifest or its `.crx` header, so it keeps
+the id its server knows), and keeps its storage in
+`~/.local/share/danube/extension-data/<id>/` as JSON files.
+`~/.config/danube/extensions` says which are turned off. The Extensions
+menu and the palette's Extensions heading turn each on or off and open
+its options page.
+
+How it runs:
+
+- **Its files** come from a `chrome-extension://<id>/` scheme of Danube's,
+  each page with the manifest's content security policy. A web page may
+  load only what the manifest lists in `web_accessible_resources`; WebKit
+  lets a page's frame reach that much because Danube puts those files on
+  each tab's CORS allow list.
+- **Its background** (a page, or a service worker run as one, since WebKit
+  has no worker to give an extension) is a hidden web view, as are its
+  popup and an offscreen document. The popup's frames go to the window,
+  which draws them over the page and sends it the pointer and keys.
+- **Its content scripts** are WebKit user scripts in an isolated world of
+  the extension's own, with its CSS as user style sheets. Each tab has a
+  content manager of its own, so the tab a message comes from is known
+  without the page saying.
+- **`chrome.*`** (and `browser.*`) is `api.js`, run first in every one of
+  those contexts. Each call is a script message to the runtime on
+  WebKit's thread, which answers it: messaging and ports, tabs, storage,
+  scripting, alarms, the action's popup and badge, commands, i18n,
+  downloads, notifications (as Danube's own toasts), offscreen documents.
+  What a context has to be told (a message, an event) it collects by
+  asking with a message the runtime answers only once there is
+  something, since WebKit's own calls into a page reach only its main
+  frame.
+- **A sandboxed page in a web page's frame** (Bitwarden's menu in a login
+  field) has an opaque origin, which WebKit lets load nothing from the
+  extension's scheme. Danube serves such a page with its scripts and its
+  style sheets written into it, the scripts' hashes added to its policy,
+  and swaps a style sheet it switches to (a theme) for the same file
+  written in.
+
+What an extension cannot do here:
+
+- See or change requests: `webRequest` takes listeners and never calls
+  them, and `declarativeNetRequest` keeps no rules. Blocking is
+  [system-wide ad blocking](adblock.md)'s job.
+- Talk to a native program (`runtime.connectNative`), so Bitwarden cannot
+  reach its desktop app for biometric unlock.
+- Run in a page's own world (`world: "MAIN"`) anywhere but its main frame.
+- Reach another of its views: `extension.getViews()` is empty and
+  `getBackgroundPage()` null, since each view is a web process of its own.
+- Use `cookies`, `contextMenus`, `history`, `bookmarks`, the side panel or
+  `identity`, which answer as if empty or fail.
+- Fetch one of its own files from a content script unless the manifest
+  lists it as web-accessible, as a page could not either.
 
 ## Sites' permissions
 

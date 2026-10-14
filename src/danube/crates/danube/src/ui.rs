@@ -23,7 +23,7 @@ use mcsapi_components::{
 use crate::config;
 use crate::derisk::Update;
 use crate::input;
-use crate::shared::{Command, Commands, Event, PermissionAsk, Tab, TabId};
+use crate::shared::{Command, Commands, Event, ExtCommand, ExtensionInfo, PermissionAsk, Tab, TabId};
 
 /// The window's short side below which it is laid out for a phone.
 const PHONE: f32 = 600.0;
@@ -46,6 +46,10 @@ pub struct Window {
     dragging: bool,
     touch_active: bool,
     textures: HashMap<TabId, (egui::TextureHandle, Arc<egui::ColorImage>)>,
+    /// The open extension popup's last frame as a texture.
+    popup_texture: Option<(egui::TextureHandle, Arc<egui::ColorImage>)>,
+    /// A button went down over the popup and is still held.
+    dragging_popup: bool,
     last_size: Option<(i32, i32, f64)>,
     phone: Option<bool>,
     focused: bool,
@@ -68,6 +72,12 @@ struct State {
     filters: usize,
     /// The window's title, as sent to derisk.
     title: String,
+    /// The installed extensions, for the menus and the shortcuts.
+    extensions: Vec<ExtensionInfo>,
+    /// An extension's popup is open: its extension and size in logical
+    /// pixels, drawn over the page's top right corner.
+    popup: Option<(String, i32, i32)>,
+    popup_frame: Option<Arc<egui::ColorImage>>,
 }
 
 impl State {
@@ -122,6 +132,21 @@ impl State {
                 return false;
             }
             Event::Filters(n) => self.filters = n,
+            Event::Extensions(list) => self.extensions = list,
+            Event::PopupOpened { ext, width, height } => {
+                self.popup = Some((ext, width, height));
+                self.popup_frame = None;
+                return false;
+            }
+            Event::PopupFrame(image) => {
+                self.popup_frame = Some(image);
+                return false;
+            }
+            Event::PopupClosed => {
+                self.popup = None;
+                self.popup_frame = None;
+                return false;
+            }
             // Handled by the window itself before they get here.
             Event::Copied(_) | Event::Notice(_) | Event::Quit => return false,
         }
@@ -199,6 +224,8 @@ impl Window {
             dragging: false,
             touch_active: false,
             textures: HashMap::new(),
+            popup_texture: None,
+            dragging_popup: false,
             last_size: None,
             phone: None,
             focused: true,
@@ -241,6 +268,7 @@ impl Window {
             active: self.state.active,
             filters: self.state.filters,
             palette: self.palette,
+            extensions: self.state.extensions.clone(),
         };
         self.derisk_behind = self.updates.try_send(update).is_err();
     }
@@ -261,6 +289,31 @@ impl Window {
         let ctrl = |key| egui::KeyboardShortcut::new(Modifiers::COMMAND, key);
         let alt = |key| egui::KeyboardShortcut::new(Modifiers::ALT, key);
         let pressed = |shortcut| ctx.input_mut(|i| i.consume_shortcut(&shortcut));
+        // The extensions' own shortcuts, from their manifests, go first:
+        // egui takes Ctrl+L as pressed when Ctrl+Shift+L is, so a
+        // shortcut with more modifiers has to be asked for before ours.
+        if !self.captive {
+            // Between extensions likewise, the most modifiers first.
+            let mut shortcuts: Vec<_> = (self.state.extensions.iter())
+                .filter(|ext| ext.enabled)
+                .flat_map(|ext| ext.commands.iter().map(move |command| (ext, command)))
+                .filter_map(|(ext, command)| Some((command.key.as_deref().and_then(parse_shortcut)?, ext, command)))
+                .collect();
+            let held = |m: Modifiers| [m.command, m.shift, m.alt].into_iter().filter(|&on| on).count();
+            shortcuts.sort_by_key(|(shortcut, ..)| std::cmp::Reverse(held(shortcut.modifiers)));
+            let mut fired = Vec::new();
+            for (shortcut, ext, command) in shortcuts {
+                if pressed(shortcut) {
+                    fired.push((ext.id.clone(), command.name.clone()));
+                }
+            }
+            for (ext, command) in fired {
+                self.send(Command::Extensions(ExtCommand::Shortcut { ext, command }));
+            }
+            if self.state.popup.is_some() && pressed(egui::KeyboardShortcut::new(Modifiers::NONE, Key::Escape)) {
+                self.send(Command::Extensions(ExtCommand::ClosePopup));
+            }
+        }
         if pressed(ctrl(Key::L)) || pressed(alt(Key::D)) {
             self.open_palette();
         }
@@ -414,6 +467,47 @@ impl Window {
             return;
         }
 
+        // An extension's popup over the page's top right corner takes the
+        // input while it is open; a click anywhere else closes it.
+        if let Some((_, width, height)) = self.state.popup.clone() {
+            let size = egui::vec2(width as f32, height as f32).min(rect.size());
+            let popup_rect = egui::Rect::from_min_size(egui::pos2(rect.max.x - size.x, rect.min.y), size);
+            self.popup(ui, popup_rect, tokens);
+            let over = ctx.input(|i| i.pointer.latest_pos()).is_some_and(|p| popup_rect.contains(p));
+            if ctx.input(|i| i.pointer.any_pressed()) {
+                if over {
+                    self.dragging_popup = true;
+                } else if response.hovered() {
+                    self.send(Command::Extensions(ExtCommand::ClosePopup));
+                    return;
+                }
+            }
+            if !ctx.input(|i| i.pointer.any_down()) {
+                self.dragging_popup = false;
+            }
+            let keys = !ctx.egui_wants_keyboard_input();
+            let events = ctx.input(|i| i.events.clone());
+            let events: Vec<egui::Event> = events
+                .into_iter()
+                .filter(|e| !matches!(e, egui::Event::MouseWheel { .. }) || over)
+                .collect();
+            let mut inputs = input::translate(&events, popup_rect, keys, self.dragging_popup, &mut self.touch_active);
+            if keys {
+                for event in &events {
+                    match event {
+                        egui::Event::Copy => inputs.extend(ctrl_key('c')),
+                        egui::Event::Cut => inputs.extend(ctrl_key('x')),
+                        egui::Event::Paste(_) => inputs.extend(ctrl_key('v')),
+                        _ => {}
+                    }
+                }
+            }
+            if !inputs.is_empty() {
+                self.send(Command::Extensions(ExtCommand::PopupInput(inputs)));
+            }
+            return;
+        }
+
         if ctx.input(|i| i.pointer.any_pressed()) && response.hovered() {
             self.dragging = true;
         }
@@ -462,6 +556,61 @@ impl Window {
             }
         }
     }
+}
+
+impl Window {
+    /// Draws the open popup's last frame in `rect`, with a border, as the
+    /// page's own layer above the page.
+    fn popup(&mut self, ui: &mut egui::Ui, rect: egui::Rect, tokens: &Tokens) {
+        let ctx = ui.ctx().clone();
+        let painter = ui.painter();
+        painter.rect_filled(rect, 0.0, egui::Color32::WHITE);
+        if let Some(image) = self.state.popup_frame.clone() {
+            let texture = match &mut self.popup_texture {
+                Some((handle, held)) => {
+                    if !Arc::ptr_eq(held, &image) {
+                        handle.set(egui::ImageData::Color(image.clone()), egui::TextureOptions::NEAREST);
+                        *held = image;
+                    }
+                    handle.id()
+                }
+                slot => {
+                    let handle = ctx.load_texture("extension-popup", egui::ImageData::Color(image.clone()), egui::TextureOptions::NEAREST);
+                    let id = handle.id();
+                    *slot = Some((handle, image));
+                    id
+                }
+            };
+            let uv = egui::Rect::from_min_max(egui::pos2(0.0, 0.0), egui::pos2(1.0, 1.0));
+            painter.image(texture, rect, uv, egui::Color32::WHITE);
+        }
+        painter.rect_stroke(rect, 0.0, egui::Stroke::new(1.0, tokens.border), egui::StrokeKind::Inside);
+    }
+}
+
+/// A manifest shortcut (`Ctrl+Shift+L`, `Alt+Comma`) as egui's; `None`
+/// for one it cannot press.
+fn parse_shortcut(key: &str) -> Option<egui::KeyboardShortcut> {
+    let mut modifiers = Modifiers::NONE;
+    let mut last = None;
+    for part in key.split('+') {
+        match part {
+            "Ctrl" | "Command" | "MacCtrl" => modifiers |= Modifiers::COMMAND,
+            "Shift" => modifiers |= Modifiers::SHIFT,
+            "Alt" => modifiers |= Modifiers::ALT,
+            other => last = Some(other),
+        }
+    }
+    let name = match last? {
+        "Up" => "ArrowUp",
+        "Down" => "ArrowDown",
+        "Left" => "ArrowLeft",
+        "Right" => "ArrowRight",
+        "Period" => ".",
+        "Comma" => ",",
+        other => other,
+    };
+    Some(egui::KeyboardShortcut::new(modifiers, Key::from_name(name)?))
 }
 
 fn ctrl_key(c: char) -> Vec<input::Input> {

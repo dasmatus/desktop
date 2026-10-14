@@ -29,10 +29,17 @@ fn main() {
         // the whole of GLib, which would be most of the output.
         .allowlist_function("(webkit|wpe)_.*")
         .allowlist_function(
-            "g_(main_loop_(new|run|quit|ref|unref)|idle_add_full|timeout_add_full|free|strfreev|error_free|bytes_(get_data|unref)|object_(new|ref|unref)|signal_connect_data|type_name_from_instance|file_new_for_path)",
+            "g_(main_loop_(new|run|quit|ref|unref)|idle_add_full|timeout_add_full|source_remove|free|memdup2|strfreev|error_(free|new_literal)|io_error_quark|bytes_(get_data|unref)|object_(new|ref|unref)|signal_connect_data|type_name_from_instance|file_new_for_path|memory_input_stream_new_from_data|cancellable_new)",
         )
+        // libsoup's header objects, for the headers an extension's page is
+        // served with (its content security policy) and the Referer it is
+        // asked for with, and JavaScriptCore's values, which carry a
+        // page's messages to the extension runtime.
+        .allowlist_function("soup_message_headers_(new|append|unref|get_one)")
+        .allowlist_function("jsc_value_(to_string|to_json|new_string|get_context)")
+        .allowlist_type("(JSC|Soup).*")
         .allowlist_type("(WebKit|WPE).*")
-        .allowlist_var("(WEBKIT|WPE)_.*")
+        .allowlist_var("(WEBKIT|WPE|SOUP)_.*")
         // C enums as plain integer constants, as GLib's API takes them: a
         // Rust enum would be undefined behaviour for a value WebKit adds
         // in a later release.
