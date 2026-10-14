@@ -164,6 +164,14 @@ in
     MulticastDNS = false;
   };
 
+  # What the backend reaches GitHub's API and release files with
+  # (src/losos-installer/src/github.rs). In the system profile rather than
+  # the service's `path`: the service opens a PAM session, and pam_env sets
+  # PATH back to the profile's, so `path` never reaches the backend. NixOS
+  # lists curl by default; naming it keeps the installer working if that
+  # default goes.
+  environment.systemPackages = [ pkgs.curl ];
+
   # The release signing key, when the OS has one: sysupdate verifies
   # SHA256SUMS.gpg here exactly as it does on the installed system.
   environment.etc."systemd/import-pubring.gpg" = lib.mkIf (losos.pubring != null) {
@@ -216,9 +224,6 @@ in
     path = [
       systemd
       sysupdateBin
-      # What the backend reaches GitHub's API and release files with
-      # (src/losos-installer/src/github.rs).
-      pkgs.curl
       pkgs.coreutils
       pkgs.util-linux
       # repart formats the ESP and copies GRUB into it with these.
