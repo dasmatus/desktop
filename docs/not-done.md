@@ -17,9 +17,6 @@
   TPM, suspends and never hibernates, and a firmware update between
   hibernating and resuming loses the hibernated session
   ([Hibernation](hibernation.md)).
-- **No stable channel.** CI publishes `nightly` from `main` and nothing else.
-  A `stable` release needs a second release output built with
-  `losos.channel = "stable"`, and the flake has only the one.
 
 - **Signing.** Until `nixos/keys/update-signing.asc` is committed,
   `losos.update.pubring` is unset, sysupdate installs updates without
