@@ -9,7 +9,7 @@ only what it takes to drive the hardware and the desktop: the kernel,
 systemd, libvirt, derisk and the host's own settings. The apps a person
 works in are meant to run in machines, each one labelled with a colour that
 marks its windows on the desktop. This page describes what is built so far:
-the host.
+the host and the machine template it ships.
 
 [libvirt](https://libvirt.org) is the one control plane. Nothing in the OS
 starts QEMU itself or keeps its own list of machines: pm, virsh and
@@ -57,3 +57,54 @@ All of it is state under `/var/lib/libvirt` and `/run/libvirt` on the root
 partition. The verity `/usr` and the [update model](systemd.md) are
 unchanged.
 
+## The guest template
+
+The image ships one template, the LosOS guest:
+`share/losos/machines/losos-guest.qcow2` on `XDG_DATA_DIRS`, in `/usr` and
+covered by its verity hash like the rest of the OS. `nixos/guest/` is its
+NixOS configuration, and `nixos/modules/machines.nix` evaluates it with the
+image's own package set and turns it into the template. An update brings a
+new template; machines made from the old one keep it.
+
+The guest boots its UKI from the ESP's fallback path, with no boot loader,
+and its root is one ext4 partition of 32 GiB holding the Nix store and its
+state. A machine's disk is an overlay as large as its template, so 32 GiB is
+the room a machine has; the qcow2 holds only what the build wrote (0.96 GB
+for the reduced build tested below, more with the apps it left out). It
+has:
+
+- **the QEMU guest agent**, through which the host starts apps;
+- **one account, `user`**, with no password, whose systemd manager runs from
+  boot (lingering). Nobody logs in: its apps run under that manager;
+- **a waypipe server** in that manager, `waypipe --vsock --socket 2:7350
+  --no-gpu --display wayland-0 server`. Every app the user runs finds it as
+  `WAYLAND_DISPLAY=wayland-0`, and each app's connection becomes a vsock
+  stream to the host's desktop, port 7350. There is no GPU in a machine, so
+  apps draw with Mesa's llvmpipe and lavapipe into shared memory, which is
+  what waypipe carries;
+- **apps**: foot, Danube, derisk's Calculator (the one derisk core app that
+  is a window of its own, `derisk-gpui`; the rest are drawn by the host's
+  compositor), and Flatpak with Flathub and Bazaar, as on the host. The
+  guest's user may install Flatpaks for the whole machine without being
+  asked;
+- **networkd**, taking an address from libvirt's `default` network.
+
+`losos-guest-run`, in the guest's system profile, is what the host runs
+there through the agent:
+
+- `losos-guest-run --list` prints one line per app the desktop can open:
+  its desktop file ID, a tab and its name. It reads the user's own desktop
+  files first, then the user's and the system's Flatpak exports, then the
+  system's, and leaves out entries that are hidden, need a terminal or are
+  not applications.
+- `losos-guest-run <desktop file ID>` starts that app's `Exec=` line,
+  without its field codes, in a login shell as a transient unit of the
+  user's manager (`systemd-run --user --machine=user@.host`), and returns
+  once it has started.
+
+Booted from the template under libvirt with TCG (no KVM, no network and no
+vsock device), a reduced build of the guest without Danube, Flatpak and
+the Calculator answered the agent 80 seconds after start. `--list` listed
+foot's three desktop entries, and `losos-guest-run foot` started foot in
+the user's manager, where it connected to the waypipe server; waypipe then
+failed to reach the host, because that machine had no vsock device.
