@@ -216,6 +216,9 @@ in
     path = [
       systemd
       sysupdateBin
+      # What the backend reaches GitHub's API and release files with
+      # (src/losos-installer/src/github.rs).
+      pkgs.curl
       pkgs.coreutils
       pkgs.util-linux
       # repart formats the ESP and copies GRUB into it with these.
@@ -266,6 +269,17 @@ in
           "--local-source"
           releaseDisk
         ]
+        # The GitHub release of the version this ISO was built as, which
+        # an online install reads instead of the channel's newest when it
+        # can find it (docs/installer.md).
+        +
+          lib.optionalString (losos.releaseRepo != null)
+            " ${lib.escapeShellArgs [
+               "--release-repo"
+               losos.releaseRepo
+               "--release-version"
+               losos.version
+             ]}"
         # GRUB into the installed disk's MBR and BIOS boot partition, so a
         # legacy BIOS PC starts it as UEFI firmware does (bios.nix).
         +

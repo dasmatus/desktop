@@ -10,8 +10,13 @@
 //! the UKI on the ESP. Everything else -- root, /home, swap -- is made by the
 //! installed system's first boot, as it is for an image written with dd.
 //!
-//! With a release disk attached, the same transfers read from it instead of
-//! the channel: their sources become local files, and the files are checked
+//! Online, the transfers read the GitHub release of the version the ISO was
+//! built as, served to sysupdate from this machine by [`crate::github`], so
+//! what is installed is that tag's release. Where no such release can be
+//! found, such as an ISO built from a branch, they read the channel itself,
+//! whose newest release is then what is installed.
+//!
+//! With a release disk attached, the same transfers read from it instead: their sources become local files, and the files are checked
 //! against the release's signed SHA256SUMS here first, since sysupdate only
 //! verifies signatures on what it downloads. That is how an install works
 //! where the channel cannot be reached, such as a VM whose network
@@ -30,6 +35,8 @@ use std::sync::mpsc::Sender;
 use std::thread;
 use std::time::{Duration, Instant};
 
+use crate::github;
+
 /// Stands for the target disk's device node in the transfer templates.
 pub const TARGET: &str = "@TARGET@";
 
@@ -42,6 +49,8 @@ pub struct Plan {
     pub work: PathBuf,
     /// The channel's URL, as the transfers' sources name it.
     pub source: Option<String>,
+    /// The GitHub release to install from, when the ISO knows its own.
+    pub release: Option<GitHub>,
     /// A directory holding a release (its SHA256SUMS, SHA256SUMS.gpg and the
     /// files they list), used in place of the channel when [`has_release`]
     /// says one is there.
@@ -51,6 +60,17 @@ pub struct Plan {
     /// its GRUB installer here on x86_64 (bios.nix); UEFI firmware ignores
     /// what it writes.
     pub bios_boot: Option<PathBuf>,
+}
+
+/// Which GitHub release an online install reads ([`crate::github`]).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct GitHub {
+    /// `owner/name`.
+    pub repo: String,
+    /// The version the ISO was built as, `losos.version`.
+    pub version: String,
+    /// The architecture's name in release file names.
+    pub arch: String,
 }
 
 /// Where the release signing key is, as sysupdate itself reads it.
@@ -159,25 +179,65 @@ fn download(plan: &Plan, disk: &str, events: &Sender<Event>) -> Result<(), Strin
     let linux = plan.esp.join("EFI/Linux");
     fs::create_dir_all(&linux).map_err(|e| format!("{}: {e}", linux.display()))?;
     let transfers = plan.work.join("sysupdate.d");
-    let local = match (&plan.source, &plan.local) {
-        (Some(url), Some(dir)) if has_release(dir) => {
+    let definitions = format!("--definitions={}", transfers.display());
+    let sysupdate = || {
+        command(
+            "systemd-sysupdate",
+            &[&definitions, "update"],
+            false,
+            events,
+        )
+    };
+    match (&plan.source, &plan.local, &plan.release) {
+        (Some(url), Some(dir), _) if has_release(dir) => {
             let _ = events.send(Event::Line(format!(
                 "Installing from the release in {} instead of {url}",
                 dir.display()
             )));
             verify_release(dir, Path::new(PUBRING), &plan.work, events)?;
-            Some(Local { url, dir })
+            render_transfers(
+                &plan.sysupdate_templates,
+                &transfers,
+                disk,
+                Source::Disk(Local { url, dir }),
+            )?;
+            sysupdate()?;
         }
-        _ => None,
-    };
-    render_transfers(&plan.sysupdate_templates, &transfers, disk, local)?;
-    let definitions = format!("--definitions={}", transfers.display());
-    command(
-        "systemd-sysupdate",
-        &[&definitions, "update"],
-        false,
-        events,
-    )?;
+        (Some(url), _, Some(release)) => {
+            match github::find(&release.repo, &release.version, &release.arch, events) {
+                Ok(found) => {
+                    let mirror = github::Mirror::new(github::files(&found, &release.arch))
+                        .map_err(|e| format!("serving the release to sysupdate: {e}"))?;
+                    let local = mirror.url().map_err(|e| format!("{e}"))?;
+                    let _ = events.send(Event::Line(format!(
+                        "Installing {} from the GitHub release {} of {}",
+                        release.version, found.tag, release.repo
+                    )));
+                    render_transfers(
+                        &plan.sysupdate_templates,
+                        &transfers,
+                        disk,
+                        Source::Mirror {
+                            url,
+                            mirror: &local,
+                        },
+                    )?;
+                    mirror.serve(events, sysupdate)?;
+                }
+                Err(e) => {
+                    let _ = events.send(Event::Line(format!(
+                        "{e}, so the channel's newest release is installed from {url}"
+                    )));
+                    render_transfers(&plan.sysupdate_templates, &transfers, disk, Source::Channel)?;
+                    sysupdate()?;
+                }
+            }
+        }
+        _ => {
+            render_transfers(&plan.sysupdate_templates, &transfers, disk, Source::Channel)?;
+            sysupdate()?;
+        }
+    }
     // After sysupdate, so a disk whose download failed is left with no boot
     // code that would start GRUB on an empty ESP.
     if let Some(program) = &plan.bios_boot {
@@ -208,14 +268,25 @@ pub struct Local<'a> {
     pub dir: &'a Path,
 }
 
+/// Where the rendered transfers read from.
+#[derive(Debug, Clone, Copy)]
+pub enum Source<'a> {
+    /// The channel, as the OS wrote them.
+    Channel,
+    /// A release disk's directory.
+    Disk(Local<'a>),
+    /// The channel's files at another URL, the release served by
+    /// [`crate::github::Mirror`].
+    Mirror { url: &'a str, mirror: &'a str },
+}
+
 /// Copies every transfer in `templates` into `out`, naming `disk` as the
-/// partition target, and with `local`, reading from its directory rather
-/// than from the channel.
+/// partition target, and reading from `source`.
 pub fn render_transfers(
     templates: &Path,
     out: &Path,
     disk: &str,
-    local: Option<Local>,
+    source: Source,
 ) -> Result<(), String> {
     let fail = |path: &Path, e: std::io::Error| format!("{}: {e}", path.display());
     if out.exists() {
@@ -234,9 +305,10 @@ pub fn render_transfers(
     }
     for template in entries {
         let text = fs::read_to_string(&template).map_err(|e| fail(&template, e))?;
-        let text = match local {
-            Some(local) => localise(&text, local),
-            None => text,
+        let text = match source {
+            Source::Channel => text,
+            Source::Disk(local) => localise(&text, local),
+            Source::Mirror { url, mirror } => relocate(&text, url, mirror),
         };
         let target = out.join(template.file_name().unwrap_or_default());
         fs::write(&target, text.replace(TARGET, disk)).map_err(|e| fail(&target, e))?;
@@ -255,6 +327,20 @@ fn localise(text: &str, local: Local) -> String {
         .map(|line| match line.trim() {
             "Type=url-file" => "Type=regular-file".to_owned(),
             trimmed if trimmed == path => format!("Path={}", local.dir.display()),
+            _ => line.to_owned(),
+        })
+        .map(|line| line + "\n")
+        .collect()
+}
+
+/// A transfer whose source is the channel, reading the same files from
+/// another URL. Only `Path=` changes: it is still a download, so sysupdate
+/// checks `SHA256SUMS.gpg` and every hash itself.
+fn relocate(text: &str, url: &str, mirror: &str) -> String {
+    let path = format!("Path={url}");
+    text.lines()
+        .map(|line| match line.trim() {
+            trimmed if trimmed == path => format!("Path={mirror}"),
             _ => line.to_owned(),
         })
         .map(|line| line + "\n")
@@ -356,7 +442,7 @@ fn wait_for(path: &Path, timeout: Duration) -> Result<(), String> {
 
 /// Runs `program`, sending each line it logs to the installer. With `capture`,
 /// standard output is returned rather than shown.
-fn command(
+pub(crate) fn command(
     program: &str,
     args: &[&str],
     capture: bool,

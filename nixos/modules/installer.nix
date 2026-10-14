@@ -5,9 +5,9 @@
 # command line said `losos.install`, copying its own /usr onto the target with
 # CopyBlocks=. That medium was the whole desktop, and it installed whatever
 # version the stick happened to be written with. It is not coming back:
-# installing is now an update into an empty slot, so what lands on the disk is
-# the channel's newest release, and the medium carries no copy of the OS that
-# could go stale.
+# installing is now an update into an empty slot, downloaded from the GitHub
+# release of the version the ISO was built as (the channel's newest where
+# there is none), and the medium carries no copy of the OS.
 #
 # This module is the OS's half, the half that decides what is written. The
 # repart definitions are disk.nix's own ESP and /usr slots, and the transfers are
@@ -141,6 +141,7 @@ let
     specialArgs.losos = {
       inherit (cfg) version;
       inherit (cfg.update) baseUrl pubring;
+      releaseRepo = cfg.release.repository;
       docsUrl = cfg.docs.url;
       inherit esp repartDefinitions sysupdateTemplates;
       # Run on the disk once it is installed, so a legacy BIOS PC starts it
