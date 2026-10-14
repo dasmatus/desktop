@@ -145,7 +145,7 @@
 - **Booted under QEMU only.** Every CI run boots the x86_64 image in QEMU
   (`nix flake check`, [Boot loader](boot-loaders.md) "Tested"), under UEFI and
   under SeaBIOS: first boot lays out the disk with systemd-repart, root is
-  found (by gpt-auto on UEFI, by its partition label on a BIOS), `/usr` is
+  found (by gpt-auto on UEFI, on the disk GRUB names on a BIOS), `/usr` is
   dm-verity, a new UKI is counted down and blessed, and a laptop with a TPM
   hibernates and resumes. The installer ISO starts under both firmwares, and
   an install from a nightly's files was run in QEMU through to the installed
