@@ -92,7 +92,10 @@
           esp = machine.succeed("bootctl --print-esp-path").strip()
           machine.succeed(f"test -f {esp}/EFI/Linux/losos-desktop_1.efi")
           machine.succeed(f"test -f {esp}/EFI/losos/grubenv")
-          machine.succeed("systemctl is-active losos-grub-bless.service")
+          # The bless runs after boot-complete.target, which comes after
+          # multi-user.target, so it can still be queued here; waiting
+          # still fails if its job was dropped or it failed.
+          machine.wait_for_unit("losos-grub-bless.service")
 
       with subtest("/usr is dm-verity and the store lives on it"):
           assert "ACTIVE" in machine.succeed("dmsetup info --target verity usr")

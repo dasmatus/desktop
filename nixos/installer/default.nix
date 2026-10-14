@@ -35,6 +35,32 @@ let
     }
   ];
 
+  # The backend, with what it runs on PATH. This was the service's `path`,
+  # but derisk starts in the session PAMName= opens, and pam_env sets that
+  # session's PATH to the system profile's: neither gpg nor mcopy is in the
+  # profile, and a release-disk install stopped at "gpg: No such file or
+  # directory". So the backend puts them back itself, and everything it runs
+  # inherits them.
+  backend = pkgs.writeShellScript "losos-installer-serve" ''
+    export PATH=${
+      lib.makeBinPath (
+        [
+          systemd
+          sysupdateBin
+          pkgs.coreutils
+          pkgs.util-linux
+          # repart formats the ESP and copies GRUB into it with these.
+          pkgs.dosfstools
+          pkgs.mtools
+        ]
+        # systemd-pull checks SHA256SUMS.gpg with gpg itself, and the
+        # installer does the same for a release disk.
+        ++ lib.optional (losos.pubring != null) pkgs.gnupg
+      )
+    }:$PATH
+    exec ${lib.getExe pkgs.losos-installer} "$@"
+  '';
+
   # Papirus without what nixpkgs propagates with it: breeze-icons, which
   # Papirus inherits from for KDE's icon names, and through it Qt. Neither
   # draws a single icon derisk asks for, and Qt alone would double the ISO.
@@ -221,18 +247,9 @@ in
     ];
     conflicts = [ "getty@tty1.service" ];
 
-    path = [
-      systemd
-      sysupdateBin
-      pkgs.coreutils
-      pkgs.util-linux
-      # repart formats the ESP and copies GRUB into it with these.
-      pkgs.dosfstools
-      pkgs.mtools
-    ]
-    # systemd-pull checks SHA256SUMS.gpg with gpg itself, and the installer
-    # does the same for a release disk.
-    ++ lib.optional (losos.pubring != null) pkgs.gnupg;
+    # No `path`: PAMName= below opens a session whose pam_env replaces PATH
+    # with the system profile's, so nothing listed here reached the backend
+    # (`backend` above carries it instead).
 
     environment = {
       # What pam_systemd records as the session's type.
@@ -255,7 +272,7 @@ in
           (lib.getExe pkgs.derisk)
           "installer"
           "--"
-          (lib.getExe pkgs.losos-installer)
+          backend
           "serve"
           "--name"
           "LosOS Desktop"

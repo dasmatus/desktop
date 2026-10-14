@@ -485,7 +485,10 @@ jobs:
             echo "| --- | --- |"
           } >> "$GITHUB_STEP_SUMMARY"
           while read -r name; do
-            if [ -e "$(jq -r --arg n "$name" '.[$n]' checks.json)" ]; then
+            # A test passed when its output is a valid store path. Nix leaves
+            # a failed build's output on disk, unregistered, so the path
+            # merely existing proved nothing: every failure read as passed.
+            if nix path-info "$(jq -r --arg n "$name" '.[$n]' checks.json)" > /dev/null 2>&1; then
               result=passed
             elif [ "$status" = 124 ]; then
               result="did not finish in the time the job had left"
@@ -876,6 +879,28 @@ jobs:
           # with files still missing.
           prerelease=()
           [ "$NIGHTLY" = true ] && prerelease=(--prerelease)
-          gh release create "$TAG" --repo "$GITHUB_REPOSITORY" --target "$GITHUB_SHA" \
-            --title "$TITLE" "${prerelease[@]}" --notes-file notes.md \
-            assets/*
+          # The runner's connection to the API can drop for a moment (a
+          # nightly was lost to one "dial tcp ... i/o timeout"), and this
+          # step comes hours into the run, so a failed attempt is tried
+          # again. What it left behind decides how: a draft is deleted and
+          # started over, and a published release means only the answer was
+          # lost.
+          for attempt in 1 2 3; do
+            if gh release create "$TAG" --repo "$GITHUB_REPOSITORY" --target "$GITHUB_SHA" \
+              --title "$TITLE" "${prerelease[@]}" --notes-file notes.md \
+              assets/*; then
+              exit 0
+            fi
+            [ "$attempt" = 3 ] && break
+            echo "::warning::Publishing $TAG failed (attempt $attempt of 3); trying again in a minute."
+            sleep 60
+            if draft=$(gh release view "$TAG" --repo "$GITHUB_REPOSITORY" --json isDraft --jq .isDraft 2>/dev/null); then
+              if [ "$draft" != true ]; then
+                echo "::notice::$TAG was published by the attempt that failed."
+                exit 0
+              fi
+              gh release delete "$TAG" --repo "$GITHUB_REPOSITORY" --yes
+            fi
+          done
+          echo "::error::Publishing $TAG failed three times."
+          exit 1
