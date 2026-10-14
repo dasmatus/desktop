@@ -1,8 +1,10 @@
 //! WebKit's half of Danube, on the process's main thread under GLib's main
 //! loop: one [`WebView`] per tab on WPE's headless display, each frame
 //! copied out for the window to draw, the window's input turned into WPE
-//! events, and the content blockers losos-adblock compiles loaded into
-//! every page.
+//! events, the content blockers losos-adblock compiles loaded into every
+//! page, and the extension runtime (extensions/runtime.rs). Each tab has a
+//! content manager of its own, so that a script message from an extension
+//! says which tab it came from.
 //!
 //! The engine lives in a thread-local, since every WebKit object belongs to
 //! this thread. Signal handlers are closures that know their tab's id and
@@ -24,6 +26,7 @@ use eframe::egui;
 use tracing::{debug, info, trace, warn};
 
 use crate::config::{self, Settings};
+use crate::extensions::runtime::{self, Runtime};
 use crate::ffi::{
     WEBKIT_LOAD_STARTED, WEBKIT_POLICY_DECISION_TYPE_NAVIGATION_ACTION,
     WEBKIT_POLICY_DECISION_TYPE_RESPONSE, WPE_EVENT_KEYBOARD_KEY_DOWN, WPE_EVENT_KEYBOARD_KEY_UP,
@@ -34,7 +37,7 @@ use crate::ffi::{
 };
 use crate::input::{Input, Touch};
 use crate::permissions::{self, Kind};
-use crate::shared::{Command, Event, Events, PermissionAsk, Tab, TabId};
+use crate::shared::{Command, Event, Events, ExtCommand, PermissionAsk, Tab, TabId};
 use crate::webkit::{
     self, Buffer, Display, Download, FilterStore, MainLoop, NetworkSession, PermissionRequest,
     PolicyDecision, UserContentManager, View, WebView,
@@ -56,26 +59,41 @@ pub struct Options {
     pub settings: Settings,
     /// What to open first; the home page when empty.
     pub open: Vec<String>,
+    /// The extension runtime's, or `None` for a browser without
+    /// extensions (captive portal).
+    pub extensions: Option<runtime::Options>,
 }
 
-struct Entry {
-    id: TabId,
-    page: WebView,
-    view: View,
+/// One tab: its page and the WPE view drawing it.
+pub(crate) struct Entry {
+    pub(crate) id: TabId,
+    pub(crate) page: WebView,
+    pub(crate) view: View,
+    /// Its own: the content blockers and extensions' scripts go into each.
+    pub(crate) content: UserContentManager,
 }
 
-struct Engine {
+/// What happened to a tab, for the extension runtime.
+#[derive(Clone, Copy, Debug)]
+pub(crate) enum TabChange {
+    Opened(TabId),
+    Closed(TabId),
+    Activated(TabId),
+}
+
+pub(crate) struct Engine {
     commands: Receiver<Command>,
     main_loop: MainLoop,
     display: Display,
     session: NetworkSession,
     settings: webkit::Settings,
-    content: UserContentManager,
-    tabs: Vec<Entry>,
-    active: Option<TabId>,
+    /// The content blockers, which every tab's content manager gets.
+    filters: Option<Rc<RefCell<Filters>>>,
+    pub(crate) tabs: Vec<Entry>,
+    pub(crate) active: Option<TabId>,
     next_tab: TabId,
-    size: (i32, i32, f64),
-    focused: bool,
+    pub(crate) size: (i32, i32, f64),
+    pub(crate) focused: bool,
     modifiers: u32,
     buttons: u32,
     pointer: (f64, f64),
@@ -89,12 +107,20 @@ struct Engine {
     /// putting it there is not mistaken for the page copying it; shared
     /// with the clipboard's handler.
     pasted: Rc<RefCell<Option<String>>>,
+    /// The extension runtime, taken out while it runs with the engine
+    /// (`runtime::with`).
+    pub(crate) extensions: Option<Runtime>,
+    /// Tab changes the runtime missed while it was busy (`runtime::notify`).
+    pub(crate) tab_changes: Vec<TabChange>,
 }
 
 /// The rule sets in force, kept apart from the engine because the store's
 /// callbacks run on their own schedule.
 struct Filters {
-    content: UserContentManager,
+    /// Every open tab's content manager.
+    managers: HashMap<TabId, UserContentManager>,
+    /// The rule sets loaded so far, for a tab that opens later.
+    loaded_sets: Vec<webkit::Filter>,
     store: FilterStore,
     dir: PathBuf,
     /// The index's modification time when it was last read.
@@ -112,13 +138,13 @@ thread_local! {
     static LINK: RefCell<Option<Events>> = const { RefCell::new(None) };
 }
 
-fn try_with<R>(f: impl FnOnce(&mut Engine) -> R) -> Option<R> {
+pub(crate) fn try_with<R>(f: impl FnOnce(&mut Engine) -> R) -> Option<R> {
     ENGINE.with(|e| e.try_borrow_mut().ok()?.as_mut().map(f))
 }
 
 /// Tells the window `event`, and repaints it. The window being gone is
 /// not an error here: WebKit is about to quit on its command.
-fn emit(event: Event) {
+pub(crate) fn emit(event: Event) {
     LINK.with(|l| {
         if let Some(link) = l.borrow().as_ref() {
             let _ = link.send(event);
@@ -128,7 +154,7 @@ fn emit(event: Event) {
 
 /// Sends the engine a command of its own, through the window's channel,
 /// for a handler that cannot borrow the engine right now.
-fn later(command: Command) {
+pub(crate) fn later(command: Command) {
     LINK.with(|l| {
         if let Some(link) = l.borrow().as_ref() {
             link.defer(command);
@@ -178,14 +204,15 @@ pub fn run(commands: Receiver<Command>, events: Events, options: Options) {
 
     let settings = webkit::Settings::new();
     settings.set_enable_developer_extras(false);
+    // Without developer tools, a page's console (and an extension's frame
+    // in it) is only seen on stdout, when danube::engine traces.
+    settings.set_enable_write_console_messages_to_stdout(tracing::enabled!(tracing::Level::TRACE));
     settings.set_javascript_can_open_windows_automatically(false);
     settings.set_allow_file_access_from_file_urls(false);
     settings.set_allow_universal_access_from_file_urls(false);
     settings.set_allow_top_navigation_to_data_urls(false);
     settings.set_application("Danube", env!("CARGO_PKG_VERSION"));
     let desktop_agent = settings.user_agent();
-
-    let content = UserContentManager::new();
 
     let pasted = Rc::new(RefCell::new(None));
     let ours = pasted.clone();
@@ -196,10 +223,11 @@ pub fn run(commands: Receiver<Command>, events: Events, options: Options) {
         }
     });
 
-    if let Some(dir) = &options.adblock {
+    let filters = options.adblock.as_ref().map(|dir| {
         let _ = std::fs::create_dir_all(&options.filter_cache);
         let filters = Rc::new(RefCell::new(Filters {
-            content: content.clone(),
+            managers: HashMap::new(),
+            loaded_sets: Vec::new(),
             store: FilterStore::new(&options.filter_cache),
             dir: dir.clone(),
             stamp: None,
@@ -209,11 +237,19 @@ pub fn run(commands: Receiver<Command>, events: Events, options: Options) {
         reload_filters(&filters);
         // losos-adblock compiles daily; a minute is soon enough to pick
         // up a new compile, and costs one stat.
+        let timer = filters.clone();
         webkit::timeout_add(60_000, move || {
-            reload_filters(&filters);
+            reload_filters(&timer);
             true
         });
-    }
+        filters
+    });
+
+    // The runtime before the engine: its views come from the same display
+    // and session.
+    let extensions = options
+        .extensions
+        .map(|o| Runtime::new(o, &display, &session));
 
     let engine = Engine {
         commands,
@@ -221,7 +257,7 @@ pub fn run(commands: Receiver<Command>, events: Events, options: Options) {
         display,
         session,
         settings,
-        content,
+        filters,
         tabs: Vec::new(),
         active: None,
         next_tab: 1,
@@ -237,6 +273,8 @@ pub fn run(commands: Receiver<Command>, events: Events, options: Options) {
         desktop_agent,
         started: Instant::now(),
         pasted,
+        extensions,
+        tab_changes: Vec::new(),
     };
     let main_loop = engine.main_loop.clone();
     ENGINE.with(|e| *e.borrow_mut() = Some(engine));
@@ -372,7 +410,15 @@ impl Engine {
                 };
                 self.settings.set_user_agent(&agent);
             }
-            Command::Quit => self.main_loop.quit(),
+            Command::Extensions(command) => {
+                runtime::with(self, |rt, e| rt.command(e, command));
+            }
+            Command::Quit => {
+                if let Some(rt) = &mut self.extensions {
+                    rt.flush_storage();
+                }
+                self.main_loop.quit()
+            }
         }
     }
 
@@ -384,20 +430,24 @@ impl Engine {
         self.entry(id).map(|e| &e.page)
     }
 
-    fn view(&self, id: TabId) -> Option<View> {
+    pub(crate) fn view(&self, id: TabId) -> Option<View> {
         self.entry(id).map(|e| e.view.clone())
     }
 
     /// Opens a tab, loading `uri` (the home page when `None`), or, with
     /// `related`, the view WebKit asked for to open a popup in; that one
     /// loads by itself.
-    fn open(&mut self, uri: Option<&str>, related: Option<&WebView>) -> TabId {
+    pub(crate) fn open(&mut self, uri: Option<&str>, related: Option<&WebView>) -> TabId {
         let id = self.next_tab;
         self.next_tab += 1;
+        let content = UserContentManager::new();
+        if let Some(filters) = &self.filters {
+            filters.borrow_mut().attach(id, &content);
+        }
         let page = match related {
             // A popup shares its opener's process, display and session.
-            Some(related) => WebView::related(related, &self.settings, &self.content),
-            None => WebView::new(&self.display, &self.session, &self.settings, &self.content),
+            Some(related) => WebView::related(related, &self.settings, &content),
+            None => WebView::new(&self.display, &self.session, &self.settings, &content),
         };
         for property in ["title", "uri", "estimated-load-progress", "is-loading"] {
             page.on_notify(property, move |page| {
@@ -410,6 +460,10 @@ impl Engine {
                 emit(Event::LoadStarted(id));
             }
             emit(Event::Changed(refresh(page, id)));
+            // The extensions hear of it now, or once the engine is free.
+            if try_with(|e| runtime::with(e, |rt, e| rt.tab_load(e, id, event))).is_none() {
+                later(Command::Extensions(ExtCommand::TabLoad(id, event)));
+            }
         });
         page.on_create(move |_| {
             try_with(|e| {
@@ -436,11 +490,18 @@ impl Engine {
         view.on_buffer_rendered(move |_, buffer| frame(buffer, id));
         view.set_visible(false);
         self.fit(&view);
-        self.tabs.push(Entry { id, page, view });
+        self.tabs.push(Entry {
+            id,
+            page,
+            view,
+            content,
+        });
         emit(Event::Opened(Tab {
             id,
             ..Tab::default()
         }));
+        // The extensions' scripts go in before the first load.
+        runtime::notify(self, TabChange::Opened(id));
         if related.is_none() {
             let uri = uri.unwrap_or(&self.home);
             self.tabs.last().expect("just pushed").page.load_uri(uri);
@@ -448,7 +509,7 @@ impl Engine {
         id
     }
 
-    fn activate(&mut self, id: TabId) {
+    pub(crate) fn activate(&mut self, id: TabId) {
         if self.entry(id).is_none() {
             return;
         }
@@ -465,14 +526,18 @@ impl Engine {
         let view = self.view(id).expect("checked above");
         self.set_focus(&view, self.focused);
         emit(Event::Activated(id));
+        runtime::notify(self, TabChange::Activated(id));
     }
 
-    fn close(&mut self, id: TabId) {
+    pub(crate) fn close(&mut self, id: TabId) {
         let Some(index) = self.tabs.iter().position(|e| e.id == id) else {
             return;
         };
         // Dropping the entry drops the view's last reference.
         drop(self.tabs.remove(index));
+        if let Some(filters) = &self.filters {
+            filters.borrow_mut().managers.remove(&id);
+        }
         if self.active == Some(id) {
             self.active = None;
             // The neighbour to the right takes its place, as in most
@@ -487,6 +552,7 @@ impl Engine {
             }
         }
         emit(Event::Closed(id));
+        runtime::notify(self, TabChange::Closed(id));
         if self.tabs.is_empty() {
             // The last tab closed: the window goes too.
             self.main_loop.quit();
@@ -502,7 +568,7 @@ impl Engine {
         }
     }
 
-    fn set_focus(&self, view: &View, focused: bool) {
+    pub(crate) fn set_focus(&self, view: &View, focused: bool) {
         if let Some(toplevel) = view.toplevel() {
             toplevel.set_active(focused);
         }
@@ -513,7 +579,7 @@ impl Engine {
         self.started.elapsed().as_millis() as u32
     }
 
-    fn input(&mut self, view: &View, input: Input) {
+    pub(crate) fn input(&mut self, view: &View, input: Input) {
         let time = self.time();
         let event = match input {
             Input::Modifiers(m) => {
@@ -746,11 +812,18 @@ fn watch_download(download: &Download, dir: &Path) {
     let dir = dir.to_path_buf();
     download.on_decide_destination(move |download, suggested| {
         let _ = std::fs::create_dir_all(&dir);
-        download.set_destination(&destination(&dir, suggested));
+        // An extension that started the download may have named the file.
+        let uri = download.uri();
+        let asked = try_with(|e| runtime::with(e, |rt, _| rt.download_name(&uri)))
+            .flatten()
+            .flatten();
+        download.set_destination(&destination(&dir, asked.as_deref().unwrap_or(suggested)));
         true
     });
     download.on_finished(|download| {
         let path = download.destination().unwrap_or_default();
+        let uri = download.uri();
+        try_with(|e| runtime::with(e, |rt, _| rt.download_finished(&uri, &path)));
         let name = Path::new(&path)
             .file_name()
             .map(|n| n.to_string_lossy().into_owned())
@@ -787,6 +860,17 @@ pub fn destination(dir: &Path, suggested: &str) -> PathBuf {
 }
 
 /// Reloads every rule set if losos-adblock compiled since the last look.
+impl Filters {
+    /// Gives a new tab's content manager the rule sets loaded so far, and
+    /// the ones to come.
+    fn attach(&mut self, tab: TabId, content: &UserContentManager) {
+        for filter in &self.loaded_sets {
+            content.add_filter(filter);
+        }
+        self.managers.insert(tab, content.clone());
+    }
+}
+
 fn reload_filters(filters: &Rc<RefCell<Filters>>) {
     let jobs = {
         let mut f = filters.borrow_mut();
@@ -811,7 +895,10 @@ fn reload_filters(filters: &Rc<RefCell<Filters>>) {
                 .map_or(0, |d| d.as_secs());
             jobs.push((format!("{id}-{secs}"), path));
         }
-        f.content.remove_all_filters();
+        for content in f.managers.values() {
+            content.remove_all_filters();
+        }
+        f.loaded_sets.clear();
         f.loaded = 0;
         f.current = jobs.iter().map(|(ident, _)| ident.clone()).collect();
         emit(Event::Filters(0));
@@ -852,7 +939,10 @@ fn reload_filters(filters: &Rc<RefCell<Filters>>) {
 
 fn add_filter(filters: &Rc<RefCell<Filters>>, filter: &webkit::Filter) {
     let mut f = filters.borrow_mut();
-    f.content.add_filter(filter);
+    for content in f.managers.values() {
+        content.add_filter(filter);
+    }
+    f.loaded_sets.push(filter.clone());
     f.loaded += 1;
     emit(Event::Filters(f.loaded));
 }

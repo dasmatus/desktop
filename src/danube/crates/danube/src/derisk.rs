@@ -34,7 +34,7 @@ use crossbeam_channel::{Receiver, RecvTimeoutError, TryRecvError};
 use serde_json::{json, Value};
 use tracing::warn;
 
-use crate::shared::{Command, Commands, Tab, TabId};
+use crate::shared::{Command, Commands, ExtCommand, ExtensionInfo, Tab, TabId};
 
 pub const APP_ID: &str = "org.losos.Danube";
 const PREFIX: &str = "danube.";
@@ -51,11 +51,12 @@ pub struct Update {
     pub active: Option<TabId>,
     pub filters: usize,
     pub palette: u64,
+    pub extensions: Vec<ExtensionInfo>,
 }
 
 /// The menus for a window showing `tabs`, `active` the one in front, with
-/// `filters` content blocker rule sets loaded.
-pub fn menus(tabs: &[Tab], active: Option<TabId>, filters: usize) -> Value {
+/// `filters` content blocker rule sets loaded and `extensions` installed.
+pub fn menus(tabs: &[Tab], active: Option<TabId>, filters: usize, extensions: &[ExtensionInfo]) -> Value {
     let current = active.and_then(|id| tabs.iter().find(|t| t.id == id));
     // The Page menu says what a toolbar would: disabled items, which the
     // top bar shows and the palette leaves out, then what can be done.
@@ -113,11 +114,35 @@ pub fn menus(tabs: &[Tab], active: Option<TabId>, filters: usize) -> Value {
         json!({"kind": "item", "id": format!("{PREFIX}reload"), "label": "Reload", "shortcut": "Ctrl+R"}),
         json!({"kind": "item", "id": format!("{PREFIX}stop"), "label": "Stop", "enabled": can(|t| t.loading)}),
     ];
+    // Extensions: each one's toolbar button (its popup or its action), its
+    // options page, and whether it runs; what a browser's toolbar and
+    // extensions page would hold.
+    let mut ext = Vec::new();
+    for (n, x) in extensions.iter().enumerate() {
+        if n > 0 {
+            ext.push(json!({"kind": "separator"}));
+        }
+        let mut button = json!({"kind": "item", "id": format!("{PREFIX}ext.{}", x.id), "label": x.title, "enabled": x.enabled});
+        if let Some(key) = x.commands.iter().find(|c| c.name == "_execute_action" || c.name == "_execute_browser_action").and_then(|c| c.key.clone()) {
+            button["shortcut"] = json!(key);
+        }
+        ext.push(button);
+        if x.options {
+            ext.push(json!({"kind": "item", "id": format!("{PREFIX}extoptions.{}", x.id), "label": format!("{} Options", x.name), "enabled": x.enabled}));
+        }
+        let toggle = if x.enabled { "Disable" } else { "Enable" };
+        ext.push(json!({"kind": "item", "id": format!("{PREFIX}exttoggle.{}", x.id), "label": format!("{toggle} {}", x.name)}));
+    }
+    if extensions.is_empty() {
+        ext.push(json!({"kind": "item", "id": format!("{PREFIX}info.extensions"), "label": "No extensions installed", "enabled": false}));
+        ext.push(json!({"kind": "item", "id": format!("{PREFIX}info.install"), "label": "Install one with: danube install-extension FILE", "enabled": false}));
+    }
     json!([
         {"title": "Page", "entries": page},
         {"title": "Tabs", "entries": switch},
         {"title": "Navigate", "entries": navigate},
         {"title": "Close Tab", "entries": close},
+        {"title": "Extensions", "entries": ext},
     ])
 }
 
@@ -142,12 +167,18 @@ const ADDRESS: &str = "danube.address";
 
 /// The command for a picked item; `None` for one Danube did not register,
 /// and for [`ADDRESS`] and the Page menu's information lines.
-pub fn command(item: &str, tabs: &[Tab], active: Option<TabId>) -> Option<Command> {
+pub fn command(item: &str, tabs: &[Tab], active: Option<TabId>, extensions: &[ExtensionInfo]) -> Option<Command> {
     let rest = item.strip_prefix(PREFIX)?;
     let id = |s: &str| s.parse::<TabId>().ok();
     Some(match rest.split_once('.') {
         Some(("tab", n)) => Command::Activate(id(n)?),
         Some(("close", n)) => Command::Close(id(n)?),
+        Some(("ext", x)) => Command::Extensions(ExtCommand::Action(x.to_owned())),
+        Some(("extoptions", x)) => Command::Extensions(ExtCommand::Options(x.to_owned())),
+        Some(("exttoggle", x)) => {
+            let enabled = extensions.iter().find(|e| e.id == x)?.enabled;
+            Command::Extensions(ExtCommand::Enable(x.to_owned(), !enabled))
+        }
         None => match rest {
             "new" => Command::NewTab {
                 uri: None,
@@ -166,10 +197,9 @@ pub fn command(item: &str, tabs: &[Tab], active: Option<TabId>) -> Option<Comman
     })
 }
 
-/// What the palette's browser plugin gets: the tabs as derisk's
-/// `register_palette` schema has them, and the extensions, none until the
-/// extension runtime exists.
-pub fn palette_data(tabs: &[Tab], active: Option<TabId>) -> Value {
+/// What the palette's browser plugin gets: the tabs and the extensions
+/// as derisk's `register_palette` schema has them.
+pub fn palette_data(tabs: &[Tab], active: Option<TabId>, extensions: &[ExtensionInfo]) -> Value {
     let tabs: Vec<Value> = tabs
         .iter()
         .map(|t| {
@@ -181,17 +211,24 @@ pub fn palette_data(tabs: &[Tab], active: Option<TabId>) -> Value {
             })
         })
         .collect();
-    json!({"tabs": tabs, "extensions": []})
+    let extensions: Vec<Value> = extensions
+        .iter()
+        .map(|x| json!({"id": x.id, "name": x.name, "enabled": x.enabled, "options": x.options}))
+        .collect();
+    json!({"tabs": tabs, "extensions": extensions})
 }
 
 /// The command for what was picked under the palette's Tabs and
-/// Extensions headings; `None` for one Danube cannot do yet (the
-/// extension commands, until the runtime exists) or does not know.
+/// Extensions headings; `None` for one Danube does not know.
 pub fn palette_command(command: &Value) -> Option<Command> {
     let id = || command["id"].as_str()?.parse::<TabId>().ok();
+    let ext = || command["id"].as_str().map(str::to_owned);
     Some(match command["op"].as_str()? {
         "activate_tab" => Command::Activate(id()?),
         "close_tab" => Command::Close(id()?),
+        "enable_extension" => Command::Extensions(ExtCommand::Enable(ext()?, true)),
+        "disable_extension" => Command::Extensions(ExtCommand::Enable(ext()?, false)),
+        "extension_options" => Command::Extensions(ExtCommand::Options(ext()?)),
         "new_tab" => Command::NewTab {
             uri: None,
             activate: true,
@@ -313,7 +350,7 @@ fn talk(
                 return Ok(());
             }
         }
-        let data = palette_data(&current.tabs, current.active);
+        let data = palette_data(&current.tabs, current.active, &current.extensions);
         if registered_palette.as_ref() != Some(&data) {
             let request = json!({"method": "register_palette", "source": "danube", "data": data});
             if !send(stream, request, Asked::RegisterPalette, &mut asked) {
@@ -338,7 +375,7 @@ fn talk(
                 if !send(stream, show_palette(), Asked::Palette, &mut asked) {
                     return Ok(());
                 }
-            } else if let Some(command) = command(item, &current.tabs, current.active) {
+            } else if let Some(command) = command(item, &current.tabs, current.active, &current.extensions) {
                 commands.send(command);
             }
             continue;
@@ -353,7 +390,7 @@ fn talk(
         }
         match asked.pop_front() {
             Some(Asked::State) if message["ok"] == true => {
-                let menus = menus(&current.tabs, current.active, current.filters);
+                let menus = menus(&current.tabs, current.active, current.filters, &current.extensions);
                 let window = message["result"]["windows"].as_array().and_then(|windows| {
                     windows
                         .iter()
@@ -405,7 +442,7 @@ mod tests {
             can_go_back: true,
             ..Tab::default()
         }];
-        let menus = menus(&tabs, Some(4), 3);
+        let menus = menus(&tabs, Some(4), 3, &[]);
         // Page: the address, security and blocking as disabled lines, then
         // the actions.
         assert_eq!(menus[0]["title"], "Page");
@@ -424,29 +461,29 @@ mod tests {
         assert_eq!(menus[2]["entries"][0]["enabled"], true);
         assert_eq!(menus[2]["entries"][3]["enabled"], false, "nothing loads");
         assert_eq!(menus[3]["entries"][0]["label"], "Close Example");
-        assert!(command(ADDRESS, &tabs, Some(4)).is_none());
-        assert!(command("danube.info.address", &tabs, Some(4)).is_none());
+        assert!(command(ADDRESS, &tabs, Some(4), &[]).is_none());
+        assert!(command("danube.info.address", &tabs, Some(4), &[]).is_none());
         assert!(matches!(
-            command("danube.copy", &tabs, Some(4)),
+            command("danube.copy", &tabs, Some(4), &[]),
             Some(Command::CopyAddress(4))
         ));
-        let empty = super::menus(&[], None, 0);
+        let empty = super::menus(&[], None, 0, &[]);
         assert_eq!(empty[0]["entries"][0]["label"], "New tab");
         assert_eq!(
             empty[0]["entries"][1]["label"],
             "No filter lists compiled yet"
         );
         assert!(matches!(
-            command("danube.close.4", &tabs, None),
+            command("danube.close.4", &tabs, None, &[]),
             Some(Command::Close(4))
         ));
         assert!(matches!(
-            command("danube.back", &tabs, Some(4)),
+            command("danube.back", &tabs, Some(4), &[]),
             Some(Command::Back(4))
         ));
-        assert!(command("danube.back", &tabs, None).is_none());
-        assert!(command("other.tab.4", &tabs, None).is_none());
-        assert!(command("danube.next", &tabs, Some(4)).is_none());
+        assert!(command("danube.back", &tabs, None, &[]).is_none());
+        assert!(command("other.tab.4", &tabs, None, &[]).is_none());
+        assert!(command("danube.next", &tabs, Some(4), &[]).is_none());
         let two = vec![
             Tab {
                 id: 4,
@@ -458,11 +495,11 @@ mod tests {
             },
         ];
         assert!(matches!(
-            command("danube.next", &two, Some(7)),
+            command("danube.next", &two, Some(7), &[]),
             Some(Command::Activate(4))
         ));
         assert!(matches!(
-            command("danube.previous", &two, Some(4)),
+            command("danube.previous", &two, Some(4), &[]),
             Some(Command::Activate(7))
         ));
     }
@@ -481,7 +518,7 @@ mod tests {
                 ..Tab::default()
             },
         ];
-        let data = palette_data(&tabs, Some(7));
+        let data = palette_data(&tabs, Some(7), &[]);
         assert_eq!(
             data,
             json!({
@@ -513,6 +550,48 @@ mod tests {
         ));
         assert!(palette_command(&json!({"op": "activate_tab", "id": "x"})).is_none());
         assert!(palette_command(&json!({"op": "open"})).is_none());
-        assert!(palette_command(&json!({"op": "enable_extension", "id": "bitwarden"})).is_none());
+        assert!(matches!(
+            palette_command(&json!({"op": "enable_extension", "id": "bitwarden"})),
+            Some(Command::Extensions(ExtCommand::Enable(id, true))) if id == "bitwarden"
+        ));
+        assert!(matches!(
+            palette_command(&json!({"op": "extension_options", "id": "bitwarden"})),
+            Some(Command::Extensions(ExtCommand::Options(id))) if id == "bitwarden"
+        ));
+    }
+
+    #[test]
+    fn extensions_have_a_menu() {
+        let ext = vec![ExtensionInfo {
+            id: "abc".into(),
+            name: "Bitwarden".into(),
+            version: "1".into(),
+            enabled: true,
+            title: "Bitwarden (3)".into(),
+            options: true,
+            commands: vec![crate::shared::Shortcut {
+                name: "_execute_action".into(),
+                key: Some("Ctrl+Shift+U".into()),
+                description: String::new(),
+            }],
+        }];
+        let menus = menus(&[], None, 0, &ext);
+        let entries = &menus[4]["entries"];
+        assert_eq!(menus[4]["title"], "Extensions");
+        assert_eq!(entries[0]["label"], "Bitwarden (3)");
+        assert_eq!(entries[0]["shortcut"], "Ctrl+Shift+U");
+        assert_eq!(entries[1]["label"], "Bitwarden Options");
+        assert_eq!(entries[2]["label"], "Disable Bitwarden");
+        assert!(matches!(
+            command("danube.ext.abc", &[], None, &ext),
+            Some(Command::Extensions(ExtCommand::Action(id))) if id == "abc"
+        ));
+        assert!(matches!(
+            command("danube.exttoggle.abc", &[], None, &ext),
+            Some(Command::Extensions(ExtCommand::Enable(id, false))) if id == "abc"
+        ));
+        let data = palette_data(&[], None, &ext);
+        assert_eq!(data["extensions"][0]["name"], "Bitwarden");
+        assert_eq!(data["extensions"][0]["options"], true);
     }
 }

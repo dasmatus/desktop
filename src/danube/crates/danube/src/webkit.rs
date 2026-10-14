@@ -236,8 +236,9 @@ pub fn idle_add<F: FnMut() -> bool + Send + 'static>(f: F) {
     };
 }
 
-/// Runs `f` every `millis` while it returns `true`.
-pub fn timeout_add<F: FnMut() -> bool + 'static>(millis: u32, f: F) {
+/// Runs `f` every `millis` while it returns `true`; the source's id, for
+/// [`source_remove`].
+pub fn timeout_add<F: FnMut() -> bool + 'static>(millis: u32, f: F) -> u32 {
     let data = Box::into_raw(Box::new(f)) as gpointer;
     unsafe {
         g_timeout_add_full(
@@ -247,7 +248,12 @@ pub fn timeout_add<F: FnMut() -> bool + 'static>(millis: u32, f: F) {
             data,
             Some(free_source::<F>),
         )
-    };
+    }
+}
+
+/// Stops a source [`timeout_add`] made, before it returned `false`.
+pub fn source_remove(id: u32) {
+    unsafe { g_source_remove(id) };
 }
 
 // WPEPlatform.
@@ -636,6 +642,12 @@ impl Settings {
 
     pub fn set_enable_developer_extras(&self, enabled: bool) {
         unsafe { webkit_settings_set_enable_developer_extras(self.as_ptr(), gbool(enabled)) }
+    }
+
+    pub fn set_enable_write_console_messages_to_stdout(&self, enabled: bool) {
+        unsafe {
+            webkit_settings_set_enable_write_console_messages_to_stdout(self.as_ptr(), gbool(enabled))
+        }
     }
 
     pub fn set_javascript_can_open_windows_automatically(&self, enabled: bool) {
@@ -1297,5 +1309,477 @@ impl Download {
             }
         }
         self.connect("failed", trampoline::<F> as *const (), f);
+    }
+}
+
+// What the extension runtime (extensions/) adds: the default web context
+// and its security manager, a URI scheme served by Danube, user scripts and
+// style sheets in named worlds, script message handlers that answer, user
+// messages to and from the web process extension, and JavaScript run in a
+// page from here.
+
+object!(
+    /// The web context every view shares: its URI schemes, its security
+    /// policy and the web process extension it loads.
+    WebContext(WebKitWebContext)
+);
+
+impl WebContext {
+    pub fn default() -> Self {
+        unsafe { Self::borrowed(webkit_web_context_get_default()) }
+            .expect("WebKit allocates or aborts")
+    }
+
+    pub fn security_manager(&self) -> SecurityManager {
+        unsafe { SecurityManager::borrowed(webkit_web_context_get_security_manager(self.as_ptr())) }
+            .expect("a context has a security manager")
+    }
+
+    /// Serves `scheme` from `f`, which answers each request with
+    /// [`URISchemeRequest::finish`] or [`URISchemeRequest::finish_error`].
+    pub fn register_uri_scheme<F: Fn(URISchemeRequest) + 'static>(&self, scheme: &str, f: F) {
+        unsafe extern "C" fn trampoline<F: Fn(URISchemeRequest)>(
+            request: *mut WebKitURISchemeRequest,
+            data: gpointer,
+        ) {
+            let request = unsafe { URISchemeRequest::borrowed(request) }
+                .expect("WebKit never passes NULL");
+            unsafe { (*(data as *const F))(request) }
+        }
+        unsafe extern "C" fn free<F>(data: gpointer) {
+            drop(unsafe { Box::from_raw(data as *mut F) });
+        }
+        let scheme = cstring(scheme);
+        let data = Box::into_raw(Box::new(f)) as gpointer;
+        unsafe {
+            webkit_web_context_register_uri_scheme(
+                self.as_ptr(),
+                scheme.as_ptr(),
+                Some(trampoline::<F>),
+                data,
+                Some(free::<F>),
+            )
+        }
+    }
+}
+
+object!(
+    /// How the context treats URI schemes it does not know.
+    SecurityManager(WebKitSecurityManager)
+);
+
+impl SecurityManager {
+    /// Pages of `scheme` count as secure contexts, as https does.
+    pub fn register_uri_scheme_as_secure(&self, scheme: &str) {
+        let scheme = cstring(scheme);
+        unsafe { webkit_security_manager_register_uri_scheme_as_secure(self.as_ptr(), scheme.as_ptr()) }
+    }
+
+    /// Other origins may fetch from `scheme` when its responses allow it.
+    pub fn register_uri_scheme_as_cors_enabled(&self, scheme: &str) {
+        let scheme = cstring(scheme);
+        unsafe {
+            webkit_security_manager_register_uri_scheme_as_cors_enabled(
+                self.as_ptr(),
+                scheme.as_ptr(),
+            )
+        }
+    }
+}
+
+object!(
+    /// One request for a URI of a scheme Danube serves.
+    URISchemeRequest(WebKitURISchemeRequest)
+);
+
+impl URISchemeRequest {
+    pub fn uri(&self) -> String {
+        unsafe { string(webkit_uri_scheme_request_get_uri(self.as_ptr())) }.unwrap_or_default()
+    }
+
+    /// The view the request came from (its page, not necessarily the
+    /// frame that asked).
+    pub fn web_view(&self) -> Option<WebView> {
+        unsafe { WebView::borrowed(webkit_uri_scheme_request_get_web_view(self.as_ptr())) }
+    }
+
+    /// The request's `name` header, when it has one.
+    pub fn header(&self, name: &str) -> Option<String> {
+        let name = cstring(name);
+        unsafe {
+            let headers = webkit_uri_scheme_request_get_http_headers(self.as_ptr());
+            if headers.is_null() {
+                return None;
+            }
+            string(soup_message_headers_get_one(headers, name.as_ptr()))
+        }
+    }
+
+    /// Answers with `body` and the headers given, `content_type` among
+    /// them.
+    pub fn finish(&self, status: u32, content_type: &str, headers: &[(String, String)], body: &[u8]) {
+        unsafe {
+            // GLib copies the body (g_memdup) and frees its copy with the
+            // stream.
+            let copy = g_memdup2(body.as_ptr().cast(), body.len() as gsize);
+            let stream = g_memory_input_stream_new_from_data(copy, body.len() as gssize, Some(g_free));
+            let response = webkit_uri_scheme_response_new(stream, body.len() as i64);
+            let reason = cstring(if status == 200 { "OK" } else { "Error" });
+            webkit_uri_scheme_response_set_status(response, status, reason.as_ptr());
+            let content_type = cstring(content_type);
+            webkit_uri_scheme_response_set_content_type(response, content_type.as_ptr());
+            let soup = soup_message_headers_new(SOUP_MESSAGE_HEADERS_RESPONSE);
+            // Once headers are set, a script's `Response.headers` reads
+            // them and not the content type above, and
+            // `WebAssembly.instantiateStreaming` checks it there.
+            let name = cstring("Content-Type");
+            soup_message_headers_append(soup, name.as_ptr(), content_type.as_ptr());
+            for (name, value) in headers {
+                let (name, value) = (cstring(name), cstring(value));
+                soup_message_headers_append(soup, name.as_ptr(), value.as_ptr());
+            }
+            webkit_uri_scheme_response_set_http_headers(response, soup);
+            webkit_uri_scheme_request_finish_with_response(self.as_ptr(), response);
+            g_object_unref(response.cast());
+            g_object_unref(stream.cast());
+        }
+    }
+
+    /// Fails the request with `message`.
+    pub fn finish_error(&self, message: &str) {
+        unsafe {
+            let message = cstring(message);
+            let error = g_error_new_literal(g_io_error_quark(), 1, message.as_ptr());
+            webkit_uri_scheme_request_finish_error(self.as_ptr(), error);
+            g_error_free(error);
+        }
+    }
+}
+
+/// Where a user script or style sheet goes: every frame or the top one.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum Frames {
+    All,
+    Top,
+}
+
+impl Frames {
+    fn raw(self) -> WebKitUserContentInjectedFrames {
+        match self {
+            Frames::All => WEBKIT_USER_CONTENT_INJECT_ALL_FRAMES,
+            Frames::Top => WEBKIT_USER_CONTENT_INJECT_TOP_FRAME,
+        }
+    }
+}
+
+/// A NULL-terminated array of C strings for a list of patterns; `None`
+/// for an empty list, which WebKit reads as "everywhere".
+struct StringList {
+    _owned: Vec<CString>,
+    ptrs: Vec<*const c_char>,
+}
+
+impl StringList {
+    fn new(items: &[String]) -> Self {
+        let owned: Vec<CString> = items.iter().map(|s| cstring(s)).collect();
+        let mut ptrs: Vec<*const c_char> = owned.iter().map(|s| s.as_ptr()).collect();
+        ptrs.push(ptr::null());
+        Self {
+            _owned: owned,
+            ptrs,
+        }
+    }
+
+    fn as_ptr(&self) -> *const *const c_char {
+        if self.ptrs.len() == 1 {
+            ptr::null()
+        } else {
+            self.ptrs.as_ptr()
+        }
+    }
+}
+
+/// A world name as WebKit takes it: NULL for the page's own.
+fn world(name: Option<&str>) -> Option<CString> {
+    name.map(cstring)
+}
+
+fn world_ptr(name: &Option<CString>) -> *const c_char {
+    name.as_ref().map_or(ptr::null(), |n| n.as_ptr())
+}
+
+counted!(
+    /// A script run in every page whose URL the lists allow.
+    UserScript(WebKitUserScript, webkit_user_script_ref, webkit_user_script_unref)
+);
+
+impl UserScript {
+    /// `source` run in `world` (the page's own when `None`) at document
+    /// start or end, in the frames `frames` says, on the pages `allow`
+    /// matches and `block` does not.
+    pub fn new(
+        source: &str,
+        frames: Frames,
+        at_start: bool,
+        world_name: Option<&str>,
+        allow: &[String],
+        block: &[String],
+    ) -> Self {
+        let source = cstring(source);
+        let time = if at_start {
+            WEBKIT_USER_SCRIPT_INJECT_AT_DOCUMENT_START
+        } else {
+            WEBKIT_USER_SCRIPT_INJECT_AT_DOCUMENT_END
+        };
+        let (allow, block) = (StringList::new(allow), StringList::new(block));
+        // The `_for_world` constructor refuses NULL for the page's own
+        // world; the plain one is that world.
+        let script = match world(world_name) {
+            Some(name) => unsafe {
+                webkit_user_script_new_for_world(
+                    source.as_ptr(),
+                    frames.raw(),
+                    time,
+                    name.as_ptr(),
+                    allow.as_ptr(),
+                    block.as_ptr(),
+                )
+            },
+            None => unsafe {
+                webkit_user_script_new(source.as_ptr(), frames.raw(), time, allow.as_ptr(), block.as_ptr())
+            },
+        };
+        unsafe { Self::owned(script) }.expect("WebKit allocates or aborts")
+    }
+}
+
+counted!(
+    /// A style sheet applied to every page the lists allow.
+    UserStyleSheet(
+        WebKitUserStyleSheet,
+        webkit_user_style_sheet_ref,
+        webkit_user_style_sheet_unref
+    )
+);
+
+impl UserStyleSheet {
+    pub fn new(
+        source: &str,
+        frames: Frames,
+        world_name: Option<&str>,
+        allow: &[String],
+        block: &[String],
+    ) -> Self {
+        let source = cstring(source);
+        let (allow, block) = (StringList::new(allow), StringList::new(block));
+        // As the page's own styles, which an extension's are meant to
+        // override and be overridden by.
+        let level = WEBKIT_USER_STYLE_LEVEL_AUTHOR;
+        let sheet = match world(world_name) {
+            Some(name) => unsafe {
+                webkit_user_style_sheet_new_for_world(
+                    source.as_ptr(),
+                    frames.raw(),
+                    level,
+                    name.as_ptr(),
+                    allow.as_ptr(),
+                    block.as_ptr(),
+                )
+            },
+            None => unsafe {
+                webkit_user_style_sheet_new(source.as_ptr(), frames.raw(), level, allow.as_ptr(), block.as_ptr())
+            },
+        };
+        unsafe { Self::owned(sheet) }.expect("WebKit allocates or aborts")
+    }
+}
+
+/// The answer to a script message, kept until there is one.
+pub struct Reply {
+    reply: NonNull<WebKitScriptMessageReply>,
+    context: NonNull<JSCContext>,
+    _thread: PhantomData<*mut ()>,
+}
+
+impl Reply {
+    /// Resolves the page's promise with `json` (a string the page parses).
+    pub fn value(self, json: &str) {
+        let json = cstring(json);
+        unsafe {
+            let value = jsc_value_new_string(self.context.as_ptr(), json.as_ptr());
+            webkit_script_message_reply_return_value(self.reply.as_ptr(), value);
+            g_object_unref(value.cast());
+        }
+    }
+
+    /// Rejects it with `message`.
+    pub fn error(self, message: &str) {
+        let message = cstring(message);
+        unsafe {
+            webkit_script_message_reply_return_error_message(self.reply.as_ptr(), message.as_ptr())
+        }
+    }
+}
+
+impl Drop for Reply {
+    fn drop(&mut self) {
+        unsafe {
+            webkit_script_message_reply_unref(self.reply.as_ptr());
+            g_object_unref(self.context.as_ptr().cast());
+        }
+    }
+}
+
+impl UserContentManager {
+    pub fn add_script(&self, script: &UserScript) {
+        unsafe { webkit_user_content_manager_add_script(self.as_ptr(), script.as_ptr()) }
+    }
+
+    pub fn remove_script(&self, script: &UserScript) {
+        unsafe { webkit_user_content_manager_remove_script(self.as_ptr(), script.as_ptr()) }
+    }
+
+    pub fn add_style_sheet(&self, sheet: &UserStyleSheet) {
+        unsafe { webkit_user_content_manager_add_style_sheet(self.as_ptr(), sheet.as_ptr()) }
+    }
+
+    pub fn remove_style_sheet(&self, sheet: &UserStyleSheet) {
+        unsafe { webkit_user_content_manager_remove_style_sheet(self.as_ptr(), sheet.as_ptr()) }
+    }
+
+    /// `window.webkit.messageHandlers.<name>.postMessage(text)` in `world`
+    /// (the page's own when `None`) calls `f` with the text and a
+    /// [`Reply`] that settles the promise `postMessage` returned; `false`
+    /// when the name is taken.
+    pub fn register_message_handler<F: Fn(String, Reply) + 'static>(
+        &self,
+        name: &str,
+        world_name: Option<&str>,
+        f: F,
+    ) -> bool {
+        unsafe extern "C" fn trampoline<F: Fn(String, Reply)>(
+            _: *mut WebKitUserContentManager,
+            value: *mut JSCValue,
+            reply: *mut WebKitScriptMessageReply,
+            data: gpointer,
+        ) -> gboolean {
+            let text = unsafe {
+                let s = jsc_value_to_string(value);
+                let text = string(s).unwrap_or_default();
+                g_free(s.cast());
+                text
+            };
+            let context = unsafe { jsc_value_get_context(value) };
+            let (Some(reply), Some(context)) = (NonNull::new(reply), NonNull::new(context)) else {
+                return FALSE;
+            };
+            unsafe {
+                webkit_script_message_reply_ref(reply.as_ptr());
+                g_object_ref(context.as_ptr().cast());
+            }
+            let reply = Reply {
+                reply,
+                context,
+                _thread: PhantomData,
+            };
+            unsafe { (*(data as *const F))(text, reply) };
+            1
+        }
+        // Connected before registering, as WebKit's documentation asks,
+        // so no message can arrive unheard.
+        self.connect(
+            &format!("script-message-with-reply-received::{name}"),
+            trampoline::<F> as *const (),
+            f,
+        );
+        let name = cstring(name);
+        let world_name = world(world_name);
+        unsafe {
+            webkit_user_content_manager_register_script_message_handler_with_reply(
+                self.as_ptr(),
+                name.as_ptr(),
+                world_ptr(&world_name),
+            ) != FALSE
+        }
+    }
+}
+
+/// What a script evaluated in a page came to.
+pub type Evaluated = Result<String, String>;
+
+struct EvaluateFinish(Evaluated);
+
+impl Finish for EvaluateFinish {
+    unsafe fn finish(source: *mut GObject, result: *mut GAsyncResult) -> Self {
+        let mut error = ptr::null_mut();
+        let value = unsafe { webkit_web_view_evaluate_javascript_finish(source.cast(), result, &mut error) };
+        if value.is_null() {
+            return Self(Err(unsafe { take_error(error) }));
+        }
+        let json = unsafe {
+            let s = jsc_value_to_json(value, 0);
+            let json = string(s).unwrap_or_default();
+            g_free(s.cast());
+            g_object_unref(value.cast());
+            json
+        };
+        Self(Ok(json))
+    }
+}
+
+impl WebView {
+    /// Runs `script` in the main frame, in `world_name` (the page's own
+    /// when `None`); `done`, when given, gets the result as JSON.
+    pub fn evaluate(
+        &self,
+        script: &str,
+        world_name: Option<&str>,
+        done: Option<Box<dyn FnOnce(Evaluated)>>,
+    ) {
+        let world_name = world(world_name);
+        let (callback, data) = match done {
+            Some(done) => boxed(move |EvaluateFinish(result)| done(result)),
+            None => (None, ptr::null_mut()),
+        };
+        unsafe {
+            webkit_web_view_evaluate_javascript(
+                self.as_ptr(),
+                script.as_ptr().cast(),
+                script.len() as gssize,
+                world_ptr(&world_name),
+                ptr::null(),
+                ptr::null_mut(),
+                callback,
+                data,
+            )
+        }
+    }
+
+    /// The URL patterns this view's pages may fetch without CORS checks
+    /// (an extension's host permissions).
+    pub fn set_cors_allowlist(&self, patterns: &[String]) {
+        let list = StringList::new(patterns);
+        unsafe { webkit_web_view_set_cors_allowlist(self.as_ptr(), list.as_ptr()) }
+    }
+
+    /// Starts saving `uri`, as a page's own link would.
+    pub fn download_uri(&self, uri: &str) -> Download {
+        let uri = cstring(uri);
+        unsafe { Download::owned(webkit_web_view_download_uri(self.as_ptr(), uri.as_ptr())) }
+            .expect("WebKit allocates or aborts")
+    }
+
+}
+
+impl Download {
+    /// The address being saved.
+    pub fn uri(&self) -> String {
+        unsafe {
+            let request = webkit_download_get_request(self.as_ptr());
+            if request.is_null() {
+                return String::new();
+            }
+            string(webkit_uri_request_get_uri(request)).unwrap_or_default()
+        }
     }
 }
