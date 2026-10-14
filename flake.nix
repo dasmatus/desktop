@@ -81,6 +81,10 @@
 
       proxyUrl = builtins.getEnv "LOSOS_PROXY_URL";
 
+      # The repository CI runs in, which is the one its releases go to.
+      # Empty outside Actions, where options.nix's default stands.
+      releaseRepo = builtins.getEnv "GITHUB_REPOSITORY";
+
       requireProxy =
         value:
         if proxyUrl == "" then
@@ -90,9 +94,13 @@
 
       # What the images built for release take from the proxy's URL, which
       # is a repository variable in CI rather than anything written here.
-      proxySettings = lib.optionalAttrs (proxyUrl != "") {
-        losos.ping.url = lib.mkDefault "${lib.removeSuffix "/" proxyUrl}/ping";
-      };
+      proxySettings =
+        lib.optionalAttrs (proxyUrl != "") {
+          losos.ping.url = lib.mkDefault "${lib.removeSuffix "/" proxyUrl}/ping";
+        }
+        // lib.optionalAttrs (releaseRepo != "") {
+          losos.release.repository = lib.mkDefault releaseRepo;
+        };
 
       mkSystem =
         system:

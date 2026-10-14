@@ -90,6 +90,18 @@ in
       };
     };
 
+    release.repository = mkOption {
+      type = types.nullOr types.str;
+      default = "losos-project/losos-desktop";
+      example = "someone/losos-desktop";
+      description = ''
+        The GitHub repository, `owner/name`, whose release of this version
+        the installer ISO installs (docs/releases.md). The flake sets it from
+        GITHUB_REPOSITORY, so a fork's CI builds ISOs that read the fork's
+        releases. `null` installs the channel's newest release instead.
+      '';
+    };
+
     docs.url = mkOption {
       type = types.nullOr types.str;
       default = "https://losos-project.github.io/losos-desktop";

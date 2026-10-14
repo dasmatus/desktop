@@ -2,6 +2,7 @@ use std::fs;
 use std::path::PathBuf;
 
 use losos_installer::disks::{self, Disk};
+use losos_installer::github;
 use losos_installer::install;
 use losos_installer::serve::{self, Request};
 
@@ -140,7 +141,7 @@ fn transfers_name_the_chosen_disk() {
         &dir.0.join("templates"),
         &dir.0.join("out"),
         "/dev/nvme0n1",
-        None,
+        install::Source::Channel,
     )
     .unwrap();
     let mut names: Vec<_> = fs::read_dir(dir.0.join("out"))
@@ -154,8 +155,13 @@ fn transfers_name_the_chosen_disk() {
         "[Target]\nType=partition\nPath=/dev/nvme0n1\n"
     );
     assert!(
-        install::render_transfers(&dir.0.join("out/none"), &dir.0.join("o2"), "/dev/sda", None)
-            .is_err()
+        install::render_transfers(
+            &dir.0.join("out/none"),
+            &dir.0.join("o2"),
+            "/dev/sda",
+            install::Source::Channel
+        )
+        .is_err()
     );
 }
 
@@ -173,7 +179,7 @@ fn a_release_disk_replaces_only_the_source() {
         &dir.0.join("templates"),
         &dir.0.join("out"),
         "/dev/vda",
-        Some(install::Local {
+        install::Source::Disk(install::Local {
             url: "https://proxy.example/updates/nightly/x86_64/",
             dir: &release,
         }),
@@ -186,6 +192,146 @@ fn a_release_disk_replaces_only_the_source() {
              Path={}\nType=regular-file\n\n[Target]\nPath=/dev/vda\nType=partition\n",
             release.display()
         )
+    );
+}
+
+#[test]
+fn the_github_release_replaces_only_the_url() {
+    let dir = Scratch::new("mirror");
+    let template = "[Transfer]\nVerify=true\n\n[Source]\nMatchPattern=losos_@v.raw.xz\n\
+         Path=https://proxy.example/updates/nightly/x86_64/\nType=url-file\n\n\
+         [Target]\nPath=@TARGET@\nType=partition\n";
+    dir.write("templates/20-usr.transfer", template);
+    install::render_transfers(
+        &dir.0.join("templates"),
+        &dir.0.join("out"),
+        "/dev/vda",
+        install::Source::Mirror {
+            url: "https://proxy.example/updates/nightly/x86_64/",
+            mirror: "http://127.0.0.1:4321/",
+        },
+    )
+    .unwrap();
+    assert_eq!(
+        fs::read_to_string(dir.0.join("out/20-usr.transfer")).unwrap(),
+        template
+            .replace(
+                "https://proxy.example/updates/nightly/x86_64/",
+                "http://127.0.0.1:4321/"
+            )
+            .replace("@TARGET@", "/dev/vda")
+    );
+}
+
+fn release_json(tag: &str, prerelease: bool, names: &[&str]) -> serde_json::Value {
+    let assets: Vec<_> = names
+        .iter()
+        .map(|n| {
+            serde_json::json!({
+                "name": n,
+                "browser_download_url": format!("https://github.example/{tag}/{n}"),
+                "size": 10,
+            })
+        })
+        .collect();
+    serde_json::json!({"tag_name": tag, "prerelease": prerelease, "draft": false, "assets": assets})
+}
+
+#[test]
+fn nightly_tags_come_from_the_version() {
+    assert_eq!(
+        github::nightly_tag("20261010.175322").as_deref(),
+        Some("nightly-20261010T1753")
+    );
+    assert_eq!(github::nightly_tag("0.1"), None);
+    assert_eq!(github::nightly_tag("20261010.17532x"), None);
+}
+
+#[test]
+fn a_tagged_release_is_picked_before_its_nightly() {
+    let v = "20261010.175322";
+    let files = [
+        "SHA256SUMS-x86_64",
+        "SHA256SUMS-x86_64.gpg",
+        "losos-desktop_20261010.175322_x86_64.efi",
+    ];
+    let other = [
+        "SHA256SUMS-x86_64",
+        "losos-desktop_20261009.000000_x86_64.efi",
+    ];
+    let only_arm = [
+        "SHA256SUMS-aarch64",
+        "losos-desktop_20261010.175322_aarch64.efi",
+    ];
+    let draft = {
+        let mut json = release_json("v9", false, &files);
+        json["draft"] = true.into();
+        json
+    };
+    assert!(github::parse_release(&draft).is_none());
+    let releases: Vec<_> = [
+        release_json("nightly-20261010T1753", true, &files),
+        release_json("v0.0.1", false, &files),
+        release_json("v0.0.0", false, &other),
+        release_json("arm", false, &only_arm),
+    ]
+    .iter()
+    .filter_map(github::parse_release)
+    .collect();
+    assert_eq!(
+        github::pick(releases.clone(), v, "x86_64").unwrap().tag,
+        "v0.0.1"
+    );
+    assert_eq!(
+        github::pick(releases[..1].to_vec(), v, "x86_64")
+            .unwrap()
+            .tag,
+        "nightly-20261010T1753"
+    );
+    assert!(github::pick(releases, "20261011.000000", "x86_64").is_none());
+}
+
+#[test]
+fn split_files_answer_under_their_own_name() {
+    let release = github::parse_release(&release_json(
+        "t",
+        true,
+        &[
+            "SHA256SUMS-x86_64",
+            "SHA256SUMS-x86_64.gpg",
+            "SHA256SUMS-aarch64",
+            "SHA256SUMS-aarch64.gpg",
+            "a_x86_64.efi",
+            "a_usr.raw.xz.part-01",
+            "a_usr.raw.xz.part-00",
+            "a_usr.raw.xz.part-02",
+        ],
+    ))
+    .unwrap();
+    let files = github::files(&release, "x86_64");
+    let names: Vec<_> = files.keys().map(String::as_str).collect();
+    assert_eq!(
+        names,
+        [
+            "SHA256SUMS",
+            "SHA256SUMS.gpg",
+            "a_usr.raw.xz",
+            "a_x86_64.efi"
+        ]
+    );
+    assert_eq!(
+        files["SHA256SUMS"].urls,
+        ["https://github.example/t/SHA256SUMS-x86_64"]
+    );
+    let usr = &files["a_usr.raw.xz"];
+    assert_eq!(usr.size, 30);
+    assert_eq!(
+        usr.urls,
+        [
+            "https://github.example/t/a_usr.raw.xz.part-00",
+            "https://github.example/t/a_usr.raw.xz.part-01",
+            "https://github.example/t/a_usr.raw.xz.part-02",
+        ]
     );
 }
 
@@ -296,6 +442,8 @@ fn an_install_is_refused_for_a_disk_not_offered() {
         source: None,
         local_source: None,
         bios_boot: None,
+        release_repo: None,
+        release_version: None,
     };
     let input = "{\"method\":\"install\",\"disk\":\"/dev/not-a-disk\"}\nbogus\n";
     let (tx, rx) = std::sync::mpsc::channel();
@@ -343,6 +491,8 @@ fn hello_names_a_release_disk_only_when_it_holds_a_release() {
         source: Some("https://proxy.example/".into()),
         local_source: Some(dir.0.join("release")),
         bios_boot: None,
+        release_repo: None,
+        release_version: None,
     };
     assert!(serve::hello(&config).get("release").is_none());
     dir.write("release/SHA256SUMS", "");

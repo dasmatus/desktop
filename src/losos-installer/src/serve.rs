@@ -45,6 +45,22 @@ pub struct Config {
     pub local_source: Option<PathBuf>,
     /// [`Plan::bios_boot`].
     pub bios_boot: Option<PathBuf>,
+    /// The repository whose GitHub release of `release_version` an online
+    /// install reads ([`Plan::release`]).
+    pub release_repo: Option<String>,
+    /// The version the ISO was built as.
+    pub release_version: Option<String>,
+}
+
+/// The GitHub release an install reads, when the ISO was told both halves.
+pub fn github(config: &Config) -> Option<install::GitHub> {
+    Some(install::GitHub {
+        repo: config.release_repo.clone()?,
+        version: config.release_version.clone()?,
+        // The names release files carry, which are the kernel's: x86_64
+        // and aarch64.
+        arch: std::env::consts::ARCH.to_owned(),
+    })
 }
 
 /// The release disk's directory, when one holding a release is mounted.
@@ -225,6 +241,7 @@ pub fn run(config: &Config, input: impl BufRead, output: impl Write + Send + 'st
                     work: config.work.clone(),
                     source: config.source.clone(),
                     local: config.local_source.clone(),
+                    release: github(config),
                     bios_boot: config.bios_boot.clone(),
                 };
                 let events = events.clone();
