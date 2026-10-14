@@ -146,15 +146,19 @@
   namespaces and a restricted filesystem view, or a confined transient
   systemd user unit), which ATL's own README lists as future work. That is
   not done; until it is, turn `openApks` on knowingly.
-- **Nothing has booted yet.** The disk image builds, with the layout in [Where the OS lives](layout.md)
-  and a `usrhash=` equal to the root hash repart reported. The VM test
-  evaluates and needs KVM, which the machine this was written on did not
-  have; so the first-boot repart run, the gpt-auto root, and the installer
-  have not been seen working. The installer ISO and its live system evaluate
-  for both architectures and `losos-installer`'s tests pass, but the ISO has
-  not been built, nor sysupdate seen writing to a disk that is not the one
-  running. `nix build .#release` was not completed there either, for
-  lack of disk space rather than an error.
+- **Booted under QEMU only.** Every CI run boots the x86_64 image in QEMU
+  (`nix flake check`, [Boot loader](boot-loaders.md) "Tested"), under UEFI and
+  under SeaBIOS: first boot lays out the disk with systemd-repart, root is
+  found (by gpt-auto on UEFI, by its partition label on a BIOS), `/usr` is
+  dm-verity, a new UKI is counted down and blessed, and a laptop with a TPM
+  hibernates and resumes. The installer ISO starts under both firmwares, and
+  an install from a nightly's files was run in QEMU through to the installed
+  disk's first boot, so sysupdate has written a disk other than the one
+  running. Not seen yet: a running system taking an update from the channel
+  and booting it (the tests rename a UKI to stand in for a new one), the
+  aarch64 image starting at all, since the arm64 runner has no KVM and the
+  aarch64 VM under emulation times out waiting for its disk, and any of it
+  on a PC rather than in QEMU.
 - **Danube is unfinished in places** ([Danube](danube.md)). A page's file
   upload button opens nothing, since WebKit's file chooser request is not
   answered yet, and a site's notifications are never shown, even when
