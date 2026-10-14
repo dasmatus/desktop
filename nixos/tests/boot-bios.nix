@@ -80,6 +80,21 @@
           # still fails if its job was dropped or it failed.
           machine.wait_for_unit("losos-grub-bless.service")
 
+      with subtest("An update rewrites GRUB's BIOS boot code"):
+          # Without the record of what it installed, losos-grub-update
+          # writes the boot code again, so a BIOS boot partition emptied
+          # here is whole again for the reboot below.
+          machine.wait_for_unit("losos-grub-update.service")
+          machine.succeed(f"test -f {esp}/EFI/losos/installed")
+          bios = machine.succeed(
+              "lsblk --raw --noheadings --output PATH,PARTTYPE /dev/vda"
+              " | awk '$2 == \"21686148-6449-6e6f-744e-656564454649\" { print $1 }'"
+          ).strip()
+          machine.succeed(f"dd if=/dev/zero of={bios} bs=1M count=1 conv=fsync")
+          machine.succeed(f"rm {esp}/EFI/losos/installed")
+          machine.succeed("systemctl restart losos-grub-update.service")
+          machine.fail(f"cmp --bytes=512 {bios} /dev/zero")
+
       with subtest("A counted UKI is blessed once it boots"):
           # The name sysupdate gives a new UKI (update.nix).
           machine.succeed(

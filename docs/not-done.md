@@ -108,12 +108,6 @@
 - **Wi-Fi after setup.** First-boot setup joins a network through
   `wpa_supplicant`, which saves it, but nothing in the session lists or
   joins networks afterwards: derisk's Settings has no Wi-Fi page yet.
-- **Boot loader updates.** The GRUB on the ESP, and on a BIOS PC in the MBR
-  and the BIOS boot partition, is the one the image or the installer put
-  there; an update never rewrites it, so a new menu or theme reaches only
-  new installs. A disk installed while UEFI still booted with systemd-boot
-  keeps systemd-boot until it is installed again
-  ([Boot loader](boot-loaders.md)).
 - **Two LosOS disks in one BIOS PC.** A BIOS boot finds root by its
   partition label, `root-x86-64`, as no EFI variable names the disk
   ([Boot loader](boot-loaders.md)). With two LosOS disks in one machine,
