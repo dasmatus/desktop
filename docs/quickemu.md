@@ -52,6 +52,22 @@ will also run it on an x86_64 host, emulated, but that is too slow to
 install from: tried that way, the installer's initrd gave up waiting for its
 CD after 90 seconds.
 
+The TPM only counts if the firmware can use it too. quickemu takes OVMF
+from the host, and nixpkgs builds the one quickemu picks with Secure Boot off
+without TPM support: the system then finds the TPM, but nothing measured the
+boot, and `bootctl status` in the VM says `TPM2 Support: driver only,
+firmware unavailable` and `Measured UKI: no`. On NixOS, run a quickemu built
+with a TPM-enabled OVMF instead:
+
+```nix
+pkgs.quickemu.override {
+  OVMF = pkgs.OVMF.override { tpmSupport = true; };
+}
+```
+
+With that, `bootctl status` reads `TPM2 Support: yes`, `Measured UKI: yes`
+and `Measured OS: yes`.
+
 GL needs a host that has it, under quickemu's default GTK window or
 `--display sdl` or `spice-app`. On a host without it QEMU refuses to start,
 saying `OpenGL is not supported by display backend`; `gl="off"` in the
