@@ -126,12 +126,13 @@ in
 
   # The splash fades out to the bare ground before Plymouth lets go of the
   # screen: the theme hears losos-fade-out, and the half-second wait covers
-  # its 20 refreshes with a little to spare for a slow machine. That last
-  # frame, the ground alone, then stays on the screen until the login screen
-  # or the installer draws its first (desktop.nix and the installer order
-  # themselves after this), rather than a moment of black console between the
-  # two. Plymouth fades in by itself when it starts, at boot and at shutdown
-  # alike.
+  # its 20 refreshes with a little to spare for a slow machine. At boot the
+  # progress line fills and stays, for the login screen to start from. That
+  # last frame, the ground and the line, then stays on the screen until the
+  # login screen or the installer draws its first (desktop.nix and the
+  # installer order themselves after this), rather than a moment of black
+  # console between the two. Plymouth fades in by itself when it starts, at
+  # boot and at shutdown alike.
   systemd.services.plymouth-quit.serviceConfig = {
     # Only when Plymouth is showing anything, so a boot without the splash
     # does not wait for a fade nobody sees.

@@ -15,7 +15,9 @@
 # Nothing appears or goes at once. The screen fades in from the ground when
 # Plymouth starts and back to it when splash.nix says the login screen is
 # about to take over; the caption fades out and the prompt in, and back; the
-# line, the answer and a message fade as they come and go.
+# line, the answer and a message fade as they come and go. At the end of a
+# boot the line fills and stays: the login screen starts from it, closing it
+# into a dot, as the launch film does.
 
 Window.SetBackgroundTopColor(ground.r, ground.g, ground.b);
 Window.SetBackgroundBottomColor(ground.r, ground.g, ground.b);
@@ -158,6 +160,8 @@ bar.height = Math.Max(3, Math.Int(size / 5));
 bar.drawn = 0;
 bar.t = 0;
 bar.want = 0;
+# Kept on screen, full, when everything else fades for the login screen.
+bar.kept = 0;
 
 # Plymouth reports progress many times a second; the line is redrawn only
 # when it has grown by a pixel.
@@ -215,7 +219,10 @@ fun refresh_callback ()
   logo.sprite.SetOpacity(shown(logo));
   caption.sprite.SetOpacity(shown(caption));
   entry.sprite.SetOpacity(shown(entry));
-  bar.sprite.SetOpacity(shown(bar));
+  if (bar.kept)
+    bar.sprite.SetOpacity(eased(bar.t));
+  else
+    bar.sprite.SetOpacity(shown(bar));
   message.sprite.SetOpacity(shown(message));
 }
 
@@ -227,6 +234,15 @@ fun update_status_callback (status)
     {
       global.veil.want = 0;
       global.veil.steps = fade_out_steps;
+      # The boot is done: the line fills and stays for the login screen
+      # (derisk's greeter draws it in the same place and takes it from
+      # there).
+      if (lined && bar.want)
+        {
+          global.bar.kept = 1;
+          global.progress = 1;
+          draw_bar(1);
+        }
     }
 }
 
