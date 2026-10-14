@@ -40,8 +40,9 @@
     did) shrink C: to make room behind it; with LosOS there they cannot,
     and fail as they do on any disk without free space after C:.
   - **The boot order.** Some firmware, and some Windows updates, put
-    Windows Boot Manager first again. LosOS is then one pick in the
-    firmware's boot menu away, and nothing puts its entry back in front.
+    Windows Boot Manager first again. LosOS puts its own entry back in
+    front each time it starts, but until it next does, Windows starts by
+    itself and LosOS is one pick in the firmware's boot menu away.
   - **arm64.** The installer is built for x86_64 only, because Windows on
     arm64 runs on laptops this OS has no kernel configuration for.
 - **The two gnome-control-center patches** in `nixos/pkgs/patches/`. Nothing

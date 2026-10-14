@@ -182,6 +182,29 @@
           machine.succeed(f"cmp {grub} {esp}/EFI/systemd/systemd-bootx64.efi")
           machine.succeed(f"test -f {esp}/EFI/losos/installed")
 
+      with subtest("LosOS's firmware entry goes back to the front of the boot order"):
+          # The entry the Windows installer adds, and Windows putting its
+          # own back in front of it (grub.nix, losos-boot-order).
+          efibootmgr = "${nodes.machine.system.build.grub.efibootmgr}/bin/efibootmgr"
+          machine.wait_for_unit("losos-boot-order.service")
+          part = machine.succeed(
+              "lsblk --noheadings --output PARTN "
+              f"$(findmnt --noheadings --output SOURCE --types vfat --mountpoint {esp})"
+          ).strip()
+          machine.succeed(
+              f"{efibootmgr} --quiet --create --disk /dev/vda --part {part} "
+              "--label LosOS --loader '\\EFI\\losos\\grubx64.efi'"
+          )
+          ours = machine.succeed(
+              f"{efibootmgr} | sed -n 's/^Boot\\([0-9A-F]\\{{4\\}}\\)\\* LosOS\\([[:space:]].*\\)\\?$/\\1/p'"
+          ).strip()
+          order = machine.succeed(f"{efibootmgr} | sed -n 's/^BootOrder: //p'").strip().split(",")
+          others = [entry for entry in order if entry != ours]
+          assert others, order
+          machine.succeed(f"{efibootmgr} --quiet --bootorder {','.join(others + [ours])}")
+          machine.succeed("systemctl restart losos-boot-order.service")
+          machine.succeed(f"{efibootmgr} | grep -qx 'BootOrder: {ours},.*'")
+
       with subtest("A counted UKI is blessed once it boots under UEFI GRUB"):
           # As boot-bios.nix checks it under a BIOS: the name sysupdate gives
           # a new UKI (update.nix), counted down in grubenv and settled by
