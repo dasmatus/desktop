@@ -20,7 +20,9 @@ manager, the tool a user of the running system builds and runs software with
 Apps the image does not carry come from [Flathub](https://flathub.org) as
 Flatpaks, through the [Bazaar](https://github.com/bazaar-org/bazaar) store.
 derisk's own portal backend gives them its theme, screenshots and the
-wallpaper; GTK's covers the file chooser and the rest. The web browser is
+wallpaper, and asks for consent in a dialog of its own (`derisk-gpui ask`,
+drawn with the same toolkit as derisk's GPUI apps); GTK's covers the file
+chooser and the rest. The web browser is
 [Danube](danube.md), WPE WebKit inside an mcsapi window, and
 [ad blocking](adblock.md) from filter lists covers every app.
 
