@@ -57,6 +57,21 @@ All of it is state under `/var/lib/libvirt` and `/run/libvirt` on the root
 partition. The verity `/usr` and the [update model](systemd.md) are
 unchanged.
 
+## Machines
+
+pm makes them (`pm machine create`, [pm on LosOS](pm.md#machines-that-stay)),
+and its libvirt plugin is the only part of pm that knows libvirt exists.
+A machine is three things in libvirt:
+
+- its **template**, a read-only volume in the `default` pool that every
+  machine made from it shares;
+- its **disk**, a qcow2 overlay on the template in the same pool, holding
+  only what the machine has changed;
+- its **definition**, a persistent domain with UEFI, a virtio disk and
+  network card on `default`, a channel for the QEMU guest agent, a vsock
+  device whose address libvirt picks, no graphics card and no USB
+  controller, and in its `<metadata>` the machine's label and template.
+
 ## The guest template
 
 The image ships one template, the LosOS guest:

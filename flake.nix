@@ -281,6 +281,10 @@
           # The start-up sound reaches a sound card, and plays backwards at
           # shutdown (boot-sound.nix).
           boot-sound = pkgs.testers.runNixOSTest ./nixos/tests/boot-sound.nix;
+          # pm makes a machine from the guest template, which boots, lists its
+          # apps and sends an app's window to the host over vsock
+          # (machines.nix).
+          machines = pkgs.testers.runNixOSTest ./nixos/tests/machines.nix;
           installer-boot = pkgs.testers.runNixOSTest (
             import ./nixos/tests/installer-boot.nix { inherit self; }
           );

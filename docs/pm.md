@@ -152,3 +152,35 @@ The real boot through the plugin (a distribution kernel running a probe
 through `qemu:///system`, QEMU as libvirt's own user, under TCG) passed on an
 Ubuntu host with libvirt 10.0, as did the same boot with pm's own QEMU. Neither
 the module nor the plugin has run on this image yet.
+
+### Machines that stay
+
+`pm machine` keeps virtual machines that outlive any one command, the
+machines of the [virtual machine desktop](hypervisor.md). As with `pm run`,
+pm leaves libvirt to its `libvirt` plugin, which turns each request into the
+`virsh` steps that carry it out:
+
+```
+pm machine create work \
+  --image /run/current-system/sw/share/losos/machines/losos-guest.qcow2 \
+  --label blue --memory 4096 --cpus 4 --disk 64
+pm machine start work
+pm machine list
+pm machine stop work        # asks the guest to shut down
+pm machine kill work        # pulls the plug
+pm machine remove work      # the machine and its disk; the template stays
+```
+
+The template becomes a read-only volume in libvirt's `default` pool, named
+after it and its digest, so every machine made from one image shares it. A
+machine's disk is a qcow2 overlay on it (`pm-machine-<name>.qcow2`), as
+large as `--disk` says and never smaller than the template, and its
+definition is a persistent domain that carries its label and template in
+`<metadata>`, a vsock device and a channel for the QEMU guest agent. derisk's
+Machines app runs these same commands.
+
+`nixos/tests/machines.nix` makes a machine from the image's own template
+this way, under TCG, and checks that it boots, grows its root over its
+8 GiB disk, gets an address on libvirt's network, lists its apps through the
+agent, and that opening one reaches the host's vsock port 7350 from the
+address libvirt gave the machine. CI runs it with the other VM tests.
