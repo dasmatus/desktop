@@ -33,6 +33,10 @@ image are past that, so such a file is uploaded in 2000 MiB parts,
 of `SHA256SUMS-<arch>` names. That is also why sysupdate keeps reading
 through the proxy rather than from the release.
 
+The installer ISO a release carries installs from that same release: its
+backend serves the release's files to sysupdate under the names a channel
+has, joining split files as it streams them ([The installer](installer.md)).
+
 A release is created once and never edited, so the repository can make
 releases immutable. A re-run of the same commit finds its tag taken and
 publishes nothing. There is no moving `nightly` release: GitHub refuses to
