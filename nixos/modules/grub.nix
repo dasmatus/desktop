@@ -333,6 +333,37 @@ let
       mv -f "$record.new" "$record"
     '';
   };
+
+  # The firmware entry the Windows installer adds for GRUB goes first in
+  # the boot order, and Windows' own updates and some firmware put Windows
+  # Boot Manager back in front of it (docs/windows-installer.md). GRUB's
+  # menu offers Windows anyway, so each LosOS boot that gets as far as
+  # boot-complete.target puts LosOS's entry first again. A disk the image
+  # or the installer laid out starts from the removable-media path and has
+  # no entry, and this does nothing there.
+  bootOrder = pkgs.writeShellApplication {
+    name = "losos-boot-order";
+    runtimeInputs = [
+      pkgs.coreutils
+      pkgs.efibootmgr
+      pkgs.gnugrep
+      pkgs.gnused
+    ];
+    text = ''
+      [ -d /sys/firmware/efi ] || exit 0
+      entries=$(efibootmgr --verbose)
+      ours=$(printf '%s\n' "$entries" \
+        | grep -iF '\EFI\losos\grub' \
+        | sed -n 's/^Boot\([0-9A-Fa-f]\{4\}\).*/\1/p' \
+        | head -n 1 || true)
+      [ -n "$ours" ] || exit 0
+      order=$(printf '%s\n' "$entries" | sed -n 's/^BootOrder: //p')
+      [ "''${order%%,*}" = "$ours" ] && exit 0
+      rest=$(printf '%s\n' "$order" | tr , '\n' | grep -vixF "$ours" | paste -sd, || true)
+      efibootmgr --quiet --bootorder "$ours''${rest:+,$rest}"
+      echo "Put Boot$ours, LosOS's GRUB, first in the boot order again."
+    '';
+  };
 in
 {
   system.build.grub = {
@@ -343,7 +374,9 @@ in
       env
       grubenv
       update
+      bootOrder
       ;
+    inherit (pkgs) efibootmgr;
   };
 
   environment.systemPackages = [ grubenv ];
@@ -395,6 +428,24 @@ in
       Type = "oneshot";
       RemainAfterExit = true;
       ExecStart = lib.getExe update;
+    };
+  };
+
+  systemd.services.losos-boot-order = {
+    description = "Put LosOS first in the firmware's boot order";
+    wantedBy = [ "basic.target" ];
+    requires = [ "boot-complete.target" ];
+    after = [ "boot-complete.target" ];
+    conflicts = [ "shutdown.target" ];
+    before = [ "shutdown.target" ];
+    unitConfig = {
+      DefaultDependencies = false;
+      ConditionPathExists = "/sys/firmware/efi";
+    };
+    serviceConfig = {
+      Type = "oneshot";
+      RemainAfterExit = true;
+      ExecStart = lib.getExe bootOrder;
     };
   };
 }
