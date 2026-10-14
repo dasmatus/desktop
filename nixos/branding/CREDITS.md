@@ -1,4 +1,4 @@
-# Where the boot pictures come from
+# Where the boot pictures and sound come from
 
 ## salmon.png
 
@@ -16,3 +16,11 @@ does not mean that NOAA endorses LosOS.
 The cut-out is the photo with the river bed removed, turned 35 degrees so
 the fish rises from left to right, and scaled into a 512 px square. Every
 picture `default.nix` draws from it is made at build time.
+
+## end-track.flac
+
+The start-up sound (`nixos/modules/boot-sound.nix`): the last three seconds
+of the LosOS launch film's soundtrack, from 34 s (its bar 18) to its end,
+with a 5 ms fade-in. The score was synthesized for the film from code, with
+no recordings or samples, so nothing in it is anyone else's. It is 48 kHz,
+24-bit stereo, at the film's mix (about -16 LUFS).

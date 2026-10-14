@@ -56,6 +56,15 @@ derisk and LosOS's WebUI share, so replacing that file replaces all of them.
 
 ![Plymouth while the system starts: the salmon, "LosOS Desktop is starting" and the progress line in the accent colour under it](images/boot-splash.png)
 
+The start has a sound too: the launch film's closing three seconds, the two
+bars under its end card (`nixos/branding/end-track.flac`). It plays as soon
+as the kernel finds a sound card, while Plymouth still shows the salmon, and
+backwards at shutdown or restart, after the sessions and the login screen
+have closed, under Plymouth's "is shutting down" screen
+(`nixos/modules/boot-sound.nix`). It goes straight to ALSA's default card at
+the volume the machine was left at, since no PipeWire runs at either moment.
+A machine without a sound card plays nothing.
+
 The kernel prints errors only (`loglevel=3`), systemd prints its status
 lines only when a unit fails or the boot stalls (`systemd.show_status=auto`),
 and Plymouth keeps even those behind Esc; every message is still in the

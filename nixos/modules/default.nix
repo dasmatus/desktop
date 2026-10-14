@@ -10,6 +10,7 @@
     ./grub.nix
     ./bios.nix
     ./splash.nix
+    ./boot-sound.nix
     ./hardware.nix
     ./nvidia.nix
     ./libvirt.nix
