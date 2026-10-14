@@ -158,7 +158,9 @@
 - **Danube is unfinished in places** ([Danube](danube.md)). A page's file
   upload button opens nothing, since WebKit's file chooser request is not
   answered yet, and a site's notifications are never shown, even when
-  allowed. There are no extensions until the extension runtime lands, no
+  allowed. Extensions cannot see requests (`webRequest`), talk to a
+  native program or use cookies, context menus, history, bookmarks or the
+  side panel ([Danube](danube.md), "Extensions"). There are no
   bookmarks, history list or find in page, and no way to resume a
   download. Its sandboxes need unprivileged user namespaces, and a phone's
   own kernel may refuse them; Danube then stops rather than running a

@@ -43,10 +43,10 @@ behind an "Erase and install" button before anything is touched. Then:
    `_empty` (sysupdate refuses a disk with only one). These are `disk.nix`'s
    own definitions, so the disk is laid out the way the
    installed system expects to find it.
-2. `systemd-sysupdate update` fills them with the channel's newest release,
-   from the same URL and through the same transfers as `update.nix`, aimed at
-   the chosen disk instead of `auto` and at the new ESP, mounted under
-   `/run/losos-installer`. With `losos.update.pubring` set, the installer
+2. `systemd-sysupdate update` fills them with the GitHub release of the
+   version the ISO was built as, through the same transfers as `update.nix`,
+   aimed at the chosen disk instead of `auto` and at the new ESP, mounted
+   under `/run/losos-installer`. With `losos.update.pubring` set, the installer
    checks `SHA256SUMS.gpg` against it as an update does. On x86_64,
    `losos-grub-bios-install` then writes GRUB into the MBR and the BIOS boot
    partition, so the disk starts on a legacy BIOS as well.
@@ -56,9 +56,23 @@ behind an "Erase and install" button before anything is touched. Then:
 
 ![derisk installer talks JSON lines to losos-installer serve, which runs systemd-repart, then systemd-sysupdate from the channel or a LOSOS-RELEASE disk, then reboots; the disk ends with the ESP, BIOS boot and slot A written, slot B laid out empty, and root, home and swap left to the first boot](images/installer.svg)
 
-So an install is an update into an empty slot: what lands on the disk is
-what the channel serves at the time, not a copy of the OS on the medium that
-could have gone stale. The image used to be its own installer, with a second
+So an install is an update into an empty slot, from the release the ISO came
+with ([Releases](releases.md)): an ISO from `nightly-20261010T2127` installs
+that nightly, and one from a tagged release installs that release. Neither
+is a copy of the OS on the medium. sysupdate cannot read a GitHub release
+as it is, since each architecture's manifest there is `SHA256SUMS-<arch>`
+and a file of 2 GiB or more is split into `.part-NN` assets, so
+`losos-installer` serves the release to it from `127.0.0.1`: `SHA256SUMS`
+and its signature are the architecture's, and a split file is its parts
+streamed from GitHub one after the other, so nothing is staged in the live
+system's memory. sysupdate checks the signature and every hash itself, as
+it does for the channel. The backend finds the release through GitHub's
+API by the version in its file names, a tagged release before the nightly
+of the same build. Where it finds none, such as an ISO built from a branch
+or a local build, the install reads the channel and gets its newest
+release. The installed system then updates from the channel as any other
+does. The repository comes from `GITHUB_REPOSITORY` in CI
+(`losos.release.repository`), so a fork's ISO reads the fork's releases. The image used to be its own installer, with a second
 UKI that booted it into a tmpfs root and copied its own `/usr` with
 `CopyBlocks=`; that is gone, and so is the `losos.install` condition it
 needed in `disk.nix`. When nixpkgs reaches v261, the installer should be

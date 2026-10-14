@@ -17,6 +17,7 @@ mod captive;
 mod config;
 mod derisk;
 mod engine;
+mod extensions;
 mod ffi;
 mod input;
 mod permissions;
@@ -36,7 +37,7 @@ use crossbeam_channel::{Receiver, RecvTimeoutError, Sender};
 use tracing::{info, warn};
 use tracing_subscriber::EnvFilter;
 
-use shared::{Command, Commands, Events};
+use shared::{Command, Commands, Events, ExtCommand};
 
 /// Where losos-adblock compiles its lists (nixos/modules/adblock.nix).
 const ADBLOCK_STATE: &str = "/var/lib/losos-adblock";
@@ -58,6 +59,12 @@ enum Error {
     #[error("cannot open the window: {0}")]
     #[diagnostic(code(danube::window))]
     Window(String),
+    #[error("{0}")]
+    #[diagnostic(
+        code(danube::extension),
+        help("an extension is a .zip, .crx or .xpi, or an unpacked directory with manifest.json")
+    )]
+    Extension(String),
 }
 
 struct Args {
@@ -65,6 +72,16 @@ struct Args {
     watch: bool,
     sandbox: bool,
     uris: Vec<String>,
+    /// `install-extension FILE`, `uninstall-extension ID` or
+    /// `list-extensions`: done here, told to the running browser, no
+    /// window.
+    extension: Option<ExtensionArg>,
+}
+
+enum ExtensionArg {
+    Install(PathBuf),
+    Uninstall(String),
+    List,
 }
 
 fn args() -> Args {
@@ -73,12 +90,21 @@ fn args() -> Args {
         watch: false,
         sandbox: true,
         uris: Vec::new(),
+        extension: None,
     };
-    for arg in std::env::args().skip(1) {
+    let mut rest = std::env::args().skip(1);
+    while let Some(arg) = rest.next() {
         match arg.as_str() {
             "--captive-portal" => args.captive = true,
             "--no-sandbox" => args.sandbox = false,
             "captive-watch" if args.uris.is_empty() => args.watch = true,
+            "install-extension" if args.uris.is_empty() => {
+                args.extension = rest.next().map(|f| ExtensionArg::Install(PathBuf::from(f)));
+            }
+            "uninstall-extension" if args.uris.is_empty() => {
+                args.extension = rest.next().map(ExtensionArg::Uninstall);
+            }
+            "list-extensions" if args.uris.is_empty() => args.extension = Some(ExtensionArg::List),
             // A file given by path opens as a file:// URL.
             _ if Path::new(&arg).exists() && !arg.contains("://") => {
                 let path = std::fs::canonicalize(&arg).unwrap_or_else(|_| PathBuf::from(&arg));
@@ -124,6 +150,10 @@ fn run(args: Args) -> Result<ExitCode, Error> {
     }
     let home = PathBuf::from(std::env::var_os("HOME").ok_or(Error::NoHome)?);
     let instance = home.join(".cache/danube/instance.sock");
+
+    if let Some(what) = args.extension {
+        return extension_command(&home, &instance, what);
+    }
 
     // One browser per profile: WebKit's storage is not shared between
     // processes, so a second `danube URL` hands its URLs to the first.
@@ -177,6 +207,7 @@ fn run(args: Args) -> Result<ExitCode, Error> {
             downloads: home.join("Downloads"),
             settings: settings.clone(),
             open,
+            extensions: None,
         }
     } else {
         engine::Options {
@@ -187,6 +218,10 @@ fn run(args: Args) -> Result<ExitCode, Error> {
             downloads: home.join("Downloads"),
             settings: settings.clone(),
             open: args.uris.clone(),
+            extensions: Some(extensions::runtime::Options {
+                home: home.clone(),
+                lang: lang(),
+            }),
         }
     };
     let listener = (!args.captive).then(|| listener(&instance)).flatten();
@@ -292,12 +327,75 @@ fn window(
 /// Hands `uris` to a Danube already running on this profile; `false` when
 /// there is none.
 fn hand_over(socket: &Path, uris: &[String]) -> bool {
+    tell_instance(socket, serde_json::json!(uris))
+}
+
+/// Sends `line` to the running Danube's instance socket; `false` when
+/// there is none.
+fn tell_instance(socket: &Path, line: serde_json::Value) -> bool {
     let Ok(mut stream) = UnixStream::connect(socket) else {
         return false;
     };
-    let line = serde_json::json!(uris).to_string() + "\n";
+    let line = line.to_string() + "\n";
     stream.write_all(line.as_bytes()).is_ok()
 }
+
+/// `danube install-extension FILE` and friends: the store changes, and a
+/// running browser is told to reload. Runs outside the sandbox, since the
+/// file may be anywhere.
+fn extension_command(home: &Path, instance: &Path, what: ExtensionArg) -> Result<ExitCode, Error> {
+    let store = extensions::store::Store::new(home);
+    let lang = lang();
+    let reload = match what {
+        ExtensionArg::Install(file) => {
+            let installed = store
+                .install(&file, &lang)
+                .map_err(|e| Error::Extension(e.to_string()))?;
+            println!(
+                "Installed {} {} ({})",
+                installed.manifest.name, installed.manifest.version, installed.id
+            );
+            Some(installed.id)
+        }
+        ExtensionArg::Uninstall(id) => {
+            store
+                .uninstall(&id)
+                .map_err(|e| Error::Extension(e.to_string()))?;
+            println!("Uninstalled {id}");
+            Some(id)
+        }
+        ExtensionArg::List => {
+            for installed in store.list(&lang) {
+                println!(
+                    "{}\t{}\t{}\t{}",
+                    installed.id,
+                    installed.manifest.name,
+                    installed.manifest.version,
+                    if installed.enabled { "enabled" } else { "disabled" }
+                );
+            }
+            None
+        }
+    };
+    if let Some(id) = reload {
+        if !tell_instance(instance, serde_json::json!({"reload_extensions": id})) {
+            info!("no Danube is running; the change applies at the next start");
+        }
+    }
+    Ok(ExitCode::SUCCESS)
+}
+
+/// The person's language for extensions' messages, from the locale
+/// (`sk_SK.UTF-8` is `sk_SK`); English when unset.
+fn lang() -> String {
+    ["LC_ALL", "LC_MESSAGES", "LANG"]
+        .iter()
+        .filter_map(|v| std::env::var(v).ok())
+        .map(|v| v.split(['.', '@']).next().unwrap_or("").to_owned())
+        .find(|v| !v.is_empty() && v != "C" && v != "POSIX")
+        .unwrap_or_else(|| "en".to_owned())
+}
+
 
 /// The socket later `danube` runs hand their URLs to.
 fn listener(socket: &Path) -> Option<UnixListener> {
@@ -324,7 +422,16 @@ fn listen(listener: &UnixListener, commands: &Commands, stop: &Stop) {
                 if BufReader::new(stream).read_line(&mut line).is_err() {
                     continue;
                 }
-                let uris: Vec<String> = serde_json::from_str(&line).unwrap_or_default();
+                // A JSON array of URLs, or `{"reload_extensions": id}` from
+                // `danube install-extension`.
+                let value: serde_json::Value = serde_json::from_str(&line).unwrap_or_default();
+                if let Some(id) = value.get("reload_extensions") {
+                    commands.send(Command::Extensions(ExtCommand::Reload(
+                        id.as_str().map(str::to_owned),
+                    )));
+                    continue;
+                }
+                let uris: Vec<String> = serde_json::from_value(value).unwrap_or_default();
                 if uris.is_empty() {
                     commands.send(Command::NewTab {
                         uri: None,

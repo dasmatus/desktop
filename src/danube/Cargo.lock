@@ -181,6 +181,12 @@ dependencies = [
 ]
 
 [[package]]
+name = "base64"
+version = "0.22.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "72b3254f16251a8381aa12e40e3c4d2f0199f8c6508fbecb9d91f575e0fbb8c6"
+
+[[package]]
 name = "bindgen"
 version = "0.72.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -601,16 +607,19 @@ checksum = "f27ae1dd37df86211c42e150270f82743308803d90a6f6e6651cd730d5e1732f"
 name = "danube"
 version = "0.1.0"
 dependencies = [
+ "base64",
  "bindgen",
  "crossbeam-channel",
  "danube-sandbox",
  "eframe",
+ "flate2",
  "libc",
  "mcsapi-components",
  "mcsapi-theme",
  "miette",
  "pkg-config",
  "serde_json",
+ "sha2",
  "thiserror 2.0.21",
  "tracing",
  "tracing-subscriber",

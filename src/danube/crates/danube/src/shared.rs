@@ -81,7 +81,57 @@ pub enum Command {
     /// The window was laid out for a phone (short side under 600 px) or
     /// not; sets the User-Agent string for the next load.
     Phone(bool),
+    /// For the extension runtime (extensions/runtime.rs).
+    Extensions(ExtCommand),
     Quit,
+}
+
+/// What the window, derisk's menus or a later `danube install-extension`
+/// run ask of the extension runtime.
+#[derive(Debug)]
+pub enum ExtCommand {
+    /// The extension's toolbar button: its popup, or its onClicked.
+    Action(String),
+    ClosePopup,
+    /// Input over the open popup, in its own coordinates.
+    PopupInput(Vec<Input>),
+    /// Open the extension's options page in a tab.
+    Options(String),
+    Enable(String, bool),
+    /// Load, unload or reload one extension, or all of them (`None`) after
+    /// an install.
+    Reload(Option<String>),
+    /// A manifest `commands` shortcut the window saw.
+    Shortcut { ext: String, command: String },
+    /// Carried over from a signal handler that could not borrow the
+    /// engine: a load event in an extension view, a view closing itself,
+    /// a load event in a tab.
+    ViewLoad(u64, u32),
+    ViewClosed(u64),
+    TabLoad(TabId, u32),
+}
+
+/// An installed extension as the menus and the palette list it.
+#[derive(Clone, Debug, PartialEq)]
+pub struct ExtensionInfo {
+    pub id: String,
+    pub name: String,
+    pub version: String,
+    pub enabled: bool,
+    /// The toolbar button's title, with its badge when it has one.
+    pub title: String,
+    /// It has an options page.
+    pub options: bool,
+    pub commands: Vec<Shortcut>,
+}
+
+/// A keyboard shortcut from an extension's manifest.
+#[derive(Clone, Debug, PartialEq)]
+pub struct Shortcut {
+    pub name: String,
+    /// As the manifest writes it (`Ctrl+Shift+L`), when it has one.
+    pub key: Option<String>,
+    pub description: String,
 }
 
 /// What WebKit tells the window.
@@ -111,6 +161,13 @@ pub enum Event {
     PermissionDone(u64),
     /// How many content blocker rule sets are in force, for the Page menu.
     Filters(usize),
+    /// The installed extensions, whenever they or their badges change.
+    Extensions(Vec<ExtensionInfo>),
+    /// An extension's popup opened, `width` by `height` logical pixels,
+    /// to be drawn over the page's top right corner.
+    PopupOpened { ext: String, width: i32, height: i32 },
+    PopupFrame(Arc<egui::ColorImage>),
+    PopupClosed,
     /// WebKit is gone; the window closes.
     Quit,
 }
@@ -184,7 +241,7 @@ impl Events {
         let sent = match event {
             // A frame the window has not drawn yet is replaced by the
             // next, never queued behind it.
-            Event::Frame(..) => match self.tx.try_send(event) {
+            Event::Frame(..) | Event::PopupFrame(..) => match self.tx.try_send(event) {
                 Ok(()) | Err(TrySendError::Full(_)) => Ok(()),
                 Err(TrySendError::Disconnected(event)) => Err(SendError(event)),
             },
