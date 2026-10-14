@@ -108,10 +108,11 @@
 - **Wi-Fi after setup.** First-boot setup joins a network through
   `wpa_supplicant`, which saves it, but nothing in the session lists or
   joins networks afterwards: derisk's Settings has no Wi-Fi page yet.
-- **Two LosOS disks in one BIOS PC.** A BIOS boot finds root by its
-  partition label, `root-x86-64`, as no EFI variable names the disk
-  ([Boot loader](boot-loaders.md)). With two LosOS disks in one machine,
-  the kernel may mount the other disk's root.
+- **Two LosOS disks in one PC.** Root comes from the disk the boot loader
+  started from, under UEFI and a BIOS alike ([Boot loader](boot-loaders.md)),
+  but swap is found by its partition label, `losos-swap`
+  (`disk.nix`, `hibernate.nix`), so with two LosOS disks in one machine
+  swap may be the other disk's.
 - **sysext.** Extensions merge into `/usr`, which here holds little but the
   Nix store, so an extension can add a program and cannot replace one.
 - **Android apps.** `nixos/modules/atl.nix` has two options, both off by
