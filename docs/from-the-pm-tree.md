@@ -19,7 +19,7 @@
 | `user@.service.d/10-oomd.conf` | `systemd.oomd`, `systemd.slices.user` | |
 | `losos-security.service`, its D-Bus files | `services.nix` | same sandbox, line for line |
 | `50-losos-factory-reset.rules` | `security.polkit.extraConfig` in `disk.nix` | same rule |
-| `losos-selftest.service` | `testing.nix` | same kernel command line condition; `losos-ota-test.service` is gone, see `testing.nix` |
+| `losos-selftest.service`, `losos-ota-test.service` | nothing | no test booted with either; the selftest made an ordering cycle that could drop `boot-complete.target`, see `nixos/modules/default.nix` |
 | `recipes/10-core/losos-release` | `system.nixos.distroId`, `system.image.*` | NixOS writes os-release itself, with `IMAGE_VERSION` |
 | `manifest/architectures.yaml` | `losos.arch` in `options.nix` | x86_64 and aarch64 |
 | `tools/configure --version --channel` | `losos.version`, `losos.channel` | the flake derives the version from the commit date |
