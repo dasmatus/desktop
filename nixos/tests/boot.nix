@@ -162,6 +162,26 @@
               "org.freedesktop.DBus.Introspectable Introspect"
           )
 
+      with subtest("An update's GRUB replaces the one on the ESP"):
+          # losos-grub-update runs once the bless has, and records what it
+          # installed. A GRUB that is not this version's, and the
+          # systemd-boot older installs started with, are both replaced,
+          # and the reboot below starts the result.
+          machine.wait_for_unit("losos-grub-update.service")
+          machine.succeed(f"test -f {esp}/EFI/losos/installed")
+          grub = "${nodes.machine.system.build.grub.efi}/grub.efi"
+          machine.succeed(f"cmp {grub} {esp}/EFI/BOOT/BOOTX64.EFI")
+          machine.succeed(f"printf older >> {esp}/EFI/BOOT/BOOTX64.EFI")
+          machine.succeed(f"mkdir -p {esp}/EFI/systemd")
+          machine.succeed(
+              f"cp ${nodes.machine.systemd.package}/lib/systemd/boot/efi/systemd-bootx64.efi {esp}/EFI/systemd/"
+          )
+          machine.succeed(f"rm {esp}/EFI/losos/installed")
+          machine.succeed("systemctl restart losos-grub-update.service")
+          machine.succeed(f"cmp {grub} {esp}/EFI/BOOT/BOOTX64.EFI")
+          machine.succeed(f"cmp {grub} {esp}/EFI/systemd/systemd-bootx64.efi")
+          machine.succeed(f"test -f {esp}/EFI/losos/installed")
+
       with subtest("A counted UKI is blessed once it boots under UEFI GRUB"):
           # As boot-bios.nix checks it under a BIOS: the name sysupdate gives
           # a new UKI (update.nix), counted down in grubenv and settled by
