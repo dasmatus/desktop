@@ -115,13 +115,13 @@ one of each package compiles its whole static closure.
 
 ## Virtual machines
 
-The image runs libvirt (`nixos/modules/libvirt.nix`): QEMU for the machine's
-own architecture, with KVM where the CPU has it, managed by libvirtd, which
-starts on its socket the first time something connects and exits two minutes
-after the last machine stops. virt-manager and `virsh` use it as on any
-distribution. Administrators, the `wheel` members first-boot setup makes, may
-use `qemu:///system` without being asked; everyone else gets
-`qemu:///session`, where machines run as themselves.
+The image runs libvirt from boot (`nixos/modules/libvirt.nix`, [Virtual
+machine desktop](hypervisor.md)): QEMU for the machine's own architecture,
+with KVM where the CPU has it. virt-manager and `virsh` use it as on any
+distribution. `LIBVIRT_DEFAULT_URI` is `qemu:///system` for every session.
+Administrators, the `wheel` members first-boot setup makes, may manage
+machines there without being asked; everyone else is asked for an
+administrator's password.
 
 pm boots a package that ships its own kernel (`kernel(...)` in its recipe, see
 pm's README) in a virtual machine. On its own it starts QEMU itself, as you.
@@ -137,8 +137,7 @@ The plugin is a WebAssembly component like the rest, and it can reach nothing
 itself: it writes a transient domain definition and names one program,
 `virsh`, which `pm plugins` lists under `launchers:`, and pm runs
 `virsh create --console --autodestroy` with it. virsh connects where it always
-does: `LIBVIRT_DEFAULT_URI` when set, `qemu:///system` for an administrator,
-`qemu:///session` for everyone else. Under `qemu:///system` QEMU runs as
+does, `LIBVIRT_DEFAULT_URI`, which here is `qemu:///system`. There QEMU runs as
 libvirt's own user rather than as you, in its own cgroup and mount namespace
 with QEMU's seccomp sandbox on, and libvirt hands it the kernel, the
 initramfs and the two serial sockets for the life of the machine.
