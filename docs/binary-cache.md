@@ -20,7 +20,8 @@ fetches. It serves these from this project's GHCR namespace:
   `images:<channel>-<arch>`, which CI's publish job moves to each release
   that passed verification. CI sets `losos.update.baseUrl` to
   `<proxy>/updates/<channel>/<arch>/`, so sysupdate fetches manifests and
-  images through the proxy. Each nightly is also a GitHub release of its own
+  images through the proxy. The channels are `nightly` and `stable`, which
+  tagged releases are built for. Each release is also a GitHub release of its own
   ([Releases](releases.md)), but that splits files of 2 GiB or more into
   parts, which sysupdate could not fetch.
 - **The web flasher's files.** `/flasher/<channel>/<arch>/<file>` serves the

@@ -81,6 +81,11 @@
 
       proxyUrl = builtins.getEnv "LOSOS_PROXY_URL";
 
+      # The channel CI builds for (ci.yml): `nightly`, or `stable` for a
+      # tagged release. Empty outside Actions, where options.nix's default,
+      # nightly, stands.
+      channel = builtins.getEnv "LOSOS_CHANNEL";
+
       # The repository CI runs in, which is the one its releases go to.
       # Empty outside Actions, where options.nix's default stands.
       releaseRepo = builtins.getEnv "GITHUB_REPOSITORY";
@@ -100,6 +105,9 @@
         }
         // lib.optionalAttrs (releaseRepo != "") {
           losos.release.repository = lib.mkDefault releaseRepo;
+        }
+        // lib.optionalAttrs (channel != "") {
+          losos.channel = lib.mkDefault channel;
         };
 
       mkSystem =
