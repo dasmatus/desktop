@@ -1,0 +1,3 @@
+# What quickemu makes beside a config: the disk, the ISO put there by hand,
+# the firmware's variables and the TPM's state.
+/losos-desktop-*/

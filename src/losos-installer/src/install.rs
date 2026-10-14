@@ -238,6 +238,16 @@ fn download(plan: &Plan, disk: &str, events: &Sender<Event>) -> Result<(), Strin
             sysupdate()?;
         }
     }
+    // sysupdate exits 0 saying "No update needed" when no version has a
+    // source for every transfer, which is how a release missing a file looks
+    // (a release disk without x86_64's BIOS halves). The install then ended
+    // in "Installed" over an empty ESP and two empty slots.
+    if !has_uki(&linux) {
+        return Err(format!(
+            "systemd-sysupdate installed nothing: no release there has every file its transfers need ({} is empty)",
+            linux.display()
+        ));
+    }
     // After sysupdate, so a disk whose download failed is left with no boot
     // code that would start GRUB on an empty ESP.
     if let Some(program) = &plan.bios_boot {
@@ -245,6 +255,16 @@ fn download(plan: &Plan, disk: &str, events: &Sender<Event>) -> Result<(), Strin
         command(&program, &[disk], false, events)?;
     }
     Ok(())
+}
+
+/// Whether `dir` holds a UKI, without which the installed disk has nothing
+/// to boot.
+fn has_uki(dir: &Path) -> bool {
+    fs::read_dir(dir)
+        .into_iter()
+        .flatten()
+        .flatten()
+        .any(|entry| entry.path().extension().is_some_and(|ext| ext == "efi"))
 }
 
 /// The ESP's device node, from repart's JSON summary of the table it wrote.
