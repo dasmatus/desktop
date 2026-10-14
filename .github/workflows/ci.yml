@@ -485,7 +485,10 @@ jobs:
             echo "| --- | --- |"
           } >> "$GITHUB_STEP_SUMMARY"
           while read -r name; do
-            if [ -e "$(jq -r --arg n "$name" '.[$n]' checks.json)" ]; then
+            # A test passed when its output is a valid store path. Nix leaves
+            # a failed build's output on disk, unregistered, so the path
+            # merely existing proved nothing: every failure read as passed.
+            if nix path-info "$(jq -r --arg n "$name" '.[$n]' checks.json)" > /dev/null 2>&1; then
               result=passed
             elif [ "$status" = 124 ]; then
               result="did not finish in the time the job had left"
