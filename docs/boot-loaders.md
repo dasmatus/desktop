@@ -40,11 +40,16 @@ derisk and LosOS's WebUI share, so replacing that file replaces all of them.
 - **systemd-stub**: the UKI's `.splash`, the salmon and the name on black,
   centred while the kernel and initrd load, so the screen does not go dark
   between GRUB and Plymouth (`nixos/modules/splash.nix`).
-- **Plymouth** (`nixos/branding/splash.script`): the salmon in the middle of
-  the screen, "LosOS Desktop is starting" under it and a line that grows as
-  the boot gets on. A password or a question takes the caption's place. At
-  shutdown it says "is restarting" or "is shutting down". It runs from the
-  initrd until the login screen takes the display, and leaves its last frame
+- **Plymouth** (`nixos/branding/splash.script`): the salmon swimming in the
+  middle of the screen, "LosOS Desktop is starting" under it and a line that
+  grows as the boot gets on. The swim is 16 frames drawn at build time from
+  the one picture, a wave running from head to tail, one stroke a second,
+  with the fish rising and sinking a little. A password or a question takes
+  the caption's place. At shutdown it says "is restarting" or "is shutting
+  down". It runs from the initrd until the login screen takes the display.
+  Nothing on it appears at once: the screen fades in from the dark ground
+  when Plymouth starts, the caption and a prompt fade into each other, and
+  just before the login screen it fades back to the ground, which it leaves
   there for the greeter to draw over. Esc shows the boot log.
 
 ![Plymouth while the system starts: the salmon, "LosOS Desktop is starting" and the progress line in the accent colour under it](images/boot-splash.png)

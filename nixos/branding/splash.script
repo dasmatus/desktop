@@ -1,15 +1,21 @@
-# The boot screen, as LosOS's own starts: the salmon in the middle of the
-# dark ground, the system's name under it, and a line under that which
-# grows as the boot gets on.
+# The boot screen, as LosOS's own starts: the salmon swimming in the middle
+# of the dark ground, the system's name under it, and a line under that
+# which grows as the boot gets on.
 #
 # splash.nix puts the palette (ground, ink, muted, accent; each with .r .g
-# .b) and `name` ("LosOS Desktop", or "LosOS Desktop installer") above this
-# file.
+# .b), `name` ("LosOS Desktop", or "LosOS Desktop installer") and
+# `swim_frames`, how many pictures one stroke of the salmon's tail takes
+# (branding/default.nix draws them), above this file.
 #
 # The caption follows Plymouth's mode: "<name> is starting" while it boots,
 # "is restarting" or "is shutting down" at the end, "is updating" for
 # anything else. A password or a question takes the caption's place until it
 # is answered, and a message goes under the line.
+#
+# Nothing appears or goes at once. The screen fades in from the ground when
+# Plymouth starts and back to it when splash.nix says the login screen is
+# about to take over; the caption fades out and the prompt in, and back; the
+# line, the answer and a message fade as they come and go.
 
 Window.SetBackgroundTopColor(ground.r, ground.g, ground.b);
 Window.SetBackgroundBottomColor(ground.r, ground.g, ground.b);
@@ -33,40 +39,114 @@ fun centred (width)
   return Math.Int(screen.x + (screen.w - width) / 2);
 }
 
+# ── Fading ──────────────────────────────────────────────────────────────────
+
+# Plymouth calls the refresh function 50 times a second, so a fade is a
+# number of refreshes. Each thing that fades keeps how far in it is (0 to 1)
+# and where it is going, and is drawn at that eased into an S curve, times
+# how far the whole screen is in.
+fade_in_steps = 30;
+fade_out_steps = 20;
+
+fun eased (t)
+{
+  return t * t * (3 - 2 * t);
+}
+
+fun toward (t, want, steps)
+{
+  if (t < want)
+    return Math.Min(want, t + 1 / steps);
+  if (t > want)
+    return Math.Max(want, t - 1 / steps);
+  return t;
+}
+
+# The whole screen: in from the ground at the start, out to it at the end.
+veil.t = 0;
+veil.want = 1;
+veil.steps = fade_in_steps;
+
+fun shown (thing)
+{
+  return eased(thing.t) * eased(veil.t);
+}
+
 # ── The salmon ──────────────────────────────────────────────────────────────
 
-logo.original = Image("logo.png");
+# Every frame scaled once, here, rather than on every refresh.
+first = Image("swim-00.png");
 logo.h = Math.Int(screen.h * 0.2);
-logo.w = Math.Int(logo.original.GetWidth() * logo.h / logo.original.GetHeight());
-logo.sprite = Sprite(logo.original.Scale(logo.w, logo.h));
+logo.w = Math.Int(first.GetWidth() * logo.h / first.GetHeight());
+for (i = 0; i < swim_frames; i++)
+  {
+    if (i < 10)
+      file = "swim-0" + i + ".png";
+    else
+      file = "swim-" + i + ".png";
+    frames[i] = Image(file).Scale(logo.w, logo.h);
+  }
+logo.sprite = Sprite(frames[0]);
+logo.t = 1;
 # In the middle of the screen, with the caption and the line under it
 # counted in.
 logo.y = Math.Int(screen.y + (screen.h - logo.h - 4 * size) / 2);
-logo.sprite.SetPosition(centred(logo.w), logo.y, 1);
+logo.x = centred(logo.w);
+logo.sprite.SetPosition(logo.x, logo.y, 1);
+
+# One stroke of the tail a second, and the fish rising and sinking a little
+# in the water every four.
+swim_hold = Math.Max(1, Math.Int(50 / swim_frames));
+bob = Math.Max(2, Math.Int(logo.h * 0.03));
+ticks = 0;
+
+fun swim ()
+{
+  local.step = Math.Int(ticks / swim_hold);
+  logo.sprite.SetImage(frames[step - swim_frames * Math.Int(step / swim_frames)]);
+  logo.sprite.SetY(logo.y + Math.Int(bob * Math.Sin(ticks * 2 * 3.14159265 / 200)));
+}
 
 # ── The caption, and what takes its place ───────────────────────────────────
 
 caption.sprite = Sprite();
 caption.y = logo.y + logo.h + 2 * size;
-caption.h = 0;
+caption.h = Math.Int(size * 1.5);
+caption.text = "";
+caption.next = "";
+caption.t = 0;
+caption.want = 1;
 
-fun set_caption (text)
+fun draw_caption (text)
 {
   local.image = Image.Text(text, ink.r, ink.g, ink.b, 1, font("Bold ", 1.2));
   caption.sprite.SetImage(image);
   caption.sprite.SetPosition(centred(image.GetWidth()), caption.y, 2);
   global.caption.h = image.GetHeight();
+  global.caption.text = text;
+}
+
+# A new caption waits for the old one to fade out, then fades in.
+fun set_caption (text)
+{
+  if (caption.text == "")
+    draw_caption(text);
+  global.caption.next = text;
+  if (text != caption.text)
+    global.caption.want = 0;
 }
 
 # A password's bullets or a question's answer, where the line is.
 entry.sprite = Sprite();
+entry.t = 0;
+entry.want = 0;
 
 fun set_entry (text)
 {
   local.image = Image.Text(text, accent.r, accent.g, accent.b, 1, font("Bold ", 1.1));
   entry.sprite.SetImage(image);
   entry.sprite.SetPosition(centred(image.GetWidth()), caption.y + caption.h + size, 2);
-  entry.sprite.SetOpacity(1);
+  global.entry.want = 1;
 }
 
 # ── The line ────────────────────────────────────────────────────────────────
@@ -76,7 +156,8 @@ bar.sprite = Sprite();
 bar.width = Math.Int(Math.Min(logo.w * 1.2, screen.w - 2 * size));
 bar.height = Math.Max(3, Math.Int(size / 5));
 bar.drawn = 0;
-bar.shown = 0;
+bar.t = 0;
+bar.want = 0;
 
 # Plymouth reports progress many times a second; the line is redrawn only
 # when it has grown by a pixel.
@@ -89,33 +170,74 @@ fun draw_bar (fraction)
       global.bar.drawn = w;
     }
   bar.sprite.SetPosition(centred(bar.width), caption.y + caption.h + size, 2);
-  bar.sprite.SetOpacity(bar.shown);
 }
 
 # ── A message ───────────────────────────────────────────────────────────────
 
 message.sprite = Sprite();
+message.t = 0;
+message.want = 0;
 
 fun message_callback (text)
 {
   local.image = Image.Text(text, muted.r, muted.g, muted.b, 1, font("", 0.9));
   message.sprite.SetImage(image);
   message.sprite.SetPosition(centred(image.GetWidth()), caption.y + caption.h + 3 * size, 2);
-  message.sprite.SetOpacity(1);
+  global.message.want = 1;
 }
 
 fun hide_message_callback (text)
 {
-  message.sprite.SetOpacity(0);
+  global.message.want = 0;
+}
+
+# ── Every refresh ───────────────────────────────────────────────────────────
+
+fun refresh_callback ()
+{
+  global.ticks = ticks + 1;
+  swim();
+
+  global.veil.t = toward(veil.t, veil.want, veil.steps);
+  global.caption.t = toward(caption.t, caption.want, 12);
+  # The old caption has gone: the new one takes its place and comes in.
+  if (caption.t == 0 && caption.next != caption.text)
+    {
+      draw_caption(caption.next);
+      global.caption.want = 1;
+      # The line moves with the caption's height.
+      draw_bar(progress);
+    }
+  global.entry.t = toward(entry.t, entry.want, 12);
+  global.bar.t = toward(bar.t, bar.want, 20);
+  global.message.t = toward(message.t, message.want, 20);
+
+  logo.sprite.SetOpacity(shown(logo));
+  caption.sprite.SetOpacity(shown(caption));
+  entry.sprite.SetOpacity(shown(entry));
+  bar.sprite.SetOpacity(shown(bar));
+  message.sprite.SetOpacity(shown(message));
+}
+
+# splash.nix asks for this just before Plymouth lets go of the screen, and
+# waits for the fade before it does.
+fun update_status_callback (status)
+{
+  if (status == "losos-fade-out")
+    {
+      global.veil.want = 0;
+      global.veil.steps = fade_out_steps;
+    }
 }
 
 # ── Plymouth's calls ────────────────────────────────────────────────────────
 
 mode = Plymouth.GetMode();
+lined = 0;
 if (mode == "boot")
   {
     title = name + " is starting";
-    bar.shown = 1;
+    lined = 1;
   }
 else if (mode == "shutdown")
   title = name + " is shutting down";
@@ -125,6 +247,8 @@ else
   title = name + " is updating";
 set_caption(title);
 progress = 0;
+bar.want = lined;
+draw_bar(0);
 
 fun progress_callback (duration, fraction)
 {
@@ -140,24 +264,26 @@ fun password_callback (prompt, bullets)
   if (!prompt)
     prompt = "Password";
   set_caption(prompt);
-  bar.sprite.SetOpacity(0);
+  global.bar.want = 0;
   set_entry(dots + "_");
 }
 
 fun question_callback (prompt, answer)
 {
   set_caption(prompt);
-  bar.sprite.SetOpacity(0);
+  global.bar.want = 0;
   set_entry(answer + "_");
 }
 
 fun normal_callback ()
 {
   set_caption(title);
-  entry.sprite.SetOpacity(0);
-  draw_bar(progress);
+  global.entry.want = 0;
+  global.bar.want = lined;
 }
 
+Plymouth.SetRefreshFunction(refresh_callback);
+Plymouth.SetUpdateStatusFunction(update_status_callback);
 Plymouth.SetBootProgressFunction(progress_callback);
 Plymouth.SetDisplayPasswordFunction(password_callback);
 Plymouth.SetDisplayQuestionFunction(question_callback);

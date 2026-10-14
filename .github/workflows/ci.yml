@@ -865,7 +865,7 @@ jobs:
           cat > notes.md <<NOTES
           Built from $GITHUB_SHA, version \`$VERSION\`, for x86_64 and aarch64.
 
-          - **Install:** write \`*-installer.iso\` to a USB stick and boot it, or run the Windows installer on a PC that keeps Windows. Either installs the newest nightly over the network, which need not be this version.
+          - **Install:** write \`*-installer.iso\` to a USB stick and boot it, or run the Windows installer on a PC that keeps Windows. The ISO installs this version from this release over the network; the Windows installer installs the newest nightly.
           - **Update images:** the UKI (\`.efi\`) and the two halves of \`/usr\` (\`_usr-*.raw.xz\`) are what systemd-sysupdate installs. Installed systems fetch them from \`${PROXY_URL%/}/updates/nightly/<arch>/\`, which serves the newest nightly; these are the same files, pinned to this version.
           - **Disk image:** \`<arch>.raw.xz\`. Unpack it and write it to a disk, or convert it for a VM with \`qemu-img convert -O qcow2\`.
           - **Files of 2 GiB or more** are split into \`.part-00\`, \`.part-01\` and on, because GitHub rejects larger assets. \`cat <file>.part-* > <file>\` joins one.

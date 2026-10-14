@@ -1,6 +1,6 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 900 425" width="900" height="425" role="img">
 <title>What the installer ISO does</title>
-<desc>derisk installer owns the screen and the network and talks JSON lines to losos-installer serve, which owns the disks. The backend lays out the chosen disk with systemd-repart, fills slot A with systemd-sysupdate from the channel or from a LOSOS-RELEASE disk, writes GRUB on x86_64, and the machine reboots into the installed system.</desc>
+<desc>derisk installer owns the screen and the network and talks JSON lines to losos-installer serve, which owns the disks. The backend lays out the chosen disk with systemd-repart, fills slot A with systemd-sysupdate from the GitHub release of its own version, the channel when there is none, or a LOSOS-RELEASE disk, writes GRUB on x86_64, and the machine reboots into the installed system.</desc>
 <style>
 text { font-family: Inter, "Segoe UI", system-ui, -apple-system, "Helvetica Neue", Arial, sans-serif; font-size: 14px; fill: #e5e7eb; }
 .b { font-weight: 600; }
@@ -12,7 +12,7 @@ text { font-family: Inter, "Segoe UI", system-ui, -apple-system, "Helvetica Neue
 <defs><marker id="h38bdf8" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M0,0 L10,5 L0,10 z" fill="#38bdf8"/></marker><marker id="t38bdf8" viewBox="0 0 10 10" refX="1" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M10,0 L0,5 L10,10 z" fill="#38bdf8"/></marker><marker id="h9aa8bc" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M0,0 L10,5 L0,10 z" fill="#9aa8bc"/></marker><marker id="t9aa8bc" viewBox="0 0 10 10" refX="1" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M10,0 L0,5 L10,10 z" fill="#9aa8bc"/></marker><marker id="hfbbf24" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M0,0 L10,5 L0,10 z" fill="#fbbf24"/></marker><marker id="tfbbf24" viewBox="0 0 10 10" refX="1" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M10,0 L0,5 L10,10 z" fill="#fbbf24"/></marker></defs>
 <rect width="900" height="425" rx="12" fill="#0f1524"/>
 <text x="25" y="34" class="t">An install is an update into an empty slot</text>
-<text x="25" y="55" class="s">What lands on the disk is what the channel serves at the time, not a copy of the medium.</text>
+<text x="25" y="55" class="s">What lands on the disk is the ISO's own GitHub release, downloaded, not a copy on the medium.</text>
 <rect x="25" y="90" width="210" height="74" rx="8" fill="#1d2a1c" stroke="#a3e635" stroke-width="1.5"/>
 <text x="130.0" y="115.5" class="b" text-anchor="middle">derisk installer</text>
 <text x="130.0" y="131.5" class="s" text-anchor="middle">tty1, the screen</text>
@@ -42,8 +42,8 @@ text { font-family: Inter, "Segoe UI", system-ui, -apple-system, "Helvetica Neue
 <path d="M480,252 L480,262" fill="none" stroke="#9aa8bc" stroke-width="1.6" marker-end="url(#h9aa8bc)"/>
 <path d="M480,316 L480,326" fill="none" stroke="#9aa8bc" stroke-width="1.6" marker-end="url(#h9aa8bc)"/>
 <rect x="683" y="235" width="202" height="58" rx="8" fill="#2d2614" stroke="#fbbf24" stroke-width="1.5"/>
-<text x="784.0" y="260.0" class="b" text-anchor="middle">The channel</text>
-<text x="784.0" y="277.0" class="s" text-anchor="middle">signed, over the network</text>
+<text x="784.0" y="260.0" class="b" text-anchor="middle">Its GitHub release</text>
+<text x="784.0" y="277.0" class="s" text-anchor="middle">signed; else the channel</text>
 <rect x="683" y="310" width="202" height="72" rx="8" fill="#2d2614" stroke="#fbbf24" stroke-width="1.5" stroke-dasharray="5 4"/>
 <text x="784.0" y="334.5" class="b" text-anchor="middle">A LOSOS-RELEASE disk</text>
 <text x="784.0" y="350.5" class="s" text-anchor="middle">checked with gpg first</text>

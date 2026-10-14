@@ -1,6 +1,7 @@
 # The boot screen: Plymouth, with a theme (nixos/branding/splash.script)
-# that draws the salmon LosOS boots behind on the dark ground, the system's
-# name under it and a line that grows as the boot gets on. Imported by the
+# that draws the salmon LosOS boots behind swimming on the dark ground, the
+# system's name under it and a line that grows as the boot gets on, and
+# fades each of them in and out. Imported by the
 # PC image (default.nix) and by the installer's live system, which then
 # reads "LosOS Desktop installer is starting" (docs/boot-loaders.md).
 #
@@ -62,16 +63,19 @@ let
       ''
         dir=$out/share/plymouth/themes/losos
         mkdir -p $dir
-        cp ${art}/logo.png $dir/logo.png
+        for f in ${art}/swim/*.png; do
+          cp $f $dir/swim-$(basename $f)
+        done
         magick -size 8x8 xc:'${accent}' PNG24:$dir/accent.png
         cat > $dir/losos.script <<'EOF'
         ${colour "ground" ground}${colour "ink" ink}${colour "muted" muted}${colour "accent" accent}name = "${name}";
+        swim_frames = ${toString art.swimFrames};
         EOF
         cat ${../branding/splash.script} >> $dir/losos.script
         cat > $dir/losos.plymouth <<EOF
         [Plymouth Theme]
         Name=LosOS
-        Description=The salmon, the system's name and how far the boot has got
+        Description=The salmon swimming, the system's name and how far the boot has got
         ModuleName=script
 
         [script]
@@ -120,12 +124,25 @@ in
     "plymouth.ignore-serial-consoles"
   ];
 
-  # The last frame stays on the screen when Plymouth lets go of it, until
-  # the login screen or the installer draws its first (desktop.nix and
-  # the installer order themselves after this), rather than a moment of
-  # black console between the two.
-  systemd.services.plymouth-quit.serviceConfig.ExecStart = [
-    ""
-    "-${plymouth}/bin/plymouth quit --retain-splash"
-  ];
+  # The splash fades out to the bare ground before Plymouth lets go of the
+  # screen: the theme hears losos-fade-out, and the half-second wait covers
+  # its 20 refreshes with a little to spare for a slow machine. That last
+  # frame, the ground alone, then stays on the screen until the login screen
+  # or the installer draws its first (desktop.nix and the installer order
+  # themselves after this), rather than a moment of black console between the
+  # two. Plymouth fades in by itself when it starts, at boot and at shutdown
+  # alike.
+  systemd.services.plymouth-quit.serviceConfig = {
+    # Only when Plymouth is showing anything, so a boot without the splash
+    # does not wait for a fade nobody sees.
+    ExecStartPre = "-${pkgs.writeShellScript "losos-splash-fade-out" ''
+      ${plymouth}/bin/plymouth --ping || exit 0
+      ${plymouth}/bin/plymouth update --status=losos-fade-out
+      exec ${pkgs.coreutils}/bin/sleep 0.5
+    ''}";
+    ExecStart = [
+      ""
+      "-${plymouth}/bin/plymouth quit --retain-splash"
+    ];
+  };
 }
