@@ -127,18 +127,16 @@
   error until both are fixed. Because both options are off, `nix flake
   check` never realises the package, so the bring-up can land and mature
   without gating the image.
-  **APKs run unsandboxed.** ATL runs an app's dex and native code as an
-  ordinary process of the session user: Android's per-app UID, permission
-  model and SELinux domain are not there, so a malicious APK has the reach of
-  any native program the user runs, including their home, their Wayland
-  session, the agent socket and the network. For that reason the default
-  `.apk` handler is a second, separate opt-in, `losos.android.openApks`, off
-  by default, so "open a downloaded file" never silently means "run untrusted
-  code"; with it off an APK is run only by someone who chose to launch ATL on
-  it. The real fix is a sandboxed launcher (bubblewrap with the usual
-  namespaces and a restricted filesystem view, or a confined transient
-  systemd user unit), which ATL's own README lists as future work. That is
-  not done; until it is, turn `openApks` on knowingly.
+  **APKs run in a sandbox that is not Android's.** Opening an `.apk`
+  starts ATL through `losos-android-run`, under bubblewrap: the app sees the
+  Nix store, `/etc` and the GPU read-only, a home of its own under
+  `~/.local/share/losos/android/`, the Wayland and PipeWire sockets, the
+  desktop portals through `xdg-dbus-proxy`, and the network, and none of
+  the user's files, other sockets or session environment. That was checked
+  with a stand-in for ATL, since ATL does not build yet. Android's per-app
+  permissions are still not there: every app has the network, and through
+  PipeWire the microphone, so `openApks`, which makes opening a file run
+  it, stays a separate choice.
 - **Booted under QEMU only.** Every CI run boots the x86_64 image in QEMU
   (`nix flake check`, [Boot loader](boot-loaders.md) "Tested"), under UEFI and
   under SeaBIOS: first boot lays out the disk with systemd-repart, root is
