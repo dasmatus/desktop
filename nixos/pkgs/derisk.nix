@@ -1,6 +1,9 @@
 # derisk, the desktop: an adaptive, agent-first Wayland shell on mcsapi's
 # Smithay compositor, with its core apps (Files, Settings, Text Editor, System
-# Monitor, Calculator) built into the same binary.
+# Monitor, Calculator) built into the same binary. `derisk-gpui` goes beside
+# it: the same core apps as GPUI windows, and the portal's consent dialog
+# (`derisk-gpui ask`), which xdg-desktop-portal-derisk runs instead of GTK's
+# access dialog when it finds the binary next to `derisk` (docs/index.md).
 #
 # Pinned by the components/derisk submodule and moved by hand, like pm, because both derisk and the
 # mcsapi it builds against are moving fast. mcsapi comes in through
@@ -20,14 +23,22 @@
   seatd,
   libdrm,
   linux-pam,
+  # derisk-gpui's GPUI (Sonne's) links these, and finds the rest below at
+  # run time.
+  fontconfig,
+  libx11,
+  libxcb,
+  libxcursor,
+  libxi,
+  libxrandr,
+  vulkan-loader,
   graphene-hardened-malloc,
   # mcsapi-hardened-malloc as the global allocator (nixos/modules/allocator.nix
   # turns it on where the system preloads hardened_malloc).
   withHardenedMalloc ? false,
 }:
 
-rustPlatform.buildRustPackage {
-  pname = "derisk";
+let
   version = "0.1.0-unstable-2026-10-08";
 
   # The components/derisk submodule, at the commit this tree records for it
@@ -39,6 +50,79 @@ rustPlatform.buildRustPackage {
   };
 
   cargoHash = "sha256-IMPIybHZzqccfinVzIRdDdJstKu6qFiKUkTQ2hwm8EI=";
+
+  # derisk-gpui, as a cargo build of its own. It cannot share derisk's: the
+  # portal talks to xdg-desktop-portal through ashpd on tokio, and Sonne's
+  # GPUI through the same ashpd on async-io, and cargo unifies features
+  # across one build, where ashpd refuses both at once. Two builds in one
+  # derivation would still share a target directory and fight over it, so
+  # this is a second package, vendoring the same Cargo.lock under the same
+  # name so the vendor derivation is one store path.
+  gpui = rustPlatform.buildRustPackage {
+    pname = "derisk-gpui";
+    inherit version src cargoHash;
+    cargoDepsName = "derisk-${version}";
+
+    # `gpui` is what makes it a binary at all: the crate is otherwise only
+    # its list of ported apps, which derisk reads.
+    cargoBuildFlags = [
+      "-p"
+      "derisk-gpui"
+    ];
+    buildFeatures = [ "derisk-gpui/gpui" ];
+
+    # derisk-plugin is among its dependencies, so its build.rs compiles the
+    # bundled WebAssembly plugins here too, with lld as below.
+    nativeBuildInputs = [
+      pkg-config
+      lld
+    ];
+    # Its X11 backend (x11rb, and zed-scap's xcb for screen capture) links
+    # libxcb and libX11; libxkbcommon-x11 is in libxkbcommon. Its font list
+    # comes from fontconfig, which yeslogic-fontconfig-sys asks pkg-config
+    # for at build time and then loads by name. FreeType is compiled in
+    # (freetype-sys builds its own).
+    buildInputs = [
+      libxkbcommon
+      libxcb
+      libx11
+      fontconfig
+    ];
+
+    # GPUI dlopens libwayland-client, fontconfig (for the system's font
+    # list), Vulkan's loader (the ICDs come from hardware.graphics) and,
+    # under XWayland or an X11 session, the X11 libraries x11rb and its
+    # cursor code look up by name.
+    postFixup = ''
+      patchelf --add-rpath ${
+        lib.makeLibraryPath [
+          wayland
+          libxkbcommon
+          libGL
+          fontconfig
+          vulkan-loader
+          libxcb
+          libx11
+          libxcursor
+          libxi
+          libxrandr
+        ]
+      } $out/bin/derisk-gpui
+    '';
+
+    meta = {
+      description = "derisk's core apps as GPUI windows, and the portal's consent dialog";
+      homepage = "https://github.com/dasmatus/derisk";
+      license = lib.licenses.gpl3Only;
+      platforms = lib.platforms.linux;
+      mainProgram = "derisk-gpui";
+    };
+  };
+in
+
+rustPlatform.buildRustPackage {
+  pname = "derisk";
+  inherit version src cargoHash;
 
   # derisk and its portal backend, xdg-desktop-portal-derisk. `host` is the
   # compositor; without it the binary has only the headless commands. It is
@@ -91,6 +175,10 @@ rustPlatform.buildRustPackage {
   # The units call plain `derisk`; give them the store path so they work
   # without the user's PATH.
   postInstall = ''
+    # derisk and the portal look for derisk-gpui beside their own executable
+    # (derisk's host::gpui_apps, derisk-portal's access::dialog_program).
+    ln -s ${gpui}/bin/derisk-gpui $out/bin/derisk-gpui
+
     install -Dm644 -t $out/lib/systemd/user crates/derisk/data/systemd/user/* crates/derisk-portal/data/systemd/user/*
     substituteInPlace $out/lib/systemd/user/derisk-agent.service \
       --replace-fail "ExecStart=derisk " "ExecStart=$out/bin/derisk "
@@ -105,6 +193,8 @@ rustPlatform.buildRustPackage {
     substituteInPlace $out/lib/systemd/user/xdg-desktop-portal-derisk.service \
       --replace-fail "ExecStart=xdg-desktop-portal-derisk" "ExecStart=$out/bin/xdg-desktop-portal-derisk"
   '';
+
+  passthru.gpui = gpui;
 
   meta = {
     description = "Adaptive, agent-first Wayland desktop environment built on mcsapi";

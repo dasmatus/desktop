@@ -66,8 +66,7 @@
   Bluetooth or power profiles, so those are left off. The gnome-control-center patches above
   have no Settings app to go into any more.
 - **derisk's portal has gaps.** derisk's portal backend has no
-  area or color picker and does not set the lock screen's picture; it asks
-  for consent through GTK's access dialog, not one of its own. Screen
+  area or color picker and does not set the lock screen's picture. Screen
   sharing (xdg-desktop-portal-wlr) copies frames into shared memory, not
   dma-bufs, and a shared window is cut out of the screen, so anything
   covering it is shared too.
