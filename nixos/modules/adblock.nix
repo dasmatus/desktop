@@ -93,7 +93,18 @@ in
     systemd.sockets.losos-adblock = {
       description = "losos-adblock DNS forwarder";
       wantedBy = [ "sockets.target" ];
-      before = [ "systemd-resolved.service" ];
+      # resolved starts before sysinit.target, and a socket's default
+      # dependencies order it after sysinit.target, so ordering this one
+      # before resolved made a cycle systemd broke by dropping resolved's
+      # start. Without them it is ready as early as resolved needs it; a
+      # loopback address with FreeBind needs nothing mounted or up.
+      unitConfig.DefaultDependencies = false;
+      before = [
+        "systemd-resolved.service"
+        "sockets.target"
+        "shutdown.target"
+      ];
+      conflicts = [ "shutdown.target" ];
       listenDatagrams = [ "${address}:53" ];
       listenStreams = [ "${address}:53" ];
       socketConfig.FreeBind = true;
