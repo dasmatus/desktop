@@ -79,7 +79,20 @@ in
   fileSystems."/" = {
     device = "/dev/disk/by-partlabel/losos-guest";
     fsType = "ext4";
+    # ext4 grows while mounted, once repart has made the partition larger.
+    autoResize = true;
   };
+
+  # A machine's disk is larger than the template that is its base, and the
+  # root partition takes the rest of it the first time the machine boots.
+  # The disk is always vda: pm's libvirt plugin gives a machine one virtio
+  # disk and nothing else. Partitions repart has no definition for, the
+  # ESP, are left as they are.
+  boot.initrd.systemd.repart = {
+    enable = true;
+    device = "/dev/vda";
+  };
+  systemd.repart.partitions.root.Type = "root";
 
   image.repart = {
     enable = true;
@@ -100,11 +113,10 @@ in
           Type = "root";
           Format = "ext4";
           Label = "losos-guest";
-          # A machine's disk is an overlay as large as its template, and
-          # pm cannot grow it, so this is how much room a machine has for
-          # its apps and files. Empty space costs nothing in the template:
-          # the qcow2 machines.nix makes holds only what is written.
-          SizeMinBytes = "32G";
+          # As small as the store allows: a machine's disk is as large as
+          # its owner asks (`pm machine create --disk`, 32 GiB unless told
+          # otherwise), and the first boot grows the root into it, below.
+          Minimize = "guess";
         };
       };
     };

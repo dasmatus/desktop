@@ -67,11 +67,13 @@ image's own package set and turns it into the template. An update brings a
 new template; machines made from the old one keep it.
 
 The guest boots its UKI from the ESP's fallback path, with no boot loader,
-and its root is one ext4 partition of 32 GiB holding the Nix store and its
-state. A machine's disk is an overlay as large as its template, so 32 GiB is
-the room a machine has; the qcow2 holds only what the build wrote (0.96 GB
-for the reduced build tested below, more with the apps it left out). It
-has:
+and its root is one ext4 partition holding the Nix store and its state,
+made as small as the store allows. A machine's disk is as large as
+`pm machine create --disk` says, 32 GiB unless told otherwise, and on its
+first boot systemd-repart in the initrd grows the root partition over the
+rest of it and ext4 grows with it. The qcow2 holds only what the build
+wrote (0.96 GB for the reduced build tested below, more with the apps it
+left out). It has:
 
 - **the QEMU guest agent**, through which the host starts apps;
 - **one account, `user`**, with no password, whose systemd manager runs from
@@ -104,7 +106,8 @@ there through the agent:
 
 Booted from the template under libvirt with TCG (no KVM, no network and no
 vsock device), a reduced build of the guest without Danube, Flatpak and
-the Calculator answered the agent 80 seconds after start. `--list` listed
+the Calculator answered the agent within two minutes of start, its root
+grown from the template's 3.3 GiB to fill an 8 GiB disk. `--list` listed
 foot's three desktop entries, and `losos-guest-run foot` started foot in
 the user's manager, where it connected to the waypipe server; waypipe then
 failed to reach the host, because that machine had no vsock device.

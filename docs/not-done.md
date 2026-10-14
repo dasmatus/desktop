@@ -17,7 +17,8 @@
   It is a whole second NixOS in `/usr`, so it carries its own copy of store
   paths the host has too (Mesa, Danube, fonts) and takes that room from the
   8 GiB `/usr` slot; giving machines the host's store over virtiofs would
-  save it. A machine's disk cannot grow past the template's 32 GiB.
+  save it. A machine's disk grows into the size it was made with, once;
+  nothing makes an existing machine's disk larger.
   Portal dialogs (a Flatpak's file chooser) in a machine are GTK's, drawn
   through the same waypipe, and have not been tried.
 - **A complete image build.** CI builds release images within its runner time
