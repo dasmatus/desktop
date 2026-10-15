@@ -9,6 +9,9 @@
 
 { lib, ... }:
 
+let
+  image = import ./image.nix { inherit self; };
+in
 {
   name = "losos-desktop-hibernate";
 
@@ -22,17 +25,7 @@
       ...
     }:
     {
-      imports = [ self.nixosModules.default ];
-
-      losos.version = "1";
-
-      # The boot tests build three disks from the image, and the guest
-      # template in each was what ran CI's runner out of space; booting the
-      # image does not use it, and tests/machines.nix tests it on its own.
-      losos.machines.templates = false;
-
-      services.homed.promptOnFirstBoot = lib.mkForce false;
-      systemd.services.derisk-setup.enable = false;
+      imports = [ image.node ];
 
       # QEMU's SMBIOS says "Other". hostnamed, and hibernate.nix, take
       # /etc/machine-info's word over the firmware's.
@@ -64,47 +57,22 @@
       '';
 
       virtualisation = {
-        directBoot.enable = false;
-        mountHostNixStore = false;
         # The driver's shared directories are virtio-fs devices, and
         # virtio-fs refuses to freeze, so the kernel abandons the
         # hibernation with EOPNOTSUPP. Nothing here mounts them anyway.
         sharedDirectories = lib.mkForce { };
-        useEFIBoot = true;
-        fileSystems = lib.mkVMOverride { };
         # The image the kernel writes is the RAM in use, so less RAM is a
         # shorter test. losos-swap sizes swap to match.
         memorySize = 2048;
         tpm.enable = true;
       };
-
-      boot.initrd.systemd.repart.device = "/dev/vda";
-      boot.initrd.systemd.services.systemd-repart.after = lib.mkForce [ "dev-vda.device" ];
-
-      swapDevices = lib.mkVMOverride [
-        {
-          device = "/dev/mapper/swap";
-          options = [ "nofail" ];
-        }
-      ];
     };
 
   testScript =
     { nodes, ... }:
-    ''
-      import os
+    image.disk nodes.machine
+    + ''
       import re
-      import subprocess
-      import tempfile
-
-      tmp = tempfile.NamedTemporaryFile()
-      subprocess.run([
-        "${nodes.machine.virtualisation.qemu.package}/bin/qemu-img", "create",
-        "-f", "qcow2", "-F", "raw",
-        "-b", "${nodes.machine.system.build.disk}/${nodes.machine.image.filePath}",
-        tmp.name, "32G",
-      ], check=True)
-      os.environ["NIX_DISK_IMAGE"] = tmp.name
 
       machine.wait_for_unit("multi-user.target")
 

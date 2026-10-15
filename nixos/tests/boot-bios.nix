@@ -7,6 +7,9 @@
 
 { lib, ... }:
 
+let
+  image = import ./image.nix { inherit self; };
+in
 {
   name = "losos-desktop-boot-bios";
 
@@ -14,58 +17,18 @@
   # read-only package set would refuse.
   node.pkgsReadOnly = false;
 
-  nodes.machine =
-    { lib, ... }:
-    {
-      imports = [ self.nixosModules.default ];
-
-      losos.version = "1";
-
-      # The boot tests build three disks from the image, and the guest
-      # template in each was what ran CI's runner out of space; booting the
-      # image does not use it, and tests/machines.nix tests it on its own.
-      losos.machines.templates = false;
-
-      # As in boot.nix: nobody is at the seat to answer first-boot setup.
-      services.homed.promptOnFirstBoot = lib.mkForce false;
-      systemd.services.derisk-setup.enable = false;
-
-      # Started by the BIOS from the image's own disk, with no EFI firmware.
-      virtualisation = {
-        directBoot.enable = false;
-        mountHostNixStore = false;
-        useEFIBoot = false;
-        fileSystems = lib.mkVMOverride { };
-        memorySize = 3072;
-        # A second disk, made to look like another LosOS disk's root below.
-        emptyDiskImages = [ 256 ];
-      };
-
-      boot.initrd.systemd.repart.device = "/dev/vda";
-      boot.initrd.systemd.services.systemd-repart.after = lib.mkForce [ "dev-vda.device" ];
-      swapDevices = lib.mkVMOverride [
-        {
-          device = "/dev/mapper/swap";
-          options = [ "nofail" ];
-        }
-      ];
-    };
+  nodes.machine = {
+    imports = [ image.node ];
+    # Started by the BIOS from the image's own disk, with no EFI firmware.
+    virtualisation.useEFIBoot = false;
+    # A second disk, made to look like another LosOS disk's root below.
+    virtualisation.emptyDiskImages = [ 256 ];
+  };
 
   testScript =
     { nodes, ... }:
-    ''
-      import os
-      import subprocess
-      import tempfile
-
-      tmp = tempfile.NamedTemporaryFile()
-      subprocess.run([
-        "${nodes.machine.virtualisation.qemu.package}/bin/qemu-img", "create",
-        "-f", "qcow2", "-F", "raw",
-        "-b", "${nodes.machine.system.build.disk}/${nodes.machine.image.filePath}",
-        tmp.name, "32G",
-      ], check=True)
-      os.environ["NIX_DISK_IMAGE"] = tmp.name
+    image.disk nodes.machine
+    + ''
 
       machine.wait_for_unit("multi-user.target")
 
