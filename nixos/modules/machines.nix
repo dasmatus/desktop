@@ -10,6 +10,7 @@
 # release built; an update brings a new one, which new machines are made
 # from while machines made earlier keep the template they were made from.
 {
+  config,
   lib,
   pkgs,
   modulesPath,
@@ -46,11 +47,24 @@ let
       '';
 in
 {
-  environment.systemPackages = [ templates ];
-  environment.pathsToLink = [ "/share/losos/machines" ];
+  options.losos.machines.templates = lib.mkOption {
+    type = lib.types.bool;
+    default = true;
+    description = ''
+      Whether the image carries its machine templates. Off only where a
+      system boots the image for something else: a template is a whole
+      guest's store, and every disk built from the image copies it again.
+    '';
+  };
 
-  system.build = {
-    guestSystem = guest;
-    machineTemplates = templates;
+  config = {
+    environment.systemPackages = lib.mkIf config.losos.machines.templates [ templates ];
+    environment.pathsToLink = [ "/share/losos/machines" ];
+
+    # Buildable on their own whether or not the image carries them.
+    system.build = {
+      guestSystem = guest;
+      machineTemplates = templates;
+    };
   };
 }
