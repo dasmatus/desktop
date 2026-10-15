@@ -34,7 +34,9 @@ let
       gnused
       systemd
     ];
-    text = builtins.replaceStrings [ "@user@" ] [ user ] (builtins.readFile ./losos-guest-run.sh);
+    text = builtins.replaceStrings [ "@user@" "@display@" ] [ user "wayland-0" ] (
+      builtins.readFile ./losos-guest-run.sh
+    );
   };
 
   # derisk's Calculator, the one core app that runs as a window of its own
