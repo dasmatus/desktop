@@ -206,10 +206,11 @@ remembered; remembered answers are lines in `~/.config/danube/permissions`
 ## Captive portals
 
 `danube captive-watch`, a user service in every session, rechecks the
-network whenever systemd-networkd's state changes: it fetches
-`losos.captivePortal.checkUrl` over plain HTTP, which a portal intercepts,
-and compares the answer with `losos.captivePortal.expect`. Anything else
-means a portal, and it opens `danube --captive-portal`: one window titled
+network whenever systemd-networkd's state changes: it fetches GNOME's
+check, `http://nmcheck.gnome.org/check_network_status.txt`, over plain HTTP,
+which a portal intercepts, sending the request line, the host and "Danube"
+as the User-Agent and nothing else. Any answer but a 200 saying
+"NetworkManager is online" means a portal, and it opens `danube --captive-portal`: one window titled
 "Sign in to network", no tabs, a profile that ends with the window, and no
 content blockers, since a portal's page is often built from what they
 block. That window checks again every three seconds and closes itself once

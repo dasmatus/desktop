@@ -56,26 +56,11 @@ in
       default = true;
       description = ''
         Check for a captive portal whenever the network changes, and open
-        Danube's sign-in window when one is in the way.
+        Danube's sign-in window when one is in the way. The check is
+        GNOME's, as NetworkManager's GNOME setup uses (captive.rs); the
+        `checkUrl` and `expect` options that chose another went, since
+        nothing set them.
       '';
-    };
-
-    checkUrl = lib.mkOption {
-      type = lib.types.str;
-      default = "http://nmcheck.gnome.org/check_network_status.txt";
-      description = ''
-        A plain-HTTP URL that answers `expect` (or 204 with no body, when
-        `expect` is empty) when the network lets traffic through. A portal
-        intercepts it and answers something else. GNOME's, by default, as
-        NetworkManager's GNOME setup uses; each check sends the request
-        line, the host and "Danube" as the User-Agent, nothing else.
-      '';
-    };
-
-    expect = lib.mkOption {
-      type = lib.types.str;
-      default = "NetworkManager is online";
-      description = "The body `checkUrl` answers with when online.";
     };
   };
 
@@ -83,10 +68,6 @@ in
     environment.systemPackages = [ pkgs.danube ];
 
     environment.etc."danube/settings.conf".text = settings;
-    environment.etc."danube/captive-portal.conf".text = ''
-      url = ${portal.checkUrl}
-      expect = ${portal.expect}
-    '';
 
     # One per session: it opens a window, so it runs as the person signed
     # in, and only while their desktop does.

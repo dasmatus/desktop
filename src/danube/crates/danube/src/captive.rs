@@ -3,44 +3,26 @@
 //!
 //! `danube captive-watch` runs in each session (a user service from
 //! nixos/modules/danube.nix). Whenever systemd-networkd's state changes it
-//! fetches the check URL (`losos.captivePortal.checkUrl`) over plain HTTP,
-//! which a portal intercepts. An answer other than the expected one means a
-//! portal is in the way, and it opens `danube --captive-portal`: one
-//! window, no tabs, a throwaway profile and no content blockers, which
-//! closes by itself once the check passes. The desktop entry's "Sign in to
-//! network" action opens the same window by hand.
+//! fetches [`CHECK_URL`] over plain HTTP, which a portal intercepts. An
+//! answer other than [`EXPECT`] means a portal is in the way, and it opens
+//! `danube --captive-portal`: one window, no tabs, a throwaway profile and
+//! no content blockers, which closes by itself once the check passes. The
+//! desktop entry's "Sign in to network" action opens the same window by
+//! hand.
 
 use std::io::{Read, Write};
 use std::net::{TcpStream, ToSocketAddrs};
 use std::time::Duration;
 
-/// What the check URL is expected to answer.
-#[derive(Clone, Debug)]
-pub struct Check {
-    pub url: String,
-    /// The body of a 200 answer when online; empty means a 204 is expected.
-    pub expect: String,
-}
+/// GNOME's check, as NetworkManager's GNOME setup uses; each check sends
+/// the request line, the host and "Danube" as the User-Agent, nothing
+/// else. It and [`EXPECT`] were NixOS options, written to
+/// /etc/danube/captive-portal.conf, which nothing ever set.
+pub const CHECK_URL: &str = "http://nmcheck.gnome.org/check_network_status.txt";
 
-impl Check {
-    /// The check from `/etc/danube/captive-portal.conf` (`url = ...`,
-    /// `expect = ...`), which the NixOS module writes.
-    pub fn load() -> Option<Self> {
-        let text = std::fs::read_to_string("/etc/danube/captive-portal.conf").ok()?;
-        let mut check = Check {
-            url: String::new(),
-            expect: String::new(),
-        };
-        for (key, value) in text.lines().filter_map(|l| l.split_once('=')) {
-            match key.trim() {
-                "url" => check.url = value.trim().into(),
-                "expect" => check.expect = value.trim().into(),
-                _ => {}
-            }
-        }
-        (!check.url.is_empty()).then_some(check)
-    }
-}
+/// The body of [`CHECK_URL`]'s 200 answer when the network lets traffic
+/// through.
+const EXPECT: &str = "NetworkManager is online";
 
 #[derive(Debug, PartialEq, Eq)]
 pub enum Verdict {
@@ -67,7 +49,7 @@ fn parse(url: &str) -> Option<(String, u16, String)> {
 }
 
 /// Reads an HTTP answer's status and body.
-pub fn judge(response: &[u8], expect: &str) -> Verdict {
+fn judge(response: &[u8]) -> Verdict {
     let text = String::from_utf8_lossy(response);
     let Some((head, body)) = text.split_once("\r\n\r\n") else {
         return Verdict::Portal;
@@ -77,20 +59,15 @@ pub fn judge(response: &[u8], expect: &str) -> Verdict {
         .nth(1)
         .and_then(|s| s.parse().ok())
         .unwrap_or(0);
-    let online = if expect.is_empty() {
-        status == 204
-    } else {
-        status == 200 && body.trim() == expect.trim()
-    };
-    if online {
+    if status == 200 && body.trim() == EXPECT {
         Verdict::Online
     } else {
         Verdict::Portal
     }
 }
 
-pub fn check(check: &Check) -> Verdict {
-    let Some((host, port, path)) = parse(&check.url) else {
+pub fn check() -> Verdict {
+    let Some((host, port, path)) = parse(CHECK_URL) else {
         return Verdict::Offline;
     };
     let Some(addr) = (host.as_str(), port)
@@ -116,7 +93,7 @@ pub fn check(check: &Check) -> Verdict {
     if response.is_empty() {
         return Verdict::Offline;
     }
-    judge(&response, &check.expect)
+    judge(&response)
 }
 
 /// The networkd state file, rewritten on every change of state.
@@ -124,7 +101,7 @@ const NETWORK_STATE: &str = "/run/systemd/netif/state";
 
 /// Watches for network changes and opens the sign-in window when a portal
 /// is in the way. Runs until killed.
-pub fn watch(check_: Check, danube: &std::path::Path) -> ! {
+pub fn watch(danube: &std::path::Path) -> ! {
     let mut last = None;
     loop {
         let state = std::fs::read_to_string(NETWORK_STATE).ok();
@@ -135,7 +112,7 @@ pub fn watch(check_: Check, danube: &std::path::Path) -> ! {
                 .is_some_and(|s| s.contains("OPER_STATE=routable"));
             // A just-joined network may take a moment to hand out DNS.
             std::thread::sleep(Duration::from_secs(2));
-            if routable && check(&check_) == Verdict::Portal {
+            if routable && check() == Verdict::Portal {
                 tracing::info!("a captive portal is in the way; opening the sign-in window");
                 match std::process::Command::new(danube)
                     .arg("--captive-portal")
@@ -157,28 +134,15 @@ mod tests {
     #[test]
     fn judges_answers() {
         assert_eq!(
-            judge(b"HTTP/1.1 204 No Content\r\n\r\n", ""),
-            Verdict::Online
-        );
-        assert_eq!(
-            judge(
-                b"HTTP/1.1 302 Found\r\nLocation: http://portal/\r\n\r\n",
-                ""
-            ),
+            judge(b"HTTP/1.1 302 Found\r\nLocation: http://portal/\r\n\r\n"),
             Verdict::Portal
         );
         assert_eq!(
-            judge(
-                b"HTTP/1.1 200 OK\r\n\r\nNetworkManager is online\n",
-                "NetworkManager is online"
-            ),
+            judge(b"HTTP/1.1 200 OK\r\n\r\nNetworkManager is online\n"),
             Verdict::Online
         );
         assert_eq!(
-            judge(
-                b"HTTP/1.1 200 OK\r\n\r\n<html>Log in</html>",
-                "NetworkManager is online"
-            ),
+            judge(b"HTTP/1.1 200 OK\r\n\r\n<html>Log in</html>"),
             Verdict::Portal
         );
     }
@@ -186,7 +150,7 @@ mod tests {
     #[test]
     fn parses_urls() {
         assert_eq!(
-            parse("http://nmcheck.gnome.org/check_network_status.txt"),
+            parse(CHECK_URL),
             Some((
                 "nmcheck.gnome.org".into(),
                 80,

@@ -50,12 +50,6 @@ enum Error {
     #[error(transparent)]
     #[diagnostic(transparent)]
     Sandbox(#[from] danube_sandbox::Error),
-    #[error("no captive portal check is configured")]
-    #[diagnostic(
-        code(danube::captive),
-        help("losos.captivePortal.checkUrl writes /etc/danube/captive-portal.conf")
-    )]
-    NoCheck,
     #[error("cannot open the window: {0}")]
     #[diagnostic(code(danube::window))]
     Window(String),
@@ -145,8 +139,7 @@ fn stopped(stop: &Stop, for_: Duration) -> bool {
 fn run(args: Args) -> Result<ExitCode, Error> {
     let exe = std::env::current_exe().unwrap_or_else(|_| PathBuf::from("danube"));
     if args.watch {
-        let check = captive::Check::load().ok_or(Error::NoCheck)?;
-        captive::watch(check, &exe);
+        captive::watch(&exe);
     }
     let home = PathBuf::from(std::env::var_os("HOME").ok_or(Error::NoHome)?);
     let instance = home.join(".cache/danube/instance.sock");
@@ -189,13 +182,9 @@ fn run(args: Args) -> Result<ExitCode, Error> {
     let (commands, inbox) = Commands::channel(engine::wake);
     let (events, outbox) = Events::channel(commands.clone());
 
-    let check = args.captive.then(captive::Check::load).flatten();
     let options = if args.captive {
         let open = if args.uris.is_empty() {
-            check
-                .as_ref()
-                .map(|c| vec![c.url.clone()])
-                .unwrap_or_default()
+            vec![captive::CHECK_URL.to_owned()]
         } else {
             args.uris.clone()
         };
@@ -247,14 +236,14 @@ fn run(args: Args) -> Result<ExitCode, Error> {
                 })
                 .expect("a thread can start")
         };
-        if let Some(check) = &check {
+        if args.captive {
             // The window closes by itself once the network lets traffic
             // through.
             let stop = stop_recheck.1;
             let commands = &commands;
             s.spawn(move || {
                 while !stopped(&stop, Duration::from_secs(3)) {
-                    if captive::check(check) == captive::Verdict::Online {
+                    if captive::check() == captive::Verdict::Online {
                         info!("signed in to the network");
                         commands.send(Command::Quit);
                         return;
