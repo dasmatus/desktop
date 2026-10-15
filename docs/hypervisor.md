@@ -45,6 +45,11 @@ there keep running on the host ([Halium GSI](halium.md)).
   for the machines' windows.
 - **waypipe is installed.** The desktop runs `waypipe client` for each
   running machine to turn what comes out of the guest back into Wayland.
+- **swtpm, virt-viewer and WinApps are installed** for machines that install
+  from a CD ([below](#machines-from-an-installer-cd)): swtpm is the TPM
+  libvirt gives a Windows machine, virt-viewer shows a machine's own screen,
+  and WinApps opens a Windows machine's apps as windows of their own.
+  WinApps only on x86-64, where Windows machines are.
 - **Administrators manage machines without being asked.** polkit lets the
   `wheel` group, which first-boot setup puts the first account in, use
   `org.libvirt.unix.manage` outright: handing a machine a host disk is an
@@ -180,3 +185,91 @@ grown from the template's 3.3 GiB to fill an 8 GiB disk. `--list` listed
 foot's three desktop entries, and `losos-guest-run foot` started foot in
 the user's manager, where it connected to the waypipe server; waypipe then
 failed to reach the host, because that machine had no vsock device.
+
+## Machines from an installer CD
+
+A machine can also start empty and install a system from its own CD, as a
+PC would:
+
+```sh
+pm machine create win --installer Win11_24H2_English_x64.iso --system windows --label red
+pm machine create fedora --installer Fedora-Workstation-Live-43.iso --label green
+```
+
+Each CD becomes a read-only volume in the `default` pool, shared by every
+machine given the same bytes, and the machine's disk starts empty. It boots
+its disk first and the first CD while the disk has nothing on it, so the
+installer runs once and the installed system starts after it. Such a
+machine has a screen (SPICE, attached through libvirt and never on a port,
+with no clipboard channel), a USB tablet, and its CDs on SATA, which every
+installer has a driver for. `virt-viewer --attach -c qemu:///system win`
+shows it.
+
+pm also gives it the image's **CD of guest tools** for its system, which
+the image ships at `share/pm/machines/<system>-tools.iso` where pm looks
+for it (`nixos/modules/machines.nix`, sources in `nixos/guest-tools/`).
+
+### Windows
+
+A Windows machine is what Windows 11 asks of a PC: UEFI, a TPM 2.0 (swtpm,
+its state kept and deleted with the machine), Hyper-V's enlightenments when
+the host has KVM, its clock in local time, 4096 MiB and 64 GiB unless told
+otherwise. It has no vsock, which Windows has no use for. x86-64 only.
+
+The Windows tools CD carries virtio's drivers and an answer file,
+`autounattend.xml`, which Windows Setup reads from the root of any drive it
+starts with:
+
+1. Setup loads virtio's disk and network drivers (`viostor`, `NetKVM`, for
+   Windows 10 and 11) from the CD and adds them to the Windows it installs,
+   which it otherwise could not see a disk to install on.
+2. It passes over Windows 11's Secure Boot, TPM, memory and processor
+   checks: the machine boots without Secure Boot, since its firmware has no
+   Microsoft keys to check Windows' boot loader with.
+3. It wipes the machine's one disk and lays it out as Windows lays out a
+   UEFI PC.
+4. It offers a local account as well as a Microsoft one.
+5. At the first sign-in, `losos\setup.cmd` from the CD installs the rest
+   of virtio's drivers and the QEMU guest agent (virtio-win's guest tools),
+   then runs WinApps' own Windows setup: Remote Desktop on, RemoteApp for
+   every program, and its firewall rule.
+
+What Setup still asks: the language, the product key or edition, and the
+account. The firmware's "Press any key to boot from CD" is the person's to
+answer on the machine's screen; missed, the machine stops at the
+firmware's boot menu, and starting it again offers it again.
+
+**WinApps** ([winapps-org/winapps](https://github.com/winapps-org/winapps),
+`nixos/pkgs/winapps.nix`) then opens the machine's Windows apps as windows
+of their own on the desktop, each a FreeRDP RemoteApp session. It is set up
+as its own documentation says for libvirt, in
+`~/.config/winapps/winapps.conf`: `WAFLAVOR="libvirt"`, `VM_NAME` the
+machine's name, and `RDP_USER` and `RDP_PASS` the Windows account; then
+`winapps-setup --user` lists the machine's apps into the app grid. Remote
+Desktop needs Windows' Pro edition or above.
+
+### Other distributions
+
+Most distributions' installers already have virtio's drivers. What they
+lack is what fits them to this desktop, which the Linux tools CD's
+`setup.sh` adds. Run it once in the installed system, as root:
+
+```sh
+sudo sh /run/media/$USER/LOSOS_TOOLS/setup.sh
+```
+
+It keeps virtio's disk, network and vsock drivers in the initramfs
+(through dracut, initramfs-tools or mkinitcpio, whichever the distribution
+has), installs and starts the QEMU guest agent and waypipe with the
+distribution's own package manager (apt, dnf, zypper or pacman), runs a
+waypipe server over vsock for the user who ran it, as the LosOS guest does,
+and installs `losos-guest-run`. After that the desktop lists and opens the
+machine's apps like a LosOS guest's, framed in its colour. Its socket is
+`losos-wayland`, not `wayland-0`, so a desktop the distribution runs on the
+machine's own screen keeps its own.
+
+Under libvirt without KVM, in the machines VM test
+(`nixos/tests/machines.nix`), a Windows machine from a stand-in CD is
+defined with the drivers CD, a TPM and a screen, starts with its swtpm, and
+is removed leaving both CDs for other machines. No Windows or other
+distribution has been installed from them yet.
