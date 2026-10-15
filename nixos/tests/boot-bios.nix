@@ -17,13 +17,18 @@ in
   # read-only package set would refuse.
   node.pkgsReadOnly = false;
 
-  nodes.machine = {
-    imports = [ image.node ];
-    # Started by the BIOS from the image's own disk, with no EFI firmware.
-    virtualisation.useEFIBoot = false;
-    # A second disk, made to look like another LosOS disk's root below.
-    virtualisation.emptyDiskImages = [ 256 ];
-  };
+  # Merged beside the shared node rather than importing it, so the system
+  # is boot.nix's to the byte and the two tests share one disk image: a
+  # third image is more than CI's runner has room for.
+  nodes.machine = lib.mkMerge [
+    image.node
+    {
+      # Started by the BIOS from the image's own disk, with no EFI firmware.
+      virtualisation.useEFIBoot = false;
+      # A second disk, made to look like another LosOS disk's root below.
+      virtualisation.emptyDiskImages = [ 256 ];
+    }
+  ];
 
   testScript =
     { nodes, ... }:
