@@ -37,20 +37,25 @@ disks, leaving out the one the ISO booted from and refusing any disk it did
 not list, and the installer names the disk, its size and the source once more
 behind an "Erase and install" button before anything is touched. Then:
 
-1. `systemd-repart --empty=force` lays out the ESP, with GRUB and an empty
+1. The disk's old partition table is wiped and the kernel told to forget
+   its partitions, which it refuses, stopping the install before anything is
+   written, while one of them is mounted. repart adds the new ESP to the
+   kernel itself to format it, and could not while an old partition with
+   the same number was still known.
+2. `systemd-repart --empty=force` lays out the ESP, with GRUB and an empty
    `grubenv` copied in, on x86_64 a BIOS boot partition for GRUB, and
    both `/usr` slots at full size, labelled
    `_empty` (sysupdate refuses a disk with only one). These are `disk.nix`'s
    own definitions, so the disk is laid out the way the
    installed system expects to find it.
-2. `systemd-sysupdate update` fills them with the GitHub release of the
+3. `systemd-sysupdate update` fills them with the GitHub release of the
    version the ISO was built as, through the same transfers as `update.nix`,
    aimed at the chosen disk instead of `auto` and at the new ESP, mounted
    under `/run/losos-installer`. With `losos.update.pubring` set, the installer
    checks `SHA256SUMS.gpg` against it as an update does. On x86_64,
    `losos-grub-bios-install` then writes GRUB into the MBR and the BIOS boot
    partition, so the disk starts on a legacy BIOS as well.
-3. The machine reboots into the installed system, whose first boot creates
+4. The machine reboots into the installed system, whose first boot creates
    root, `/home` and swap from `disk.nix`, the path an image written
    with `dd` takes.
 
