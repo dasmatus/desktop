@@ -149,6 +149,8 @@ impl State {
             }
             // Handled by the window itself before they get here.
             Event::Copied(_) | Event::Notice(_) | Event::Quit => return false,
+            // The tab shows WebKit's error page, which says it better.
+            Event::LoadFailed { .. } => return false,
         }
         true
     }
