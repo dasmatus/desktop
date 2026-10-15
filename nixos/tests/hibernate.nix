@@ -17,56 +17,59 @@ in
 
   node.pkgsReadOnly = false;
 
-  nodes.machine =
-    {
-      config,
-      lib,
-      pkgs,
-      ...
-    }:
-    {
-      imports = [ image.node ];
+  # Merged beside the shared node, as in boot-bios.nix.
+  nodes.machine = lib.mkMerge [
+    image.node
+    (
+      {
+        config,
+        lib,
+        pkgs,
+        ...
+      }:
+      {
+        # QEMU's SMBIOS says "Other". hostnamed, and hibernate.nix, take
+        # /etc/machine-info's word over the firmware's.
+        environment.etc."machine-info".text = ''
+          CHASSIS=laptop
+        '';
 
-      # QEMU's SMBIOS says "Other". hostnamed, and hibernate.nix, take
-      # /etc/machine-info's word over the firmware's.
-      environment.etc."machine-info".text = ''
-        CHASSIS=laptop
-      '';
+        # The test driver's shell is a virtio console, and its connection to
+        # the driver closes when this image resumes: a shell started again
+        # afterwards, as nixpkgs' own hibernation test does, talks to nobody.
+        # So the shell stops before the image is written, and the resumed
+        # system reports what the test checks on the serial console instead.
+        powerManagement.powerDownCommands = "${config.systemd.package}/bin/systemctl --no-block stop backdoor.service";
+        powerManagement.resumeCommands = ''
+          PATH=${
+            lib.makeBinPath [
+              pkgs.coreutils
+              pkgs.gnugrep
+              config.systemd.package
+            ]
+          }
+          # GRUB's request to start this version once, in grubenv (grub.cfg).
+          env="$(bootctl --print-esp-path)/EFI/losos/grubenv"
+          if grep -q '^losos_oneshot=.' "$env"; then oneshot=set; else oneshot=spent; fi
+          echo "hibernate-test: boot $(cat /proc/sys/kernel/random/boot_id)," \
+            "$(cat /run/hibernate-test/marker)," \
+            "pid $(systemctl show -P MainPID hibernate-test-sleeper.service)," \
+            "one-shot entry $oneshot" >/dev/ttyS0
+        '';
 
-      # The test driver's shell is a virtio console, and its connection to
-      # the driver closes when this image resumes: a shell started again
-      # afterwards, as nixpkgs' own hibernation test does, talks to nobody.
-      # So the shell stops before the image is written, and the resumed
-      # system reports what the test checks on the serial console instead.
-      powerManagement.powerDownCommands = "${config.systemd.package}/bin/systemctl --no-block stop backdoor.service";
-      powerManagement.resumeCommands = ''
-        PATH=${
-          lib.makeBinPath [
-            pkgs.coreutils
-            pkgs.gnugrep
-            config.systemd.package
-          ]
-        }
-        # GRUB's request to start this version once, in grubenv (grub.cfg).
-        env="$(bootctl --print-esp-path)/EFI/losos/grubenv"
-        if grep -q '^losos_oneshot=.' "$env"; then oneshot=set; else oneshot=spent; fi
-        echo "hibernate-test: boot $(cat /proc/sys/kernel/random/boot_id)," \
-          "$(cat /run/hibernate-test/marker)," \
-          "pid $(systemctl show -P MainPID hibernate-test-sleeper.service)," \
-          "one-shot entry $oneshot" >/dev/ttyS0
-      '';
-
-      virtualisation = {
-        # The driver's shared directories are virtio-fs devices, and
-        # virtio-fs refuses to freeze, so the kernel abandons the
-        # hibernation with EOPNOTSUPP. Nothing here mounts them anyway.
-        sharedDirectories = lib.mkForce { };
-        # The image the kernel writes is the RAM in use, so less RAM is a
-        # shorter test. losos-swap sizes swap to match.
-        memorySize = 2048;
-        tpm.enable = true;
-      };
-    };
+        virtualisation = {
+          # The driver's shared directories are virtio-fs devices, and
+          # virtio-fs refuses to freeze, so the kernel abandons the
+          # hibernation with EOPNOTSUPP. Nothing here mounts them anyway.
+          sharedDirectories = lib.mkForce { };
+          # The image the kernel writes is the RAM in use, so less RAM is a
+          # shorter test. losos-swap sizes swap to match.
+          memorySize = 2048;
+          tpm.enable = true;
+        };
+      }
+    )
+  ];
 
   testScript =
     { nodes, ... }:
