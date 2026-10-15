@@ -135,16 +135,18 @@
         machine.wait_until_succeeds(f"{virsh} domifaddr work | grep -q 192.168.122.", timeout=300)
 
     with subtest("its agent lists the apps it can open"):
-        apps = dict(
-            line.split("\t", 1)
-            for line in in_guest(guest_run, "--list").splitlines()
-        )
+        apps = {}
+        for line in in_guest(guest_run, "--list").splitlines():
+            app, _, name = line.partition("\t")
+            apps[app] = name
         for app in ["foot", "org.losos.Danube", "org.derisk.calculator"]:
             assert app in apps, f"{app} is not in {sorted(apps)}"
 
     with subtest("an app's window reaches the host from the machine's own address"):
         xml = machine.succeed(f"{virsh} dumpxml work")
-        cid = re.search(r"<cid auto=.yes. address=.(\d+).", xml).group(1)
+        found = re.search(r"<cid auto=.yes. address=.(\d+).", xml)
+        assert found, f"the running machine has no vsock address: {xml}"
+        cid = found.group(1)
         machine.succeed("systemd-run --unit=vsock-listen python3 /etc/vsock-listen.py /tmp/peer")
         machine.wait_until_succeeds("ss -l --vsock | grep -q 7350")
         in_guest(guest_run, "foot")
