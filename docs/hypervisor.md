@@ -9,7 +9,8 @@ only what it takes to drive the hardware and the desktop: the kernel,
 systemd, libvirt, derisk and the host's own settings. The apps a person
 works in are meant to run in machines, each one labelled with a colour that
 marks its windows on the desktop. This page describes what is built so far:
-the host and the machine template it ships.
+the host, the machine template it ships, and how the desktop shows and runs
+machines.
 
 [libvirt](https://libvirt.org) is the one control plane. Nothing in the OS
 starts QEMU itself or keeps its own list of machines: pm, virsh and
@@ -71,6 +72,59 @@ A machine is three things in libvirt:
   network card on `default`, a channel for the QEMU guest agent, a vsock
   device whose address libvirt picks, no graphics card and no USB
   controller, and in its `<metadata>` the machine's label and template.
+
+derisk's Machines app lists them, makes new ones from the templates under
+`share/losos/machines` (through `pm machine create`), and starts, shuts down
+and removes them. For a running machine it also lists the apps the machine
+has and opens the one picked.
+
+## A machine's windows
+
+A machine has no screen. Its apps' windows come to the host's desktop over
+virtio-vsock instead, and the desktop knows which machine each one is from
+by where it came in, never by anything the guest says:
+
+1. In the guest, an app runs under `waypipe --vsock -s 2:7350 server`, which
+   carries its Wayland connection to the host (vsock address 2), port 7350.
+2. The desktop session listens on that port. The kernel stamps each
+   connection with the address libvirt gave the sending machine, and the
+   session asks libvirt which machine has that address now.
+3. It hands the connection to that machine's `waypipe client`, which
+   connects to a Wayland socket the compositor opened for that machine
+   alone, under `$XDG_RUNTIME_DIR/derisk/machines`.
+4. The compositor marks every client of that socket with the machine's
+   name, through the same security-context mechanism Flatpak's sandbox uses,
+   so the machine's windows get none of the privileged protocols a host app
+   may use (reading other windows, placing itself over them, synthetic
+   input).
+5. derisk paints the window's title bar and focus ring in the machine's
+   label colour and puts the machine's name before its title, and the top
+   bar shows a dot in that colour for each running machine.
+
+Apps start in a machine through the QEMU guest agent: derisk asks libvirt to
+run the guest's `losos-guest-run` with the app's desktop file ID, and that
+starts it as the guest's user under waypipe.
+
+## On the desktop
+
+Besides the Machines app, machines are a step away wherever the desktop
+starts things:
+
+- **The command palette** offers "Start work" for each machine that is off,
+  and, while it runs, "Foot in work" for each app it has and "Shut down
+  work". A machine's label colour is among its search words, so typing
+  "blue" finds the machine whose windows are blue. The rows come from a
+  palette plugin like the others, fed by the session itself; no other
+  connection to derisk can speak for it.
+- **The overview** has a Machines card: how many are running, a start or
+  shut down button for each, and a way into the Machines app.
+- **Apps can open in a machine by default.** With "Open apps in work"
+  ticked in the Machines app, an app started from the app grid or the
+  palette opens in that machine instead of on the host, by the same desktop
+  file ID, starting the machine first when it is off. derisk's own core apps
+  (Files, Settings and the rest) stay on the host, and so does everything
+  once that machine has been removed. An app the machine does not have
+  opens nowhere; the session's log says why.
 
 ## The guest template
 
