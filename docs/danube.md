@@ -206,10 +206,11 @@ remembered; remembered answers are lines in `~/.config/danube/permissions`
 ## Captive portals
 
 `danube captive-watch`, a user service in every session, rechecks the
-network whenever systemd-networkd's state changes: it fetches
-`losos.captivePortal.checkUrl` over plain HTTP, which a portal intercepts,
-and compares the answer with `losos.captivePortal.expect`. Anything else
-means a portal, and it opens `danube --captive-portal`: one window titled
+network whenever systemd-networkd's state changes: it fetches GNOME's
+check, `http://nmcheck.gnome.org/check_network_status.txt`, over plain HTTP,
+which a portal intercepts, sending the request line, the host and "Danube"
+as the User-Agent and nothing else. Any answer but a 200 saying
+"NetworkManager is online" means a portal, and it opens `danube --captive-portal`: one window titled
 "Sign in to network", no tabs, a profile that ends with the window, and no
 content blockers, since a portal's page is often built from what they
 block. That window checks again every three seconds and closes itself once
@@ -278,8 +279,7 @@ aarch64). WebDriver, the remote inspector and WebKit's unshipped
 JIT compilers are off by default (`JSC_useJIT=false`): scripts and
 WebAssembly run in its interpreters, slower, and a page can no longer have
 the browser write and run machine code, which most WebKit exploits rely on.
-`losos.danube.jit` or `javascript.jit = true` in the user's settings turns
-them back on. WebKit keeps its own allocator (libpas, with its Gigacage)
+`javascript.jit = true` in the user's settings turns them back on. WebKit keeps its own allocator (libpas, with its Gigacage)
 for JavaScript and DOM objects; everything else it allocates through
 `malloc`, which is hardened_malloc on a PC ([the allocator](allocator.md)).
 Tracking prevention (WebKit's ITP) is on, and there is no keyring for
@@ -290,8 +290,10 @@ allows. A phone's own kernel may not: see [what is not done](not-done.md).
 
 ## Settings
 
-`/etc/danube/settings.conf` (from `losos.danube.*`), then the user's
-`~/.config/danube/settings.conf`, `key = value` per line:
+The user's `~/.config/danube/settings.conf`, `key = value` per line; a
+key left out keeps its default. There are no NixOS options for them:
+`losos.danube.home` and `losos.danube.jit`, which wrote
+`/etc/danube/settings.conf` under it, went because nothing set them.
 
 | Key | Meaning |
 | --- | --- |

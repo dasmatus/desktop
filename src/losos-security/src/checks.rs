@@ -27,7 +27,7 @@
 //! asserts the verdicts -- and it costs one function call.
 
 use std::fs;
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 
 use crate::attr::{Attr, AttrResult};
 
@@ -452,8 +452,4 @@ pub fn overall_level(attrs: &[Attr]) -> u32 {
         }
     }
     level
-}
-
-pub fn default_root() -> &'static Path {
-    Path::new("/")
 }

@@ -224,9 +224,9 @@ const VALUED_OPTIONS: &[(&str, usize)] = &[
 
 /// Paths NixOS fixes, for a build file that installs something referring to them.
 ///
-/// Each is where every NixOS system puts it, not a choice this distribution made
-/// -- the same test `losos-mkosi` applies. Only the store is visible inside pm's
-/// build jail (pm mounts it read-only when it exists); the rest are run-time
+/// Each is where every NixOS system puts it, not a choice this distribution made:
+/// a path a build chooses stays in its build file. Only the store is visible
+/// inside pm's build jail (pm mounts it read-only when it exists); the rest are run-time
 /// paths, for a launcher or a unit a package installs.
 const SYMBOLS: &[(&str, &str, &str)] = &[
     (

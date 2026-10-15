@@ -1,7 +1,9 @@
 //! The install, once there is room for it: the same steps whether the disk
 //! is the running Windows machine's (windows.rs) or an image file
 //! (image.rs), with [`Target`] standing for what differs.
+use std::io::{self, Write};
 use std::path::{Path, PathBuf};
+use std::time::{Duration, Instant};
 
 use miette::{Result, WrapErr};
 
@@ -33,7 +35,7 @@ pub struct EspFile<'a> {
 
 /// What differs between installing onto Windows' disk and onto an image.
 pub trait Target {
-    fn device(&mut self) -> &mut dyn Device;
+    fn device(&mut self) -> &mut Device;
     /// Adds the plan's partitions to the partition table.
     fn add_partitions(&mut self, plan: &Plan) -> Result<()>;
     /// Writes files onto the ESP and returns the paths that were not there
@@ -59,10 +61,42 @@ pub struct Boot<'a> {
     pub grubenv: &'a [u8],
 }
 
-/// Steps as the person sees them.
-pub trait Report {
-    fn step(&mut self, title: &str);
-    fn progress(&mut self, done: u64, total: u64);
+/// Steps as the person sees them, and a progress percentage on one line.
+#[derive(Default)]
+pub struct Console {
+    last: Option<Instant>,
+    /// The percentage on screen. A decoder keeps reporting after its input
+    /// is all read, and each of those would print 100% again.
+    shown: Option<u64>,
+}
+
+impl Console {
+    pub fn step(&mut self, title: &str) {
+        if self.last.take().is_some() {
+            println!();
+        }
+        self.shown = None;
+        println!("==> {title}");
+    }
+
+    pub fn progress(&mut self, done: u64, total: u64) {
+        let now = Instant::now();
+        if self
+            .last
+            .is_some_and(|t| now - t < Duration::from_millis(500))
+            && done < total
+        {
+            return;
+        }
+        let percent = (done * 100).checked_div(total).unwrap_or(100).min(100);
+        if self.shown == Some(percent) {
+            return;
+        }
+        self.last = Some(now);
+        self.shown = Some(percent);
+        print!("\r    {percent:3}%");
+        let _ = io::stdout().flush();
+    }
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -74,7 +108,7 @@ pub fn run(
     arch: &Arch,
     id: &str,
     boot: &Boot,
-    report: &mut dyn Report,
+    report: &mut Console,
 ) -> Result<()> {
     report.step("Adding LosOS's partitions");
     target.add_partitions(plan)?;
@@ -143,7 +177,7 @@ pub fn fetch_files(
     source: &crate::release::Source,
     release: &Release,
     cache: &Path,
-    report: &mut dyn Report,
+    report: &mut Console,
 ) -> Result<Files> {
     let mut get = |file: &crate::release::File| -> Result<PathBuf> {
         report.step(&format!("Getting {}", file.name));

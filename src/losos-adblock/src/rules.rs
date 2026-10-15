@@ -215,11 +215,6 @@ impl Blocklist {
         self.trees.len() + self.names.len()
     }
 
-    /// Whether it blocks nothing.
-    pub fn is_empty(&self) -> bool {
-        self.len() == 0
-    }
-
     /// Whether `name` is blocked. An exemption for the name or any parent
     /// wins over a block: lists add `@@` rules for sites their own block
     /// rules break, and an administrator's allowed domain is meant to work.

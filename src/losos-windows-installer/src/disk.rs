@@ -17,24 +17,16 @@ use std::path::Path;
 
 use miette::{IntoDiagnostic, Result, WrapErr, bail};
 
-/// A disk, read and written in whole sectors.
-pub trait Device {
-    fn sector_size(&self) -> u64;
-    fn read_at(&mut self, offset: u64, buf: &mut [u8]) -> io::Result<()>;
-    fn write_at(&mut self, offset: u64, buf: &[u8]) -> io::Result<()>;
-    fn flush(&mut self) -> io::Result<()>;
-}
-
-/// A disk opened as a file: `\\.\PhysicalDriveN` on Windows, an image on
-/// Linux.
-pub struct RawDevice {
+/// A disk opened as a file, read and written in whole sectors:
+/// `\\.\PhysicalDriveN` on Windows, an image on Linux.
+pub struct Device {
     file: File,
     sector: u64,
 }
 
-impl RawDevice {
-    pub fn new(file: File, sector: u64) -> RawDevice {
-        RawDevice { file, sector }
+impl Device {
+    pub fn new(file: File, sector: u64) -> Device {
+        Device { file, sector }
     }
 
     fn check(&self, offset: u64, len: usize) -> io::Result<()> {
@@ -49,14 +41,12 @@ impl RawDevice {
         }
         Ok(())
     }
-}
 
-impl Device for RawDevice {
-    fn sector_size(&self) -> u64 {
+    pub fn sector_size(&self) -> u64 {
         self.sector
     }
 
-    fn read_at(&mut self, offset: u64, buf: &mut [u8]) -> io::Result<()> {
+    pub fn read_at(&mut self, offset: u64, buf: &mut [u8]) -> io::Result<()> {
         self.check(offset, buf.len())?;
         #[cfg(unix)]
         {
@@ -80,7 +70,7 @@ impl Device for RawDevice {
         }
     }
 
-    fn write_at(&mut self, offset: u64, buf: &[u8]) -> io::Result<()> {
+    pub fn write_at(&mut self, offset: u64, buf: &[u8]) -> io::Result<()> {
         self.check(offset, buf.len())?;
         #[cfg(unix)]
         {
@@ -104,7 +94,7 @@ impl Device for RawDevice {
         }
     }
 
-    fn flush(&mut self) -> io::Result<()> {
+    pub fn flush(&mut self) -> io::Result<()> {
         self.file.sync_all()
     }
 }
@@ -158,14 +148,14 @@ impl Drop for AlignedBuf {
 /// library. A read or write that does not cover whole sectors reads the
 /// sectors around it first.
 pub struct Window<'a> {
-    device: &'a mut dyn Device,
+    device: &'a mut Device,
     start: u64,
     len: u64,
     pos: u64,
 }
 
 impl<'a> Window<'a> {
-    pub fn new(device: &'a mut dyn Device, start: u64, len: u64) -> Window<'a> {
+    pub fn new(device: &'a mut Device, start: u64, len: u64) -> Window<'a> {
         Window {
             device,
             start,
@@ -273,7 +263,7 @@ impl<R: Read> Read for Counted<R> {
 /// is `capacity` bytes long, and returns how many bytes it wrote. Progress is
 /// reported as compressed bytes read out of the file's size.
 pub fn write_xz(
-    device: &mut dyn Device,
+    device: &mut Device,
     start: u64,
     capacity: u64,
     path: &Path,
@@ -348,7 +338,7 @@ pub fn write_xz(
 mod tests {
     use super::*;
 
-    fn device(len: u64, sector: u64) -> (tempdir::Dir, RawDevice) {
+    fn device(len: u64, sector: u64) -> (tempdir::Dir, Device) {
         let dir = tempdir::Dir::new();
         let path = dir.0.join("disk.img");
         let file = File::options()
@@ -359,7 +349,7 @@ mod tests {
             .open(&path)
             .unwrap();
         file.set_len(len).unwrap();
-        (dir, RawDevice::new(file, sector))
+        (dir, Device::new(file, sector))
     }
 
     pub mod tempdir {

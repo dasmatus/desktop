@@ -60,41 +60,21 @@ let
   # module built into the image does when GRUB starts.
   efi = import ./grub-image.nix {
     inherit pkgs menu art;
-    format =
-      {
-        x86_64 = "x86_64-efi";
-        aarch64 = "arm64-efi";
-      }
-      .${arch.name};
+    format = "efi";
     output = "grub.efi";
     early = ''
       regexp --set=1:losos_disk '^([^,]+)' "$root"
       normal (memdisk)/grub.cfg
     '';
     modules = [
-      "part_gpt"
-      "part_msdos"
-      "fat"
-      "chain"
       "bli"
       "efifwsetup"
-      "regexp"
-      "test"
       "true"
       "loadenv"
-      "echo"
-      "normal"
-      "memdisk"
-      "tar"
-      "configfile"
       "reboot"
       "halt"
       "sleep"
-      "serial"
-      "terminal"
-    ]
-    # The framebuffer of firmware that predates GOP, which only x86 has.
-    ++ lib.optional (arch.name == "x86_64") "efi_uga";
+    ];
   };
 
   # grubenv as grub-editenv creates it: a signature line padded with # to

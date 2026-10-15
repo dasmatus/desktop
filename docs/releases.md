@@ -12,7 +12,6 @@ losos-desktop_<v>.linux, .initrd, .grub             the UKI's kernel, initrd and
 losos-desktop_<v>_x86_64.raw.xz                     the disk image
 losos-desktop_<v>_x86_64-installer.iso              the installer
 losos-desktop_<v>_x86_64-windows-installer.exe      the installer for Windows, x86_64 only
-losos-desktop_<v>_x86_64.qcow2                      the disk image, for a VM
 SHA256SUMS
 ```
 
@@ -23,8 +22,7 @@ creates a GitHub release of its own for that run, tagged
 `nightly-<YYYYMMDD>T<HHMM>` from the version (`20261010.175322` is
 `nightly-20261010T1753`) and marked a prerelease. It carries both
 architectures' files, the update images, disk images, installer ISOs and the
-[Windows installer](windows-installer.md), all but the qcow2 images, which
-are the disk image again uncompressed. Each architecture's signed manifest
+[Windows installer](windows-installer.md). Each architecture's signed manifest
 goes beside them as `SHA256SUMS-<arch>` and `SHA256SUMS-<arch>.gpg`.
 
 GitHub rejects a release asset of 2 GiB or more, and `/usr` and the disk

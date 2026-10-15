@@ -31,12 +31,10 @@ let
   inherit (config.system.build) grub;
 
   # core.img for the BIOS boot partition, with grub.cfg, the theme and
-  # what they use built in: the BIOS disk driver, GPT and FAT to find the
-  # files, linux to start them, regexp for the device globs and file names,
-  # loadenv for the counter, serial for a console a VM can read, memdisk
-  # and tar for the menu itself (grub-image.nix adds the theme's). The
-  # early config sets losos_disk to $root, which before the menu is the
-  # disk the BIOS started GRUB from.
+  # what they use built in: grub-image.nix's BIOS set (disks, GPT, linux,
+  # regexp, serial, the memdisk), plus FAT to find the files and loadenv
+  # for the counter. The early config sets losos_disk to $root, which
+  # before the menu is the disk the BIOS started GRUB from.
   core = import ./grub-image.nix {
     inherit pkgs;
     inherit (grub) menu art;
@@ -47,26 +45,13 @@ let
       normal (memdisk)/grub.cfg
     '';
     modules = [
-      "biosdisk"
       "probe"
-      "part_gpt"
-      "part_msdos"
       "fat"
-      "linux"
-      "regexp"
-      "test"
       "true"
       "loadenv"
-      "echo"
-      "normal"
-      "memdisk"
-      "tar"
-      "configfile"
       "reboot"
       "halt"
       "sleep"
-      "serial"
-      "terminal"
     ];
   };
 

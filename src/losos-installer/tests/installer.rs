@@ -83,8 +83,6 @@ fn disks_leave_out_what_cannot_be_installed_onto() {
             .iter()
             .any(|d| d.name == "sdb" && d.removable)
     );
-    assert_eq!(found[1].size_text(), "512.1 GB");
-    assert_eq!(disks::human_size(999), "999 B");
 }
 
 #[test]

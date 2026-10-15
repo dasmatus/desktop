@@ -119,7 +119,6 @@ pub enum ExtCommand {
 pub struct ExtensionInfo {
     pub id: String,
     pub name: String,
-    pub version: String,
     pub enabled: bool,
     /// The toolbar button's title, with its badge when it has one.
     pub title: String,
@@ -134,7 +133,6 @@ pub struct Shortcut {
     pub name: String,
     /// As the manifest writes it (`Ctrl+Shift+L`), when it has one.
     pub key: Option<String>,
-    pub description: String,
 }
 
 /// What WebKit tells the window.
@@ -196,22 +194,20 @@ const EVENTS: usize = 256;
 #[derive(Clone)]
 pub struct Commands {
     tx: Sender<Command>,
-    /// Runs on the WebKit thread's main loop to drain the channel.
-    wake: fn(),
 }
 
 impl Commands {
-    pub fn channel(wake: fn()) -> (Self, Receiver<Command>) {
+    pub fn channel() -> (Self, Receiver<Command>) {
         let (tx, rx) = crossbeam_channel::bounded(COMMANDS);
-        (Self { tx, wake }, rx)
+        (Self { tx }, rx)
     }
 
-    /// Sends `command` to WebKit and wakes its main loop; `false` once
-    /// WebKit has stopped.
-    pub fn send(&self, command: Command) -> bool {
-        let sent = self.tx.send(command).is_ok();
-        (self.wake)();
-        sent
+    /// Sends `command` to WebKit and wakes its main loop to drain the
+    /// channel. Once WebKit has stopped the command goes nowhere, which
+    /// every sender is content with: it is stopping too.
+    pub fn send(&self, command: Command) {
+        let _ = self.tx.send(command);
+        crate::engine::wake();
     }
 }
 

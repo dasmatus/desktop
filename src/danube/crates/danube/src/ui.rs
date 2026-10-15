@@ -45,17 +45,84 @@ pub struct Window {
     /// A button went down over the page and is still held.
     dragging: bool,
     touch_active: bool,
-    textures: HashMap<TabId, (egui::TextureHandle, Arc<egui::ColorImage>)>,
+    textures: HashMap<TabId, Option<Texture>>,
     /// The open extension popup's last frame as a texture.
-    popup_texture: Option<(egui::TextureHandle, Arc<egui::ColorImage>)>,
+    popup_texture: Option<Texture>,
     /// A button went down over the popup and is still held.
     dragging_popup: bool,
     last_size: Option<(i32, i32, f64)>,
     phone: Option<bool>,
     focused: bool,
-    title: String,
     remember: bool,
     theme: ThemeWatch,
+}
+
+/// A frame uploaded to the GPU, and the frame it holds: an unchanged frame
+/// is not uploaded again.
+type Texture = (egui::TextureHandle, Arc<egui::ColorImage>);
+
+/// Paints `image` over `rect` through the texture in `slot`, made on the
+/// first frame and replaced only when WebKit drew a new one.
+fn paint_frame(
+    painter: &egui::Painter,
+    slot: &mut Option<Texture>,
+    name: &str,
+    image: Arc<egui::ColorImage>,
+    rect: egui::Rect,
+) {
+    let texture = match slot {
+        Some((handle, held)) => {
+            if !Arc::ptr_eq(held, &image) {
+                handle.set(egui::ImageData::Color(image.clone()), egui::TextureOptions::NEAREST);
+                *held = image;
+            }
+            handle.id()
+        }
+        None => {
+            let handle = painter
+                .ctx()
+                .load_texture(name, egui::ImageData::Color(image.clone()), egui::TextureOptions::NEAREST);
+            let id = handle.id();
+            *slot = Some((handle, image));
+            id
+        }
+    };
+    let uv = egui::Rect::from_min_max(egui::pos2(0.0, 0.0), egui::pos2(1.0, 1.0));
+    painter.image(texture, rect, uv, egui::Color32::WHITE);
+}
+
+/// This frame's input for a view (the page, or an extension's popup) drawn
+/// at `rect`, as WPE takes it, and the text of any paste. The wheel counts
+/// only while `wheel` (the pointer is over the view), keys only while no
+/// component of the window's own (the permission bar's checkbox, say) has
+/// the keyboard. egui turns Ctrl+C and Ctrl+X into Copy and Cut events, so
+/// those go back to the view as the keys.
+fn view_input(
+    ctx: &egui::Context,
+    rect: egui::Rect,
+    wheel: bool,
+    dragging: bool,
+    touch_active: &mut bool,
+) -> (Vec<input::Input>, Vec<String>) {
+    let keys = !ctx.egui_wants_keyboard_input();
+    let events: Vec<egui::Event> = ctx
+        .input(|i| i.events.clone())
+        .into_iter()
+        .filter(|e| !matches!(e, egui::Event::MouseWheel { .. }) || wheel)
+        .collect();
+    let mut inputs = input::translate(&events, rect, keys, dragging, touch_active);
+    let mut pasted = Vec::new();
+    if keys {
+        for event in &events {
+            match event {
+                egui::Event::Copy => inputs.extend(ctrl_key('c')),
+                egui::Event::Cut => inputs.extend(ctrl_key('x')),
+                egui::Event::Paste(text) => pasted.push(text.clone()),
+                _ => {}
+            }
+        }
+    }
+    (inputs, pasted)
 }
 
 /// The window's picture of WebKit, kept from its events.
@@ -70,7 +137,7 @@ struct State {
     permissions: VecDeque<PermissionAsk>,
     /// How many content blocker rule sets are in force, for the Page menu.
     filters: usize,
-    /// The window's title, as sent to derisk.
+    /// The window's title, as last set and sent to derisk.
     title: String,
     /// The installed extensions, for the menus and the shortcuts.
     extensions: Vec<ExtensionInfo>,
@@ -231,7 +298,6 @@ impl Window {
             last_size: None,
             phone: None,
             focused: true,
-            title: String::new(),
             remember: false,
             theme: ThemeWatch::new(),
         }
@@ -424,38 +490,10 @@ impl Window {
             ui.painter().rect_filled(rect, 0.0, tokens.background);
             return;
         };
-        match frame {
-            Some(image) => {
-                let entry = self.textures.entry(tab.id);
-                let texture = match entry {
-                    std::collections::hash_map::Entry::Occupied(mut slot) => {
-                        if !Arc::ptr_eq(&slot.get().1, &image) {
-                            slot.get_mut().0.set(
-                                egui::ImageData::Color(image.clone()),
-                                egui::TextureOptions::NEAREST,
-                            );
-                            slot.get_mut().1 = image;
-                        }
-                        slot.get().0.id()
-                    }
-                    std::collections::hash_map::Entry::Vacant(slot) => {
-                        let handle = ctx.load_texture(
-                            format!("tab-{}", tab.id),
-                            egui::ImageData::Color(image.clone()),
-                            egui::TextureOptions::NEAREST,
-                        );
-                        let id = handle.id();
-                        slot.insert((handle, image));
-                        id
-                    }
-                };
-                let uv = egui::Rect::from_min_max(egui::pos2(0.0, 0.0), egui::pos2(1.0, 1.0));
-                ui.painter().rect_filled(rect, 0.0, egui::Color32::WHITE);
-                ui.painter().image(texture, rect, uv, egui::Color32::WHITE);
-            }
-            None => {
-                ui.painter().rect_filled(rect, 0.0, egui::Color32::WHITE);
-            }
+        ui.painter().rect_filled(rect, 0.0, egui::Color32::WHITE);
+        if let Some(image) = frame {
+            let slot = self.textures.entry(tab.id).or_default();
+            paint_frame(ui.painter(), slot, &format!("tab-{}", tab.id), image, rect);
         }
         if tab.crashed {
             ui.painter().rect_filled(rect, 0.0, tokens.background);
@@ -487,22 +525,12 @@ impl Window {
             if !ctx.input(|i| i.pointer.any_down()) {
                 self.dragging_popup = false;
             }
-            let keys = !ctx.egui_wants_keyboard_input();
-            let events = ctx.input(|i| i.events.clone());
-            let events: Vec<egui::Event> = events
-                .into_iter()
-                .filter(|e| !matches!(e, egui::Event::MouseWheel { .. }) || over)
-                .collect();
-            let mut inputs = input::translate(&events, popup_rect, keys, self.dragging_popup, &mut self.touch_active);
-            if keys {
-                for event in &events {
-                    match event {
-                        egui::Event::Copy => inputs.extend(ctrl_key('c')),
-                        egui::Event::Cut => inputs.extend(ctrl_key('x')),
-                        egui::Event::Paste(_) => inputs.extend(ctrl_key('v')),
-                        _ => {}
-                    }
-                }
+            let (mut inputs, pasted) =
+                view_input(&ctx, popup_rect, over, self.dragging_popup, &mut self.touch_active);
+            // The popup has no paste command of its own: Ctrl+V has WebKit
+            // read the clipboard itself.
+            for _ in pasted {
+                inputs.extend(ctrl_key('v'));
             }
             if !inputs.is_empty() {
                 self.send(Command::Extensions(ExtCommand::PopupInput(inputs)));
@@ -516,26 +544,10 @@ impl Window {
         if !ctx.input(|i| i.pointer.any_down()) {
             self.dragging = false;
         }
-        // Keys go to the page unless a component of the window's own (the
-        // permission bar's checkbox, say) has the keyboard.
-        let keys = !ctx.egui_wants_keyboard_input();
-        let events = ctx.input(|i| i.events.clone());
         let hovered = response.hovered() || self.dragging;
-        let events: Vec<egui::Event> = events
-            .into_iter()
-            .filter(|e| !matches!(e, egui::Event::MouseWheel { .. }) || hovered)
-            .collect();
-        let mut inputs =
-            input::translate(&events, rect, keys, self.dragging, &mut self.touch_active);
-        if keys {
-            for event in &events {
-                match event {
-                    egui::Event::Copy => inputs.extend(ctrl_key('c')),
-                    egui::Event::Cut => inputs.extend(ctrl_key('x')),
-                    egui::Event::Paste(text) => self.send(Command::Paste(tab.id, text.clone())),
-                    _ => {}
-                }
-            }
+        let (inputs, pasted) = view_input(&ctx, rect, hovered, self.dragging, &mut self.touch_active);
+        for text in pasted {
+            self.send(Command::Paste(tab.id, text));
         }
         if !inputs.is_empty() {
             self.send(Command::Input(tab.id, inputs));
@@ -564,27 +576,10 @@ impl Window {
     /// Draws the open popup's last frame in `rect`, with a border, as the
     /// page's own layer above the page.
     fn popup(&mut self, ui: &mut egui::Ui, rect: egui::Rect, tokens: &Tokens) {
-        let ctx = ui.ctx().clone();
         let painter = ui.painter();
         painter.rect_filled(rect, 0.0, egui::Color32::WHITE);
         if let Some(image) = self.state.popup_frame.clone() {
-            let texture = match &mut self.popup_texture {
-                Some((handle, held)) => {
-                    if !Arc::ptr_eq(held, &image) {
-                        handle.set(egui::ImageData::Color(image.clone()), egui::TextureOptions::NEAREST);
-                        *held = image;
-                    }
-                    handle.id()
-                }
-                slot => {
-                    let handle = ctx.load_texture("extension-popup", egui::ImageData::Color(image.clone()), egui::TextureOptions::NEAREST);
-                    let id = handle.id();
-                    *slot = Some((handle, image));
-                    id
-                }
-            };
-            let uv = egui::Rect::from_min_max(egui::pos2(0.0, 0.0), egui::pos2(1.0, 1.0));
-            painter.image(texture, rect, uv, egui::Color32::WHITE);
+            paint_frame(painter, &mut self.popup_texture, "extension-popup", image, rect);
         }
         painter.rect_stroke(rect, 0.0, egui::Stroke::new(1.0, tokens.border), egui::StrokeKind::Inside);
     }
@@ -618,7 +613,7 @@ fn parse_shortcut(key: &str) -> Option<egui::KeyboardShortcut> {
 fn ctrl_key(c: char) -> Vec<input::Input> {
     let keyval = c as u32;
     vec![
-        input::Input::Modifiers(input::Mods(crate::ffi::WPE_MODIFIER_KEYBOARD_CONTROL)),
+        input::Input::Modifiers(crate::ffi::WPE_MODIFIER_KEYBOARD_CONTROL),
         input::Input::Key {
             keyval,
             pressed: true,
@@ -627,7 +622,7 @@ fn ctrl_key(c: char) -> Vec<input::Input> {
             keyval,
             pressed: false,
         },
-        input::Input::Modifiers(input::Mods(0)),
+        input::Input::Modifiers(0),
     ]
 }
 
@@ -681,10 +676,9 @@ impl eframe::App for Window {
                 None => "Danube".to_owned(),
             }
         };
-        if title != self.title {
+        if title != self.state.title {
             ctx.send_viewport_cmd(egui::ViewportCommand::Title(title.clone()));
-            self.state.title = title.clone();
-            self.title = title;
+            self.state.title = title;
             self.tell_derisk();
         }
 

@@ -14,10 +14,12 @@ tracing.workspace = true
 tracing-subscriber.workspace = true
 serde_json = "1"
 # Extensions: a Chrome-style id is the SHA-256 of the manifest's key (or
-# name), and a zip's entries are deflated.
+# name), and a zip's entries are deflated. Only the zip crate's deflate,
+# through the zlib-rs flate2 backend the lock already has: no zopfli
+# encoder, bzip2, zstd or AES an extension never uses.
 sha2 = "0.10"
 base64 = "0.22"
-flate2 = "1"
+zip = { version = "9", default-features = false, features = ["deflate-flate2-zlib-rs"] }
 # The window and WebKit talk over bounded channels, and each helper thread
 # is a scoped one that ends with them; crossbeam's channels can be waited
 # on with a timeout and shared between receivers, which std's cannot.

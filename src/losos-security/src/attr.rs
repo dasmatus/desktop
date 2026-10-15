@@ -40,17 +40,6 @@ pub enum AttrResult {
     NotSupported = 14,
 }
 
-impl AttrResult {
-    /// Whether this result is the good outcome for the check that produced it.
-    ///
-    /// Not derivable from the value: `Locked` is good for a bootloader and
-    /// `NotFound` is good for a debug interface, so each check says which of
-    /// its outcomes counts as success rather than this guessing from the enum.
-    pub fn as_u32(self) -> u32 {
-        self as u32
-    }
-}
-
 /// `FWUPD_SECURITY_ATTR_FLAG_SUCCESS`. The panel uses it to colour the row, so
 /// a check that reports a result without it reads as a failure however
 /// reassuring its text.
@@ -73,6 +62,10 @@ pub struct Attr {
     /// checks are reported at the level whose definition they match rather
     /// than inventing a sixth.
     pub hsi_level: u32,
+    /// Whether `result` is the good outcome for this check. Not derivable from
+    /// the result: `Locked` is good for a bootloader and `NotFound` is good for
+    /// a debug interface, so each check says which of its outcomes counts as
+    /// success rather than this guessing from the enum.
     pub success: bool,
     /// Where the check looked, so a disagreement can be settled by looking
     /// there too. Not part of fwupd's schema -- it rides in Description.
@@ -97,7 +90,7 @@ impl Attr {
             "Description",
             Value::from(format!("{}\n\n{}", self.description, self.evidence)),
         );
-        insert("HsiResult", Value::from(self.result.as_u32()));
+        insert("HsiResult", Value::from(self.result as u32));
         insert("HsiLevel", Value::from(self.hsi_level));
 
         let mut flags = FLAG_ACTION_CONFIG_OS;
