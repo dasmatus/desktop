@@ -5,6 +5,9 @@
 # nixpkgs unchanged.
 final: prev:
 let
+  # nixpkgs without this overlay: the packages that would rebuild against
+  # the patched GTK below come from here, as cache.nixos.org has them.
+  plain = import final.path { inherit (final.stdenv.hostPlatform) system; };
   # A directory of patches, applied in file name order, which the numeric
   # prefixes make the order they were written to apply in.
   patchesIn =
@@ -118,11 +121,15 @@ in
   # native messaging host for derisk's menus (docs/danube.md, "What it
   # replaced"); Chromium could not be drawn inside an mcsapi window, so it
   # is not coming back.
-  wpewebkit =
-    let
-      plain = import final.path { inherit (final.stdenv.hostPlatform) system; };
-    in
-    plain.callPackage ./wpewebkit.nix { webkitgtk = plain.webkitgtk_6_0; };
+  wpewebkit = plain.callPackage ./wpewebkit.nix { webkitgtk = plain.webkitgtk_6_0; };
+  # QEMU from nixpkgs' own package set too, so it substitutes from
+  # cache.nixos.org. From this one its GTK and VTE front end would link the
+  # patched GTK, and CI would compile QEMU twice, once for the host's
+  # machines (qemu_kvm, docs/hypervisor.md) and once for the OVMF the VM
+  # tests boot, which ran a runner's disk out of space. Nothing shows that
+  # front end: virt-viewer draws a machine's screen, and the VM tests run
+  # headless.
+  qemu = plain.qemu;
   danube = callWithMold ./danube.nix { };
   # The system-wide ad blocker (docs/adblock.md).
   losos-adblock = callWithMold ./losos-adblock.nix { };
