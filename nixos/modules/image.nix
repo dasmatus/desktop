@@ -3,9 +3,9 @@
 # (disk.nix), and every later version arrives as a new /usr slot and a new UKI
 # (update.nix).
 #
-# The pm tree drove mkosi for this, and needed plugins/ to get mkosi, xorriso
-# and qemu-img past pm's fingerprint table. NixOS drives the same
-# systemd-repart through image/repart.nix, so that problem does not exist here.
+# nixpkgs' image/repart.nix builds it as it is, under `unshare
+# --map-root-user`: CI's runner allows the build user namespaces (ci.yml's
+# AppArmor sysctl), so nixpkgs' module is no longer patched to go without.
 #
 # What comes out of one configuration:
 #
@@ -34,95 +34,10 @@ let
   inherit (config.image.repart.verityStore) partitionIds;
   inherit (config.system.boot.loader) ukiFile;
 
-  # nixpkgs hard-codes unshare in repart-image.nix. Add a local per-image
-  # switch here so it also applies when the VM test imports this module.
-  nixpkgsImageModules = "${modulesPath}/image";
-  patchNixpkgsModule =
-    name: replacements:
-    let
-      source = builtins.readFile "${nixpkgsImageModules}/${name}";
-      patched = lib.foldl' (
-        source: replacement:
-        assert lib.assertMsg (lib.hasInfix replacement.from source)
-          "Pinned nixpkgs ${name} is missing expected text: ${replacement.from}";
-        builtins.replaceStrings [ replacement.from ] [ replacement.to ] source
-      ) source replacements;
-    in
-    builtins.toFile name patched;
-
-  repartImageModule = patchNixpkgsModule "repart-image.nix" [
-    {
-      from = "  createEmpty ? true,\n";
-      to = "  createEmpty ? true,\n  useUnshare ? true,\n";
-    }
-    {
-      from = "in\nstdenvNoCC.mkDerivation (";
-      to = "  fakerootCommand = if useUnshare then \"unshare --map-root-user fakeroot\" else \"fakeroot\";\nin\nstdenvNoCC.mkDerivation (";
-    }
-    {
-      from = builtins.concatStringsSep "\n" [
-        "    nativeBuildInputs = ["
-        "      systemd"
-        "      util-linux"
-        "      fakeroot"
-        "    ]"
-        "    ++ lib.optionals (compression.enable) ["
-      ];
-      to = builtins.concatStringsSep "\n" [
-        "    nativeBuildInputs = ["
-        "      systemd"
-        "      fakeroot"
-        "    ]"
-        "    ++ lib.optionals useUnshare ["
-        "      util-linux"
-        "    ]"
-        "    ++ lib.optionals (compression.enable) ["
-      ];
-    }
-    {
-      from = "      unshare --map-root-user fakeroot systemd-repart \\\n";
-      to = "      " + "$" + "{fakerootCommand} systemd-repart \\\n";
-    }
-    {
-      from = "./amend-repart-definitions.py";
-      to = "${nixpkgsImageModules}/amend-repart-definitions.py";
-    }
-  ];
-  repartModule = patchNixpkgsModule "repart.nix" [
-    {
-      from = "./repart-verity-store.nix";
-      to = "${nixpkgsImageModules}/repart-verity-store.nix";
-    }
-    {
-      from = "./file-options.nix";
-      to = "${nixpkgsImageModules}/file-options.nix";
-    }
-    {
-      from = "pkgs.callPackage ./repart-image.nix {";
-      to = "pkgs.callPackage ${repartImageModule} {";
-    }
-    {
-      from = "    package = lib.mkPackageOption pkgs \"systemd-repart\" {";
-      to = builtins.concatStringsSep "\n" [
-        "    useUnshare = lib.mkOption {"
-        "      type = lib.types.bool;"
-        "      default = true;"
-        "      description = \"Run repart under an unshared user namespace; disable when the build environment prohibits nested user namespaces.\";"
-        "    };"
-        ""
-        "    package = lib.mkPackageOption pkgs \"systemd-repart\" {"
-      ];
-    }
-    {
-      from = "                finalPartitions\n                ;";
-      to = "                finalPartitions\n                useUnshare\n                ;";
-    }
-  ];
-
   id = config.system.image.id;
 in
 {
-  imports = [ repartModule ];
+  imports = [ "${modulesPath}/image/repart.nix" ];
 
   system.image = {
     id = "losos-desktop";
@@ -136,10 +51,6 @@ in
     enable = true;
 
     name = id;
-
-    # The vfat ESP and erofs /usr formatter do not need a nested user namespace,
-    # which cannot be created inside the hosted runner's Nix sandbox.
-    useUnshare = false;
 
     # /usr is the Nix store on erofs, with a dm-verity hash tree beside it
     # whose root hash is baked into the UKI's command line as usrhash=. That
