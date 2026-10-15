@@ -17,9 +17,6 @@
   TPM, suspends and never hibernates, and a firmware update between
   hibernating and resuming loses the hibernated session
   ([Hibernation](hibernation.md)).
-- **No stable channel.** CI publishes `nightly` from `main` and nothing else.
-  A `stable` release needs a second release output built with
-  `losos.channel = "stable"`, and the flake has only the one.
 
 - **Signing.** Until `nixos/keys/update-signing.asc` is committed,
   `losos.update.pubring` is unset, sysupdate installs updates without
@@ -40,8 +37,9 @@
     did) shrink C: to make room behind it; with LosOS there they cannot,
     and fail as they do on any disk without free space after C:.
   - **The boot order.** Some firmware, and some Windows updates, put
-    Windows Boot Manager first again. LosOS is then one pick in the
-    firmware's boot menu away, and nothing puts its entry back in front.
+    Windows Boot Manager first again. LosOS puts its own entry back in
+    front each time it starts, but until it next does, Windows starts by
+    itself and LosOS is one pick in the firmware's boot menu away.
   - **arm64.** The installer is built for x86_64 only, because Windows on
     arm64 runs on laptops this OS has no kernel configuration for.
 - **The two gnome-control-center patches** in `nixos/pkgs/patches/`. Nothing
@@ -62,8 +60,10 @@
   login `derisk session --execute`; each takes the seat from logind and
   scans out through DRM/KMS on the first connected display, at its preferred
   mode (`nixos/modules/desktop.nix`). A second display stays dark and
-  hotplug is not handled. derisk has no XWayland yet, and no UI for
-  Bluetooth or power profiles, so those are left off. The gnome-control-center patches above
+  hotplug is not handled. X11 apps run through xwayland-satellite, a user
+  unit that starts with the session (`desktop.nix`); it was seen serving an
+  X11 client under a headless weston, not yet under derisk's compositor.
+  derisk has no UI for Bluetooth or power profiles, so those are left off. The gnome-control-center patches above
   have no Settings app to go into any more.
 - **derisk's portal has gaps.** derisk's portal backend has no
   area or color picker and does not set the lock screen's picture. Screen
@@ -108,16 +108,11 @@
 - **Wi-Fi after setup.** First-boot setup joins a network through
   `wpa_supplicant`, which saves it, but nothing in the session lists or
   joins networks afterwards: derisk's Settings has no Wi-Fi page yet.
-- **Boot loader updates.** The GRUB on the ESP, and on a BIOS PC in the MBR
-  and the BIOS boot partition, is the one the image or the installer put
-  there; an update never rewrites it, so a new menu or theme reaches only
-  new installs. A disk installed while UEFI still booted with systemd-boot
-  keeps systemd-boot until it is installed again
-  ([Boot loader](boot-loaders.md)).
-- **Two LosOS disks in one BIOS PC.** A BIOS boot finds root by its
-  partition label, `root-x86-64`, as no EFI variable names the disk
-  ([Boot loader](boot-loaders.md)). With two LosOS disks in one machine,
-  the kernel may mount the other disk's root.
+- **Two LosOS disks in one PC.** Root comes from the disk the boot loader
+  started from, under UEFI and a BIOS alike ([Boot loader](boot-loaders.md)),
+  but swap is found by its partition label, `losos-swap`
+  (`disk.nix`, `hibernate.nix`), so with two LosOS disks in one machine
+  swap may be the other disk's.
 - **sysext.** Extensions merge into `/usr`, which here holds little but the
   Nix store, so an extension can add a program and cannot replace one.
 - **Android apps.** `nixos/modules/atl.nix` has two options, both off by
@@ -134,27 +129,29 @@
   error until both are fixed. Because both options are off, `nix flake
   check` never realises the package, so the bring-up can land and mature
   without gating the image.
-  **APKs run unsandboxed.** ATL runs an app's dex and native code as an
-  ordinary process of the session user: Android's per-app UID, permission
-  model and SELinux domain are not there, so a malicious APK has the reach of
-  any native program the user runs, including their home, their Wayland
-  session, the agent socket and the network. For that reason the default
-  `.apk` handler is a second, separate opt-in, `losos.android.openApks`, off
-  by default, so "open a downloaded file" never silently means "run untrusted
-  code"; with it off an APK is run only by someone who chose to launch ATL on
-  it. The real fix is a sandboxed launcher (bubblewrap with the usual
-  namespaces and a restricted filesystem view, or a confined transient
-  systemd user unit), which ATL's own README lists as future work. That is
-  not done; until it is, turn `openApks` on knowingly.
-- **Nothing has booted yet.** The disk image builds, with the layout in [Where the OS lives](layout.md)
-  and a `usrhash=` equal to the root hash repart reported. The VM test
-  evaluates and needs KVM, which the machine this was written on did not
-  have; so the first-boot repart run, the gpt-auto root, and the installer
-  have not been seen working. The installer ISO and its live system evaluate
-  for both architectures and `losos-installer`'s tests pass, but the ISO has
-  not been built, nor sysupdate seen writing to a disk that is not the one
-  running. `nix build .#release` was not completed there either, for
-  lack of disk space rather than an error.
+  **APKs run in a sandbox that is not Android's.** Opening an `.apk`
+  starts ATL through `losos-android-run`, under bubblewrap: the app sees the
+  Nix store, `/etc` and the GPU read-only, a home of its own under
+  `~/.local/share/losos/android/`, the Wayland and PipeWire sockets, the
+  desktop portals through `xdg-dbus-proxy`, and the network, and none of
+  the user's files, other sockets or session environment. That was checked
+  with a stand-in for ATL, since ATL does not build yet. Android's per-app
+  permissions are still not there: every app has the network, and through
+  PipeWire the microphone, so `openApks`, which makes opening a file run
+  it, stays a separate choice.
+- **Booted under QEMU only.** Every CI run boots the x86_64 image in QEMU
+  (`nix flake check`, [Boot loader](boot-loaders.md) "Tested"), under UEFI and
+  under SeaBIOS: first boot lays out the disk with systemd-repart, root is
+  found (by gpt-auto on UEFI, on the disk GRUB names on a BIOS), `/usr` is
+  dm-verity, a new UKI is counted down and blessed, and a laptop with a TPM
+  hibernates and resumes. The installer ISO starts under both firmwares, and
+  an install from a nightly's files was run in QEMU through to the installed
+  disk's first boot, so sysupdate has written a disk other than the one
+  running. Not seen yet: a running system taking an update from the channel
+  and booting it (the tests rename a UKI to stand in for a new one), the
+  aarch64 image starting at all, since the arm64 runner has no KVM and the
+  aarch64 VM under emulation times out waiting for its disk, and any of it
+  on a PC rather than in QEMU.
 - **Danube is unfinished in places** ([Danube](danube.md)). A page's file
   upload button opens nothing, since WebKit's file chooser request is not
   answered yet, and a site's notifications are never shown, even when

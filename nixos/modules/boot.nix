@@ -22,10 +22,10 @@
   boot = {
     # There is no bootloader to install. GRUB is copied into the ESP, and on
     # a BIOS PC into the BIOS boot partition, when the image is assembled
-    # (grub.nix, bios.nix), and nothing on the running system ever rewrites
-    # it -- the same as an image-based system anywhere. So NixOS's own GRUB
-    # module, which installs GRUB and rewrites its menu on every rebuild,
-    # stays off.
+    # (grub.nix, bios.nix), and losos-grub-update copies a newer one over it
+    # after an update, as systemd-boot-update would. Its menu is the same
+    # for every version and never generated. So NixOS's own GRUB module,
+    # which installs GRUB and rewrites its menu on every rebuild, stays off.
     loader.grub.enable = false;
 
     initrd.systemd = {

@@ -21,8 +21,10 @@
 #
 # NixOS's own GRUB module stays off (boot.nix): it installs GRUB into a
 # running system and regenerates its menu on every rebuild, and this OS is
-# an image that is never rebuilt in place. Nothing on a running system
-# rewrites this GRUB either; the image and the installer put it on the ESP.
+# an image that is never rebuilt in place. The image and the installer put
+# this GRUB on the ESP, and losos-grub-update below replaces it with the one
+# in /usr once an update has booted well, as systemd-boot-update does for
+# systemd-boot.
 {
   config,
   lib,
@@ -42,6 +44,13 @@ let
   };
 
   menu = pkgs.replaceVars ./grub.cfg { inherit id; };
+
+  # bios.nix's installer of GRUB's BIOS boot code, on x86_64 only.
+  biosInstall =
+    if config.system.build ? grubBiosInstall then
+      lib.getExe config.system.build.grubBiosInstall
+    else
+      null;
 
   # The menu's EFI half: the disk to look for UKIs on is the one GRUB was
   # started from, "hd0" of "hd0,gpt1". bli is the Boot Loader Interface,
@@ -227,6 +236,134 @@ let
       losos-grubenv reset
     '';
   };
+
+  # What systemd-boot-update.service does for systemd-boot: the GRUB on the
+  # ESP is the one the image or the installer put there, and /usr carries
+  # the one its version was built with, so after an update this copies the
+  # new one over the old. It runs only once losos-grub-bless has run, so a
+  # version's GRUB reaches the ESP only after that version has started
+  # cleanly, and never goes backwards: a rollback to an older version leaves
+  # the newer GRUB, which reads the same names and grubenv, in place.
+  #
+  # It replaces only files that are already LosOS's: GRUB, recognised by
+  # the variable its early config sets, or the systemd-boot older installs
+  # started with, which moves them to GRUB. EFI/BOOT/BOOT<ARCH>.EFI on a
+  # disk the Windows installer set up is Windows', and stays so. Under a
+  # BIOS-capable disk it rewrites GRUB's boot code in the MBR and the BIOS
+  # boot partition too, with bios.nix's losos-grub-bios-install, when the
+  # MBR already holds GRUB's. EFI/losos/installed records what it installed
+  # last, so a boot with nothing new writes nothing.
+  update = pkgs.writeShellApplication {
+    name = "losos-grub-update";
+    runtimeInputs = [
+      pkgs.coreutils
+      pkgs.diffutils
+      pkgs.gnugrep
+      pkgs.gnused
+      pkgs.jq
+      pkgs.util-linux
+      config.systemd.package
+    ];
+    text = ''
+      version=${lib.escapeShellArg cfg.version}
+      stamp="version=$version efi=${efi} bios=${toString biosInstall}"
+
+      esp=$(bootctl --print-esp-path)
+      # /efi can be an automount; looking inside mounts it.
+      ls "$esp/EFI" > /dev/null
+      dir="$esp/EFI/losos"
+      record="$dir/installed"
+      if [ -f "$record" ]; then
+        [ "$(cat "$record")" = "$stamp" ] && exit 0
+        installed=$(sed -n 's/^version=\([^ ]*\).*/\1/p' "$record")
+        newest=$(printf '%s\n%s\n' "$installed" "$version" | sort -V | tail -n 1)
+        if [ "$newest" != "$version" ]; then
+          echo "The ESP has GRUB from $installed, newer than $version; leaving it."
+          exit 0
+        fi
+      fi
+      mkdir -p "$dir"
+
+      # The Windows installer lists what it added to the ESP, so that
+      # --uninstall removes exactly that (src/losos-windows-installer); a
+      # file this adds goes on its list too. Installs from before GRUB kept
+      # the list under loader/.
+      created() {
+        local list
+        for list in "$dir/losos-windows-installer.txt" "$esp/loader/losos-windows-installer.txt"; do
+          if [ -f "$list" ] && ! grep -qxF "$1" "$list"; then
+            printf '%s\n' "$1" >> "$list"
+          fi
+        done
+      }
+
+      # put SRC DEST: replace DEST with SRC, by a rename, unless it already is.
+      put() {
+        cmp -s "$1" "$2" && return 0
+        [ -e "$2" ] || created "''${2#"$esp"/}"
+        install -m 0644 "$1" "$2.new"
+        sync --data "$2.new"
+        mv -f "$2.new" "$2"
+        echo "Wrote ''${2#"$esp"/}."
+      }
+      ours() {
+        [ -f "$1" ] && grep -aq -e losos_disk -e '#### LoaderInfo: systemd-boot' "$1"
+      }
+
+      for file in "BOOT/BOOT${lib.toUpper arch.efi}.EFI" "systemd/systemd-boot${arch.efi}.efi"; do
+        if ours "$esp/EFI/$file"; then
+          put ${efi}/grub.efi "$esp/EFI/$file"
+        fi
+      done
+      put ${efi}/grub.efi "$dir/grub${arch.efi}.efi"
+      [ -f "$dir/grubenv" ] || put ${env} "$dir/grubenv"
+      ${lib.optionalString (biosInstall != null) ''
+        source=$(findmnt --noheadings --raw --output SOURCE --types vfat --mountpoint "$esp")
+        disk=/dev/$(lsblk --noheadings --nodeps --output PKNAME "$source")
+        if sfdisk --json "$disk" | jq -e '.partitiontable.partitions[] | select(.type == "21686148-6449-6E6F-744E-656564454649")' > /dev/null \
+          && head -c 440 "$disk" | grep -a 'GRUB ' > /dev/null; then
+          ${biosInstall} "$disk"
+          echo "Installed GRUB's BIOS boot code on $disk."
+        fi
+      ''}
+
+      [ -e "$record" ] || created EFI/losos/installed
+      printf '%s\n' "$stamp" > "$record.new"
+      sync --data "$record.new"
+      mv -f "$record.new" "$record"
+    '';
+  };
+
+  # The firmware entry the Windows installer adds for GRUB goes first in
+  # the boot order, and Windows' own updates and some firmware put Windows
+  # Boot Manager back in front of it (docs/windows-installer.md). GRUB's
+  # menu offers Windows anyway, so each LosOS boot that gets as far as
+  # boot-complete.target puts LosOS's entry first again. A disk the image
+  # or the installer laid out starts from the removable-media path and has
+  # no entry, and this does nothing there.
+  bootOrder = pkgs.writeShellApplication {
+    name = "losos-boot-order";
+    runtimeInputs = [
+      pkgs.coreutils
+      pkgs.efibootmgr
+      pkgs.gnugrep
+      pkgs.gnused
+    ];
+    text = ''
+      [ -d /sys/firmware/efi ] || exit 0
+      entries=$(efibootmgr --verbose)
+      ours=$(printf '%s\n' "$entries" \
+        | grep -iF '\EFI\losos\grub' \
+        | sed -n 's/^Boot\([0-9A-Fa-f]\{4\}\).*/\1/p' \
+        | head -n 1 || true)
+      [ -n "$ours" ] || exit 0
+      order=$(printf '%s\n' "$entries" | sed -n 's/^BootOrder: //p')
+      [ "''${order%%,*}" = "$ours" ] && exit 0
+      rest=$(printf '%s\n' "$order" | tr , '\n' | grep -vixF "$ours" | paste -sd, || true)
+      efibootmgr --quiet --bootorder "$ours''${rest:+,$rest}"
+      echo "Put Boot$ours, LosOS's GRUB, first in the boot order again."
+    '';
+  };
 in
 {
   system.build.grub = {
@@ -236,7 +373,10 @@ in
       efi
       env
       grubenv
+      update
+      bootOrder
       ;
+    inherit (pkgs) efibootmgr;
   };
 
   environment.systemPackages = [ grubenv ];
@@ -269,6 +409,43 @@ in
       Type = "oneshot";
       RemainAfterExit = true;
       ExecStart = lib.getExe bless;
+    };
+  };
+
+  systemd.services.losos-grub-update = {
+    description = "Install the GRUB this version carries";
+    wantedBy = [ "basic.target" ];
+    requires = [ "boot-complete.target" ];
+    after = [
+      "local-fs.target"
+      "boot-complete.target"
+      "losos-grub-bless.service"
+    ];
+    conflicts = [ "shutdown.target" ];
+    before = [ "shutdown.target" ];
+    unitConfig.DefaultDependencies = false;
+    serviceConfig = {
+      Type = "oneshot";
+      RemainAfterExit = true;
+      ExecStart = lib.getExe update;
+    };
+  };
+
+  systemd.services.losos-boot-order = {
+    description = "Put LosOS first in the firmware's boot order";
+    wantedBy = [ "basic.target" ];
+    requires = [ "boot-complete.target" ];
+    after = [ "boot-complete.target" ];
+    conflicts = [ "shutdown.target" ];
+    before = [ "shutdown.target" ];
+    unitConfig = {
+      DefaultDependencies = false;
+      ConditionPathExists = "/sys/firmware/efi";
+    };
+    serviceConfig = {
+      Type = "oneshot";
+      RemainAfterExit = true;
+      ExecStart = lib.getExe bootOrder;
     };
   };
 }
