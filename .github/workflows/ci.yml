@@ -119,9 +119,7 @@ jobs:
           # namespaces, and a Nix build user is one. Test suites that run
           # bwrap inside the build, such as xdg-desktop-portal's icon and
           # sound validators, then fail on this runner and nowhere else.
-          if [ -e /proc/sys/kernel/apparmor_restrict_unprivileged_userns ]; then
-            sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0
-          fi
+          sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0
           features="nixos-test benchmark big-parallel"
           if [ -e /dev/kvm ]; then
             sudo chmod 0666 /dev/kvm
@@ -816,10 +814,8 @@ jobs:
             oras tag "$(cat "refs/release-ref-$arch.txt")" "$LOSOS_CHANNEL-$arch"
           done
 
-      # The release carries every file of both architectures except the
-      # qcow2 images, which are the disk image again uncompressed (6 GB each,
-      # `qemu-img convert` makes one from the .raw.xz). Each architecture's
-      # SHA256SUMS goes with its signature, renamed by architecture because
+      # The release carries every file of both architectures. Each
+      # architecture's SHA256SUMS goes with its signature, renamed because
       # both are called SHA256SUMS; the signature covers the bytes, not the
       # name. GitHub rejects an asset of 2 GiB or more, and /usr and the disk
       # image are already past it, so such a file goes up in 2000 MiB parts
@@ -855,18 +851,13 @@ jobs:
             dir=pulled/$arch
             mv "$dir/SHA256SUMS" "assets/SHA256SUMS-$arch"
             mv "$dir/SHA256SUMS.gpg" "assets/SHA256SUMS-$arch.gpg"
-            rm -f "$dir"/*.qcow2 "$dir/.version"
+            rm -f "$dir/.version"
             # The two architectures share no file name but these, since
             # every other name carries its architecture or is x86_64's alone.
             # rmdir fails the step if one ever did and was left behind.
             mv -n -t assets "$dir"/*
             rmdir "$dir"
           done
-          isos=(assets/*-installer.iso)
-          if [ ${#isos[@]} != 2 ]; then
-            echo "::error::Expected an installer ISO per architecture, found ${#isos[@]}."
-            exit 1
-          fi
           limit=$((2 * 1024 * 1024 * 1024))
           for file in assets/*; do
             if [ "$(stat -c %s "$file")" -ge "$limit" ]; then

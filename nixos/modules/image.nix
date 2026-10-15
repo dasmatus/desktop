@@ -248,7 +248,6 @@ in
       {
         nativeBuildInputs = with pkgs.buildPackages; [
           jq
-          qemu-utils
           xz
         ];
       }
@@ -284,7 +283,6 @@ in
           cp ${config.system.build.windowsInstaller}/bin/losos-windows-installer.exe \
             ${prefix}_${arch.name}-windows-installer.exe
         ''}
-        qemu-img convert -f raw -O qcow2 ${image}/${raw} ${prefix}_${arch.name}.qcow2
 
         sha256sum -- * > SHA256SUMS
       '';
