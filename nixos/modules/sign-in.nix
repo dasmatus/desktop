@@ -18,7 +18,6 @@
 { config, lib, ... }:
 
 let
-  cfg = config.losos.signIn;
   fprintd = config.services.fprintd.package;
 in
 {
@@ -70,9 +69,10 @@ in
   # The password age derisk writes into homed records: at first-boot setup
   # for the first account, and at each login for any account whose record
   # says something else (derisk's password_age). homed then warns before the
-  # date and makes the next login after it ask for a new password.
+  # date and makes the next login after it ask for a new password: a year,
+  # with two weeks' warning.
   environment.etc."derisk/sign-in.conf".text = ''
-    password.max_age_days = ${toString cfg.passwordMaxAgeDays}
-    password.warn_days = ${toString cfg.passwordWarnDays}
+    password.max_age_days = 365
+    password.warn_days = 14
   '';
 }

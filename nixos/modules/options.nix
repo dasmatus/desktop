@@ -1,10 +1,6 @@
-# The handful of settings that differ between one build of this OS and another.
-#
-# The pm tree carried these as `tools/configure` flags baked into generated
-# files, and CLAUDE.md warns that nothing in the generated tree said which
-# values it had been given. Here they are module options, so
-# `nixos-option losos` or `nix eval .#nixosConfigurations.<name>.config.losos`
-# answers the question directly.
+# The handful of settings that differ between one build of this OS and
+# another, so `nix eval .#nixosConfigurations.<name>.config.losos` says which
+# values a build was given.
 {
   config,
   lib,
@@ -15,7 +11,6 @@
 let
   inherit (lib) mkOption types;
   hostPlatform = pkgs.stdenv.hostPlatform;
-  updateKey = ../keys/update-signing.asc;
 in
 {
   options.losos = {
@@ -48,39 +43,7 @@ in
       '';
     };
 
-    signIn = {
-      passwordMaxAgeDays = mkOption {
-        type = types.ints.unsigned;
-        default = 365;
-        description = ''
-          Days a password lasts before the next login asks for a new one
-          (sign-in.nix). 0 means passwords never expire. derisk writes it
-          into each homed record, so changing it reaches existing accounts
-          at their next login.
-        '';
-      };
-
-      passwordWarnDays = mkOption {
-        type = types.ints.unsigned;
-        default = 14;
-        description = ''
-          Days before a password expires that logins start warning about it.
-        '';
-      };
-    };
-
     ping = {
-      enable = mkOption {
-        type = types.bool;
-        default = true;
-        description = ''
-          Count each signed-in user as an active user, once a day, and fetch
-          the policy that turns derisk's browser and search engine choice
-          screens on (ping.nix). A user turns it off for themselves with
-          Settings, Privacy, which writes `privacy.usage_ping = false`.
-        '';
-      };
-
       url = mkOption {
         type = types.nullOr types.str;
         default = null;
@@ -88,7 +51,9 @@ in
         description = ''
           Where the ping goes: the proxy's `/ping` (proxy/). The flake sets
           it from LOSOS_PROXY_URL, like `losos.update.baseUrl`; with none,
-          nothing is sent and the choice screens stay hidden.
+          nothing is sent and the choice screens stay hidden. A user turns
+          it off for themselves with Settings, Privacy, which writes
+          `privacy.usage_ping = false` (ping.nix).
         '';
       };
     };
@@ -127,26 +92,20 @@ in
       };
 
       pubring = mkOption {
-        type = types.nullOr types.path;
+        type = types.path;
         # The release key's public half is committed armored, so a change to
         # it reads as text in review. gpg's --keyring, which systemd-pull
         # verifies with, takes only binary keys, hence the dearmor.
         default =
-          if builtins.pathExists updateKey then
-            pkgs.runCommand "import-pubring.gpg" { nativeBuildInputs = [ pkgs.buildPackages.gnupg ]; } ''
-              export GNUPGHOME=$(mktemp -d)
-              gpg --batch --dearmor < ${updateKey} > $out
+          pkgs.runCommand "import-pubring.gpg" { nativeBuildInputs = [ pkgs.buildPackages.gnupg ]; }
             ''
-          else
-            null;
-        defaultText = lib.literalMD "`nixos/keys/update-signing.asc`, dearmored, when that file exists";
+              export GNUPGHOME=$(mktemp -d)
+              gpg --batch --dearmor < ${../keys/update-signing.asc} > $out
+            '';
+        defaultText = lib.literalMD "`nixos/keys/update-signing.asc`, dearmored";
         description = ''
           The GPG public keyring SHA256SUMS.gpg is verified against. CI signs
-          each release's SHA256SUMS with the secret half (docs/nixos.md says
-          how the two are made). With no keyring, verification is turned off
-          and the build says so with a warning; sysupdate's default is to
-          refuse an unsigned manifest, and an image that shipped with that
-          default and no key would never update at all.
+          each release's SHA256SUMS with the secret half (docs/binary-cache.md says how the two are made).
         '';
       };
     };
@@ -167,10 +126,9 @@ in
       readOnly = true;
       internal = true;
       description = ''
-        Every per-architecture spelling the image needs. The pm tree kept these
-        in manifest/architectures.yaml for the same reason: each is small, each
-        is easy to leave at its x86 value, and each such mistake builds cleanly
-        and fails on hardware.
+        Every per-architecture spelling the image needs, in one place: each
+        is easy to leave at its x86 value, and each such mistake builds
+        cleanly and fails on hardware.
       '';
     };
   };

@@ -76,8 +76,8 @@ password a second time.
 
 ## Password age
 
-`losos.signIn.passwordMaxAgeDays` (365 by default, 0 for never) and
-`losos.signIn.passwordWarnDays` (14) go in `/etc/derisk/sign-in.conf`.
+A password lasts 365 days, with warnings for the last 14, as
+`/etc/derisk/sign-in.conf` (`sign-in.nix`) says.
 derisk writes them into homed records, as `passwordChangeMaxUSec` and
 `passwordChangeWarnUSec`: first-boot setup creates the first account under
 them, and the display manager updates any record that says something else

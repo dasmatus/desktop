@@ -16,8 +16,8 @@ current month, and `arch`. The id changes every month, so the proxy can
 count a person once a month and cannot link one month to the next. Nothing
 else is sent: no account, no hardware id, no version. A user turns it off
 in Settings, Privacy ("Count me as an active user"), which writes
-`privacy.usage_ping = false`; `losos.ping.enable = false` turns it off for
-a build, and a build without `LOSOS_PROXY_URL` has no timer.
+`privacy.usage_ping = false`; a build without `LOSOS_PROXY_URL`, or with
+`losos.ping.url = null`, has no timer.
 
 **What is counted.** `proxy/` adds the id to the month's HyperLogLog in
 Redis (`actives:<YYYY-MM>`, and `actives:<YYYY-MM>:<arch>`), and, when

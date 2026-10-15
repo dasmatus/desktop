@@ -77,7 +77,7 @@ let
   };
 in
 {
-  config = lib.mkIf (cfg.enable && cfg.url != null) {
+  config = lib.mkIf (cfg.url != null) {
     systemd.user.services.losos-ping = {
       description = "Count this user as active and fetch the choice screen policy";
       # The login screen's own user, and any other system account that

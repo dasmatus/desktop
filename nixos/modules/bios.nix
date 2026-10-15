@@ -168,10 +168,7 @@ let
   # They belong to the same version set as the UKI and the /usr slot
   # (update.nix), so a version is installed with all of them or not at all.
   transfer = suffix: {
-    Transfer = {
-      ProtectVersion = "%A";
-      Verify = cfg.update.pubring != null;
-    };
+    Transfer.ProtectVersion = "%A";
     Source = {
       Type = "url-file";
       Path = cfg.update.baseUrl;
