@@ -41,6 +41,15 @@ concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
+# The channel the images are built for, `losos.channel` (flake.nix reads it):
+# what an installed system updates from, at proxy/'s /updates/<channel>/.
+# Every run builds and publishes the nightly, but for a run started by hand
+# with a tag, which is a release of the stable channel. The images then
+# follow the stable channel, and `publish` moves its tags rather than the
+# nightly's.
+env:
+  LOSOS_CHANNEL: ${{ github.event_name == 'workflow_dispatch' && inputs.tag != '' && 'stable' || 'nightly' }}
+
 jobs:
   # Every package the release needs, built on each architecture before the
   # image is assembled: the patched GTK and Qt, everything that links them,
@@ -596,7 +605,7 @@ jobs:
             fi
             (
               cd "$dir"
-              oras push "ghcr.io/${GITHUB_REPOSITORY,,}/images:nightly-$version-$arch" \
+              oras push "ghcr.io/${GITHUB_REPOSITORY,,}/images:$LOSOS_CHANNEL-$version-$arch" \
                 --artifact-type application/vnd.losos.release.v1 \
                 --annotation "org.opencontainers.image.source=$GITHUB_SERVER_URL/$GITHUB_REPOSITORY" \
                 --annotation "org.opencontainers.image.version=$version" \
@@ -733,10 +742,11 @@ jobs:
   # moving `nightly` release any more: GitHub refuses to reuse the tag of a
   # deleted immutable release, so one could not be replaced.
   #
-  # A run started by hand with a tag publishes the same files as a release
-  # under that tag and title instead, not a prerelease, and leaves the
-  # channel's tags alone: installed systems keep following the nightlies,
-  # and the release is a pinned copy of one.
+  # A run started by hand with a tag publishes its files as a release under
+  # that tag and title instead, not a prerelease. Its images were built for
+  # the stable channel (LOSOS_CHANNEL above), so it moves the stable
+  # channel's tags, and systems installed from it follow the stable releases
+  # while those installed from a nightly keep following the nightlies.
   publish:
     needs: [push, release-name]
     if: always() && needs.push.result == 'success' && needs.release-name.result != 'failure'
@@ -795,13 +805,15 @@ jobs:
             echo "any=true"
           } >> "$GITHUB_OUTPUT"
 
-      # proxy/ serves `images:nightly-<arch>` at /updates/nightly/<arch>/, so
-      # the tag moves only here, to the artifact the release below is made of.
+      # proxy/ serves `images:<channel>-<arch>` at /updates/<channel>/<arch>/,
+      # so the tag moves only here, to the artifact the release below is made
+      # of: `nightly-<arch>` for a nightly, `stable-<arch>` for a tagged
+      # release.
       - name: Move the channel tags in GHCR
-        if: steps.pulled.outputs.any == 'true' && steps.pulled.outputs.nightly == 'true'
+        if: steps.pulled.outputs.any == 'true'
         run: |
           for arch in x86_64 aarch64; do
-            oras tag "$(cat "refs/release-ref-$arch.txt")" "nightly-$arch"
+            oras tag "$(cat "refs/release-ref-$arch.txt")" "$LOSOS_CHANNEL-$arch"
           done
 
       # The release carries every file of both architectures except the
@@ -868,8 +880,8 @@ jobs:
           cat > notes.md <<NOTES
           Built from $GITHUB_SHA, version \`$VERSION\`, for x86_64 and aarch64.
 
-          - **Install:** write \`*-installer.iso\` to a USB stick and boot it, or run the Windows installer on a PC that keeps Windows. The ISO installs this version from this release over the network; the Windows installer installs the newest nightly.
-          - **Update images:** the UKI (\`.efi\`) and the two halves of \`/usr\` (\`_usr-*.raw.xz\`) are what systemd-sysupdate installs. Installed systems fetch them from \`${PROXY_URL%/}/updates/nightly/<arch>/\`, which serves the newest nightly; these are the same files, pinned to this version.
+          - **Install:** write \`*-installer.iso\` to a USB stick and boot it, or run the Windows installer on a PC that keeps Windows. The ISO installs this version from this release over the network; the Windows installer installs the newest release of the $LOSOS_CHANNEL channel.
+          - **Update images:** the UKI (\`.efi\`) and the two halves of \`/usr\` (\`_usr-*.raw.xz\`) are what systemd-sysupdate installs. Systems installed from this release follow the $LOSOS_CHANNEL channel and fetch them from \`${PROXY_URL%/}/updates/$LOSOS_CHANNEL/<arch>/\`, which serves its newest release; these are the same files, pinned to this version.
           - **Disk image:** \`<arch>.raw.xz\`. Unpack it and write it to a disk, or convert it for a VM with \`qemu-img convert -O qcow2\`.
           - **Files of 2 GiB or more** are split into \`.part-00\`, \`.part-01\` and on, because GitHub rejects larger assets. \`cat <file>.part-* > <file>\` joins one.
           - **Checking:** \`SHA256SUMS-<arch>\` lists that architecture's files and \`SHA256SUMS-<arch>.gpg\` signs it with the [update signing key]($GITHUB_SERVER_URL/$GITHUB_REPOSITORY/blob/$GITHUB_SHA/nixos/keys/update-signing.asc). \`gpg --verify SHA256SUMS-<arch>.gpg SHA256SUMS-<arch>\`, then \`sha256sum --check --ignore-missing SHA256SUMS-<arch>\`.

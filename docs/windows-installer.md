@@ -44,6 +44,10 @@ without), it:
    empty `grubenv` beside it, and adds a firmware boot entry for it at the
    front of the boot order. The entry is Windows Boot Manager's
    own with the file swapped, so it points at the same disk the same way.
+   Some Windows updates and some firmware put Windows Boot Manager first
+   again; every LosOS start that reaches `boot-complete.target` moves the
+   LosOS entry back to the front (`losos-boot-order`, `grub.nix`), and
+   GRUB's menu still offers Windows.
 9. Offers to restart.
 
 If any step after the shrink fails, it removes what it added and gives C:

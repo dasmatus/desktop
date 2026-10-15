@@ -107,24 +107,55 @@ BIOS GRUB cannot run a UKI, which is an EFI program. So every release
 carries each UKI's kernel, initrd and command line as files of their own,
 cut from the finished UKI, and sysupdate installs them beside it as part of
 the same version (`bios.nix`'s transfers). The command line is the UKI's
-with one change: `root=gpt-auto` becomes `root=PARTLABEL=root-x86-64`,
-because systemd finds the root partition from `LoaderDevicePartUUID`, an EFI
-variable a BIOS has none of. Likewise a small generator mounts the root
+with one change, because systemd finds the root partition from
+`LoaderDevicePartUUID`, an EFI variable a BIOS has none of. GRUB passes the
+partition UUID of the ESP it started the kernel from as `losos.esp=`, the
+way `bli` sets that variable, and `root=gpt-auto` becomes
+`root=/dev/disk/by-loader/root`: a udev rule in the initrd links that to the
+partition labelled `root-x86-64` on the same disk as that ESP, so a second
+LosOS disk in the machine is never mounted in its place. A GRUB from before
+`losos.esp=` passes nothing, and the command line falls back to
+`root=PARTLABEL=root-x86-64`. Likewise a small generator mounts the root
 disk's ESP at `/efi` on a BIOS boot, which `systemd-gpt-auto-generator`
 does only under UEFI.
 
-Nothing on a running system rewrites GRUB, as with any image-based system:
-the loader on the disk is the one the image or installer put there
-([What is not done](not-done.md)). NixOS's own GRUB module, which installs
-GRUB and regenerates its menu on every rebuild, stays off; this OS is never
-rebuilt in place.
+## Updating GRUB
+
+The GRUB on a disk is the one the image or the installer put there, and
+`/usr` carries the GRUB its version was built with. After an update,
+`losos-grub-update.service` copies the new one over the old, as
+`systemd-boot-update.service` does for systemd-boot (`grub.nix`). It runs
+after `losos-grub-bless`, so a version's GRUB reaches the disk only once that
+version has started cleanly, and it never goes backwards: a rollback to an
+older version keeps the newer GRUB, which reads the same file names and
+`grubenv`. It writes each file beside the old one and renames it into place,
+and `EFI/losos/installed` records which version's GRUB it installed last, so
+a boot with nothing new writes nothing.
+
+It replaces only what is already LosOS's. `EFI/losos/grub<arch>.efi` is
+always its own; `EFI/BOOT/BOOT<ARCH>.EFI` is replaced only when it holds
+LosOS's GRUB or systemd-boot, so on a disk the
+[Windows installer](windows-installer.md) set up it stays Windows'. On an
+x86_64 disk whose MBR holds GRUB's boot code, it writes the MBR and the BIOS
+boot partition again too, with `losos-grub-bios-install`. A file it adds to
+a disk the Windows installer set up goes on that installer's list, so
+uninstalling LosOS from Windows removes it as well.
+
+NixOS's own GRUB module, which installs GRUB and regenerates its menu on
+every rebuild, stays off; this OS is never rebuilt in place, and its menu
+is the same for every version.
 
 UEFI used to boot with systemd-boot. It draws a text menu in the firmware's
 font and nothing else, and two loaders counting tries in two places were one
 more thing to keep in step, so GRUB took its place. A disk installed before
-then still starts systemd-boot from its ESP, and still boots every update
-and rolls back as it did; `losos-grub-bless` and the hibernation hook leave
-such a boot to systemd-boot's own tools.
+then starts systemd-boot until its first update after this change: then
+`losos-grub-update` puts GRUB at every path systemd-boot was started from
+(`EFI/BOOT/BOOT<ARCH>.EFI`, and `EFI/systemd/systemd-boot<arch>.efi`, which
+the firmware entry the Windows installer added names) and an empty
+`grubenv` beside it. GRUB reads the tries left in the same file names
+systemd-boot did, so a trial in progress carries on. Until then
+`losos-grub-bless` and the hibernation hook leave such a boot to
+systemd-boot's own tools.
 
 ## GRUB's menu
 
@@ -197,7 +228,12 @@ disk, and the test then renames the UKI to the name sysupdate gives a new
 one, reboots, and checks the trial ended with the file blessed and
 `grubenv` empty. `boot-bios` does the same under QEMU's SeaBIOS, where GRUB
 starts the UKI's kernel and the ESP is mounted without EFI to name it.
-`hibernate` checks the one-shot request is spent on resume.
+Both also replace an older GRUB with `losos-grub-update` and boot what it
+wrote: under UEFI an older GRUB and a systemd-boot, under SeaBIOS an
+emptied BIOS boot partition. `boot-bios` also gives the machine a second disk with a root partition
+labelled as LosOS's, and checks root still comes from the disk GRUB started
+from. `hibernate` checks the one-shot request is
+spent on resume.
 `installer-boot` and `installer-boot-bios` start the installer ISO under
 each firmware.
 
