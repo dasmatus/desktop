@@ -2,9 +2,8 @@
 #
 # A derisk desktop that uses systemd for everything it can, installs as an
 # image, updates with systemd-sysupdate and makes every user a systemd-homed
-# LUKS volume, written as a NixOS configuration. It replaced a from-source
-# distribution of pm recipes. docs/nixos.md maps the old pieces to the new
-# ones, and nixos/ holds the modules.
+# LUKS volume, written as a NixOS configuration. nixos/ holds the modules
+# and docs/ says how each piece is built.
 #
 #   nix build                      the disk image (.#image)
 #   nix build .#installer          the installer ISO: Wi-Fi, a disk, sysupdate
@@ -175,9 +174,6 @@
         system: pkgs:
         let
           build = (configOf system).system.build;
-          # The system's package set, so these are the stock glibc builds the
-          # image carries rather than packages built for the build host.
-          ours = self.nixosConfigurations."losos-desktop-${archOf system}".pkgs;
         in
         {
           image = requireProxy build.disk;
@@ -205,23 +201,9 @@
           );
           uki = requireProxy build.uki;
           toplevel = build.toplevel;
-          inherit (ours)
-            derisk
-            pm
-            pm-plugins
-            losos-installer
-            losos-hardware
-            losos-security
-            losos-swap
-            losos-windows-installer
-            losos-adblock
-            danube
-            wpewebkit
-            x2mcsapi
-            ;
-          # The image carries no Nix (an update is a new /usr, not a switch);
-          # this package is for a build host that wants matching Nix.
-          nix = ours.nix;
+          # Packages of their own (derisk, pm, danube, ...) are reached
+          # through legacyPackages below, which `nix build .#<name>` falls
+          # back to.
           default = requireProxy build.disk;
         }
         // lib.optionalAttrs (system == "aarch64-linux") {
@@ -229,7 +211,6 @@
           # what the flasher writes. No update URL is baked into them, so
           # this needs no LOSOS_PROXY_URL.
           gsi = gsiSystem.config.system.build.gsiImages;
-          inherit (ours) libhybris;
         }
         // lib.optionalAttrs (build ? windowsInstaller) {
           # The channel URL is compiled in, as in the UKI.
@@ -253,17 +234,21 @@
           # Building the toplevel evaluates every module and every assertion in
           # them, which is most of what can go wrong in a configuration.
           toplevel = self.packages.${system}.toplevel;
-          # Run each program's own test suite as part of its build.
-          losos-installer = self.packages.${system}.losos-installer;
-          losos-hardware = self.packages.${system}.losos-hardware;
-          losos-security = self.packages.${system}.losos-security;
-          losos-swap = self.packages.${system}.losos-swap;
-          losos-windows-installer = self.packages.${system}.losos-windows-installer;
-          derisk = self.packages.${system}.derisk;
-          pm = self.packages.${system}.pm;
-          pm-plugins = self.packages.${system}.pm-plugins;
-          losos-adblock = self.packages.${system}.losos-adblock;
-          danube = self.packages.${system}.danube;
+        }
+        # Each program's own test suite runs as part of its build.
+        // lib.genAttrs [
+          "losos-installer"
+          "losos-hardware"
+          "losos-security"
+          "losos-swap"
+          "losos-windows-installer"
+          "derisk"
+          "pm"
+          "pm-plugins"
+          "losos-adblock"
+          "danube"
+        ] (name: self.legacyPackages.${system}.${name})
+        // {
           home-manager-pm = import ./nixos/tests/home-manager-pm.nix {
             inherit self home-manager pkgs;
           };
@@ -273,7 +258,7 @@
           # images themselves: mkbootimg, avbtool, the ext4 rootfs and its
           # sparse, compressed form only run when the images are built.
           gsi = self.packages.${system}.gsi;
-          libhybris = self.packages.${system}.libhybris;
+          libhybris = self.legacyPackages.${system}.libhybris;
         }
         # Boots the image under QEMU and checks the systemd pieces are actually
         # in place. Needs KVM, which the test driver asks for, so a builder

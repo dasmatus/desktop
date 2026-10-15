@@ -83,9 +83,8 @@
 
   systemd.services.losos-security = {
     description = "Operating system security checks";
-    after = [ "dbus.socket" ];
-    requires = [ "dbus.socket" ];
 
+    # Type=dbus brings After= and Requires=dbus.socket with it.
     serviceConfig = {
       Type = "dbus";
       BusName = "io.losos.Security1";

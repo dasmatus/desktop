@@ -78,15 +78,15 @@ in
 
     package = lib.mkOption {
       type = types.package;
-      default = self.packages.${system}.pm;
-      defaultText = lib.literalExpression "losos-desktop.packages.\${system}.pm";
+      default = self.legacyPackages.${system}.pm;
+      defaultText = lib.literalExpression "losos-desktop.legacyPackages.\${system}.pm";
       description = "pm itself, which also signs the plugins at activation.";
     };
 
     pluginPackage = lib.mkOption {
       type = types.package;
-      default = self.packages.${system}.pm-plugins;
-      defaultText = lib.literalExpression "losos-desktop.packages.\${system}.pm-plugins";
+      default = self.legacyPackages.${system}.pm-plugins;
+      defaultText = lib.literalExpression "losos-desktop.legacyPackages.\${system}.pm-plugins";
       description = "The plugin components `plugins` names, under share/pm/plugins.";
     };
 

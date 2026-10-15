@@ -76,8 +76,8 @@ What has to be set up once, outside the repository:
    rm -rf "$GNUPGHOME"                # once the secret and an offline copy are saved
    ```
 
-   Commit `nixos/keys/update-signing.asc`; `losos.update.pubring` picks it
-   up and turns sysupdate's verification on. Put the key's fingerprint
+   Commit `nixos/keys/update-signing.asc`, which `losos.update.pubring`
+   reads; sysupdate verifies every update against it. Put the key's fingerprint
    (`gpg --show-keys --with-colons nixos/keys/update-signing.asc`) in
    `UPDATE_SIGNING_FPR` in `ci.yml`. The `push` job fails without the secret,
    or with a secret for a different key, rather than publish a release the

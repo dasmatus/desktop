@@ -28,9 +28,7 @@
   hibernating and resuming loses the hibernated session
   ([Hibernation](hibernation.md)).
 
-- **Signing.** Until `nixos/keys/update-signing.asc` is committed,
-  `losos.update.pubring` is unset, sysupdate installs updates without
-  verifying `SHA256SUMS.gpg`, and the build warns. There is no
+- **Signing.** There is no
   key rotation: a new key needs an update signed by the old one that carries
   both. Secure Boot signing
   of the UKI is not done either; as in the pm tree, a key belongs to whoever
