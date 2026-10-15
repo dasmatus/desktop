@@ -11,6 +11,25 @@
   `explain`), and the boot test checks it is installed, but a recipe written
   for an FHS host does not build on it. For the same reason seven of pm's test targets
   are skipped in the nix build (the list is in `nixos/pkgs/pm.nix`).
+- **The guest template in full** ([Virtual machine desktop](hypervisor.md)).
+  Only a reduced build of it, without Danube, Flatpak and the Calculator,
+  has booted, and no machine's window has reached a desktop through it yet.
+  It is a whole second NixOS in `/usr`, so it carries its own copy of store
+  paths the host has too (Mesa, Danube, fonts) and takes that room from the
+  8 GiB `/usr` slot; giving machines the host's store over virtiofs would
+  save it. A machine's disk grows into the size it was made with, once;
+  nothing makes an existing machine's disk larger.
+  Portal dialogs (a Flatpak's file chooser) in a machine are GTK's, drawn
+  through the same waypipe, and have not been tried.
+- **Windows and other distributions in machines**
+  ([Machines from an installer CD](hypervisor.md#machines-from-an-installer-cd)).
+  No Windows has been installed from the Windows tools CD yet, so its answer
+  file, its drivers and its first sign-in have only been checked for what
+  they say, not run; nor has the Linux tools CD's `setup.sh` run in any
+  distribution. The desktop does not yet show a machine's own screen by
+  itself (`virt-viewer --attach` does) or frame WinApps' windows in the
+  machine's colour: FreeRDP's RemoteApp windows are X11's, drawn through
+  the session's one xwayland-satellite, which belongs to no machine.
 - **A complete image build.** CI builds release images within its runner time
   budget; local image builds may take longer.
 - **Hibernation needs UEFI and a TPM.** A BIOS PC, or a laptop without a

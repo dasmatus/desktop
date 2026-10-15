@@ -115,13 +115,13 @@ one of each package compiles its whole static closure.
 
 ## Virtual machines
 
-The image runs libvirt (`nixos/modules/libvirt.nix`): QEMU for the machine's
-own architecture, with KVM where the CPU has it, managed by libvirtd, which
-starts on its socket the first time something connects and exits two minutes
-after the last machine stops. virt-manager and `virsh` use it as on any
-distribution. Administrators, the `wheel` members first-boot setup makes, may
-use `qemu:///system` without being asked; everyone else gets
-`qemu:///session`, where machines run as themselves.
+The image runs libvirt from boot (`nixos/modules/libvirt.nix`, [Virtual
+machine desktop](hypervisor.md)): QEMU for the machine's own architecture,
+with KVM where the CPU has it. virt-manager and `virsh` use it as on any
+distribution. `LIBVIRT_DEFAULT_URI` is `qemu:///system` for every session.
+Administrators, the `wheel` members first-boot setup makes, may manage
+machines there without being asked; everyone else is asked for an
+administrator's password.
 
 pm boots a package that ships its own kernel (`kernel(...)` in its recipe, see
 pm's README) in a virtual machine. On its own it starts QEMU itself, as you.
@@ -137,8 +137,7 @@ The plugin is a WebAssembly component like the rest, and it can reach nothing
 itself: it writes a transient domain definition and names one program,
 `virsh`, which `pm plugins` lists under `launchers:`, and pm runs
 `virsh create --console --autodestroy` with it. virsh connects where it always
-does: `LIBVIRT_DEFAULT_URI` when set, `qemu:///system` for an administrator,
-`qemu:///session` for everyone else. Under `qemu:///system` QEMU runs as
+does, `LIBVIRT_DEFAULT_URI`, which here is `qemu:///system`. There QEMU runs as
 libvirt's own user rather than as you, in its own cgroup and mount namespace
 with QEMU's seccomp sandbox on, and libvirt hands it the kernel, the
 initramfs and the two serial sockets for the life of the machine.
@@ -153,3 +152,43 @@ The real boot through the plugin (a distribution kernel running a probe
 through `qemu:///system`, QEMU as libvirt's own user, under TCG) passed on an
 Ubuntu host with libvirt 10.0, as did the same boot with pm's own QEMU. Neither
 the module nor the plugin has run on this image yet.
+
+### Machines that stay
+
+`pm machine` keeps virtual machines that outlive any one command, the
+machines of the [virtual machine desktop](hypervisor.md). As with `pm run`,
+pm leaves libvirt to its `libvirt` plugin, which turns each request into the
+`virsh` steps that carry it out:
+
+```
+pm machine create work \
+  --image /run/current-system/sw/share/losos/machines/losos-guest.qcow2 \
+  --label blue --memory 4096 --cpus 4 --disk 64
+pm machine start work
+pm machine list
+pm machine stop work        # asks the guest to shut down
+pm machine kill work        # pulls the plug
+pm machine remove work      # the machine and its disk; the template stays
+```
+
+The template becomes a read-only volume in libvirt's `default` pool, named
+after it and its digest, so every machine made from one image shares it. A
+machine's disk is a qcow2 overlay on it (`pm-machine-<name>.qcow2`), as
+large as `--disk` says and never smaller than the template, and its
+definition is a persistent domain that carries its label and template in
+`<metadata>`, a vsock device and a channel for the QEMU guest agent. derisk's
+Machines app runs these same commands.
+
+`--installer CD.iso` (more than once for more CDs) makes an empty machine
+that installs its system from them instead, and `--system windows` makes it
+a Windows PC; pm adds the image's CD of guest tools for that system, from
+`share/pm/machines` on `XDG_DATA_DIRS`, or the one `--tools` names
+([Machines from an installer CD](hypervisor.md#machines-from-an-installer-cd)).
+Removing a machine deletes only its own disk (`virsh undefine --storage
+vda`), never a template or CD another machine may share.
+
+`nixos/tests/machines.nix` makes a machine from the image's own template
+this way, under TCG, and checks that it boots, grows its root over its
+8 GiB disk, gets an address on libvirt's network, lists its apps through the
+agent, and that opening one reaches the host's vsock port 7350 from the
+address libvirt gave the machine. CI runs it with the other VM tests.

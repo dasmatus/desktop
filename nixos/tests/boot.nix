@@ -23,6 +23,11 @@
 
       losos.version = "1";
 
+      # The boot tests build three disks from the image, and the guest
+      # template in each was what ran CI's runner out of space; booting the
+      # image does not use it, and tests/machines.nix tests it on its own.
+      losos.machines.templates = false;
+
       # First-boot setup waits on the seat for a person, which a test has
       # none of. The user is created by the test script instead.
       services.homed.promptOnFirstBoot = lib.mkForce false;
