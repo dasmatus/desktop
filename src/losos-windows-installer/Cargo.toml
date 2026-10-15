@@ -6,7 +6,6 @@ rust-version = "1.95"
 
 [dependencies]
 fatfs = "0.3.6"
-getrandom = "0.4"
 liblzma = { version = "0.4.8", default-features = false, features = ["static", "parallel"] }
 miette = { version = "7.6.0", features = ["fancy"] }
 pgp = "0.21.0"
@@ -15,6 +14,7 @@ serde_json = "1.0.151"
 sha2 = "0.11.0"
 tracing = "0.1.44"
 tracing-subscriber = { version = "0.3.23", features = ["env-filter"] }
+uuid = { version = "1.28.0", features = ["v4"] }
 
 [target."cfg(windows)".dependencies]
 windows-sys = { version = "0.61.2", features = ["Win32_Foundation", "Win32_System_Ioctl", "Win32_System_IO", "Win32_Storage_FileSystem", "Win32_System_WindowsProgramming", "Win32_System_SystemInformation", "Win32_System_Threading", "Win32_Security", "Win32_System_Registry", "Win32_UI_Shell", "Win32_System_Memory"] }

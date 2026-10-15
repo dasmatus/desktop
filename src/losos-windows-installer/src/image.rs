@@ -12,7 +12,7 @@ use std::process::{Command, Stdio};
 
 use miette::{IntoDiagnostic, Result, WrapErr, bail, miette};
 
-use crate::disk::{Device, RawDevice};
+use crate::disk::Device;
 use crate::fat;
 use crate::guid::{Guid, types};
 use crate::install::{EspFile, Target};
@@ -27,7 +27,7 @@ pub struct Entry {
 
 pub struct Image {
     path: PathBuf,
-    device: RawDevice,
+    device: Device,
     sector: u64,
     entries: Vec<Entry>,
     last_usable: u64,
@@ -89,7 +89,7 @@ impl Image {
                 Some(Entry {
                     start: p["start"].as_u64()? * sector,
                     size: p["size"].as_u64()? * sector,
-                    type_guid: Guid::parse(p["type"].as_str()?)?,
+                    type_guid: Guid::parse_str(p["type"].as_str()?).ok()?,
                 })
             })
             .collect();
@@ -101,7 +101,7 @@ impl Image {
             .wrap_err_with(|| path.display().to_string())?;
         Ok(Image {
             path: path.to_owned(),
-            device: RawDevice::new(file, sector),
+            device: Device::new(file, sector),
             sector,
             entries,
             last_usable,
@@ -116,7 +116,7 @@ impl Image {
         let windows = self
             .entries
             .iter()
-            .filter(|e| e.type_guid == types::microsoft_basic_data())
+            .filter(|e| e.type_guid == types::MICROSOFT_BASIC_DATA)
             .max_by_key(|e| e.size)
             .ok_or_else(|| miette!("{} has no Windows partition", self.path.display()))?;
         let start = windows.start + windows.size;
@@ -133,14 +133,14 @@ impl Image {
     fn esp(&self) -> Result<Entry> {
         self.entries
             .iter()
-            .find(|e| e.type_guid == types::esp())
+            .find(|e| e.type_guid == types::ESP)
             .cloned()
             .ok_or_else(|| miette!("{} has no ESP", self.path.display()))
     }
 }
 
 impl Target for Image {
-    fn device(&mut self) -> &mut dyn Device {
+    fn device(&mut self) -> &mut Device {
         &mut self.device
     }
 

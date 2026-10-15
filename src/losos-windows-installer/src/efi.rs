@@ -44,7 +44,7 @@ pub fn load_option(description: &str, partition: &Partition, path: &str) -> Vec<
     device_path.extend_from_slice(&partition.number.to_le_bytes());
     device_path.extend_from_slice(&partition.start_lba.to_le_bytes());
     device_path.extend_from_slice(&partition.size_lba.to_le_bytes());
-    device_path.extend_from_slice(&partition.uuid.to_mixed_endian());
+    device_path.extend_from_slice(&partition.uuid.to_bytes_le());
     // Partition format 2: GPT; signature type 2: a GUID.
     device_path.extend_from_slice(&[0x02, 0x02]);
     // File path media path: type 4, subtype 4.
@@ -108,7 +108,7 @@ impl Node {
         if (self.kind, self.sub) != (0x04, 0x01) || self.data.len() != 38 || self.data[37] != 2 {
             return None;
         }
-        Some(Guid::from_mixed_endian(self.data[20..36].try_into().ok()?))
+        Some(Guid::from_bytes_le(self.data[20..36].try_into().ok()?))
     }
 }
 
@@ -198,7 +198,7 @@ mod tests {
             number: 1,
             start_lba: 2048,
             size_lba: 204800,
-            uuid: Guid::parse("e41f8688-063e-4898-bf2a-d33537e9ecb3").unwrap(),
+            uuid: Guid::parse_str("e41f8688-063e-4898-bf2a-d33537e9ecb3").unwrap(),
         }
     }
 
@@ -272,7 +272,7 @@ mod tests {
             Some(r"\EFI\systemd\systemd-bootx64.efi")
         );
         // Not an entry for this ESP: refused rather than guessed at.
-        let other = Guid::parse("00000000-0000-0000-0000-000000000001").unwrap();
+        let other = Guid::parse_str("00000000-0000-0000-0000-000000000001").unwrap();
         assert!(beside(&windows, other, "LosOS", r"\x.efi").is_none());
     }
 

@@ -15,9 +15,12 @@ use losos_installer::serve::{self, Config};
 use miette::miette;
 use tracing_subscriber::EnvFilter;
 
-const USAGE: &str = "usage: losos-installer serve --repart-definitions DIR --sysupdate-definitions DIR \
-[--esp DIR] [--medium DIR] [--work DIR] [--source URL] [--local-source DIR] [--release-repo OWNER/NAME --release-version VERSION] \
-[--bios-boot PROGRAM] [--name NAME]";
+// The name and every path are required: the one caller, the ISO's
+// (nixos/installer/default.nix), always passes them, so a default here could
+// only drift from it.
+const USAGE: &str = "usage: losos-installer serve --name NAME --repart-definitions DIR --sysupdate-definitions DIR \
+--esp DIR --medium DIR --work DIR [--source URL] [--local-source DIR] [--release-repo OWNER/NAME --release-version VERSION] \
+[--bios-boot PROGRAM]";
 
 fn parse(mut args: impl Iterator<Item = String>) -> miette::Result<Config> {
     if args.next().as_deref() != Some("serve") {
@@ -25,13 +28,17 @@ fn parse(mut args: impl Iterator<Item = String>) -> miette::Result<Config> {
     }
     let mut repart = None;
     let mut sysupdate = None;
+    let mut esp = None;
+    let mut medium = None;
+    let mut work = None;
+    let mut name = None;
     let mut config = Config {
-        name: "LosOS Desktop".into(),
+        name: String::new(),
         repart_definitions: PathBuf::new(),
         sysupdate_templates: PathBuf::new(),
-        esp: PathBuf::from("/run/losos-installer/esp"),
-        medium: "/iso".into(),
-        work: PathBuf::from("/run/losos-installer"),
+        esp: PathBuf::new(),
+        medium: String::new(),
+        work: PathBuf::new(),
         source: None,
         local_source: None,
         bios_boot: None,
@@ -43,24 +50,29 @@ fn parse(mut args: impl Iterator<Item = String>) -> miette::Result<Config> {
             .next()
             .ok_or_else(|| miette!(help = USAGE, "{flag} needs a value"))?;
         match flag.as_str() {
-            "--repart-definitions" => repart = Some(PathBuf::from(value)),
-            "--sysupdate-definitions" => sysupdate = Some(PathBuf::from(value)),
-            "--esp" => config.esp = PathBuf::from(value),
-            "--medium" => config.medium = value,
-            "--work" => config.work = PathBuf::from(value),
+            "--repart-definitions" => repart = Some(value),
+            "--sysupdate-definitions" => sysupdate = Some(value),
+            "--esp" => esp = Some(value),
+            "--medium" => medium = Some(value),
+            "--work" => work = Some(value),
             "--source" => config.source = Some(value),
             "--local-source" => config.local_source = Some(PathBuf::from(value)),
             "--bios-boot" => config.bios_boot = Some(PathBuf::from(value)),
             "--release-repo" => config.release_repo = Some(value),
             "--release-version" => config.release_version = Some(value),
-            "--name" => config.name = value,
+            "--name" => name = Some(value),
             _ => return Err(miette!(help = USAGE, "unknown argument {flag}")),
         }
     }
-    config.repart_definitions =
-        repart.ok_or_else(|| miette!(help = USAGE, "--repart-definitions is required"))?;
-    config.sysupdate_templates =
-        sysupdate.ok_or_else(|| miette!(help = USAGE, "--sysupdate-definitions is required"))?;
+    let required = |value: Option<String>, flag: &str| {
+        value.ok_or_else(|| miette!(help = USAGE, "{flag} is required"))
+    };
+    config.name = required(name, "--name")?;
+    config.repart_definitions = required(repart, "--repart-definitions")?.into();
+    config.sysupdate_templates = required(sysupdate, "--sysupdate-definitions")?.into();
+    config.esp = required(esp, "--esp")?.into();
+    config.medium = required(medium, "--medium")?;
+    config.work = required(work, "--work")?.into();
     Ok(config)
 }
 

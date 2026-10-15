@@ -17,7 +17,7 @@ use crate::install::EspFile;
 /// Formats `len` bytes at `start` as FAT32 and copies `files` (path on the
 /// new filesystem, local file) onto it.
 pub fn format(
-    device: &mut dyn Device,
+    device: &mut Device,
     start: u64,
     len: u64,
     label: [u8; 11],
@@ -60,12 +60,7 @@ pub fn format(
 /// directories they are in, and returns the paths that were not there
 /// before. What `mountvol` and a copy do on Windows; this is a disk image's
 /// way of doing the same.
-pub fn put(
-    device: &mut dyn Device,
-    start: u64,
-    len: u64,
-    files: &[EspFile],
-) -> Result<Vec<String>> {
+pub fn put(device: &mut Device, start: u64, len: u64, files: &[EspFile]) -> Result<Vec<String>> {
     let fs = FileSystem::new(Window::new(device, start, len), FsOptions::new())
         .into_diagnostic()
         .wrap_err("opening the ESP")?;
@@ -89,7 +84,7 @@ pub fn put(
 
 /// Removes `paths` from the FAT filesystem at `start`, and the directories
 /// that leaves empty. A path already gone is not an error.
-pub fn remove(device: &mut dyn Device, start: u64, len: u64, paths: &[String]) -> Result<()> {
+pub fn remove(device: &mut Device, start: u64, len: u64, paths: &[String]) -> Result<()> {
     let fs = FileSystem::new(Window::new(device, start, len), FsOptions::new())
         .into_diagnostic()
         .wrap_err("opening the ESP")?;
@@ -133,7 +128,6 @@ fn create<'a, T: fatfs::ReadWriteSeek>(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::disk::RawDevice;
     use std::io::Read;
 
     #[test]
@@ -152,7 +146,7 @@ mod tests {
             .open(&image)
             .unwrap();
         file.set_len(600 << 20).unwrap();
-        let mut device = RawDevice::new(file, 512);
+        let mut device = Device::new(file, 512);
 
         let start = 1 << 20;
         let len = 512 << 20;
