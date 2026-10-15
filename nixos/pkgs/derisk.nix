@@ -23,6 +23,7 @@
   seatd,
   libdrm,
   linux-pam,
+  libvirt,
   # derisk-gpui's GPUI (Sonne's) links these, and finds the rest below at
   # run time.
   fontconfig,
@@ -49,7 +50,7 @@ let
     src = lib.cleanSource ../../components/derisk;
   };
 
-  cargoHash = "sha256-3uc5ReskWqvfzQoo1wOUhrSABXUuupo8t2YxXoXA57Y=";
+  cargoHash = "sha256-fC2VQ1f0hZiWQ1oDAMEgRK2dLW6cDuGbY9/9X2rB+78=";
 
   # derisk-gpui, as a cargo build of its own. It cannot share derisk's: the
   # portal talks to xdg-desktop-portal through ashpd on tokio, and Sonne's
@@ -155,6 +156,11 @@ rustPlatform.buildRustPackage {
     libdrm
     # The lock screen checks passwords through PAM.
     linux-pam
+    # derisk-machines (the Machines app, the window gate and the palette's
+    # machines) talks to libvirtd through libvirt's own C library, which the
+    # virt crate's bindings link and pkg-config finds. derisk-gpui does not
+    # build that crate, so it goes without.
+    libvirt
   ]
   # Linked, and put on the RUNPATH, by the cc wrapper.
   ++ lib.optional withHardenedMalloc graphene-hardened-malloc;
