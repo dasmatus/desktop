@@ -253,8 +253,7 @@ aarch64). WebDriver, the remote inspector and WebKit's unshipped
 JIT compilers are off by default (`JSC_useJIT=false`): scripts and
 WebAssembly run in its interpreters, slower, and a page can no longer have
 the browser write and run machine code, which most WebKit exploits rely on.
-`losos.danube.jit` or `javascript.jit = true` in the user's settings turns
-them back on. WebKit keeps its own allocator (libpas, with its Gigacage)
+`javascript.jit = true` in the user's settings turns them back on. WebKit keeps its own allocator (libpas, with its Gigacage)
 for JavaScript and DOM objects; everything else it allocates through
 `malloc`, which is hardened_malloc on a PC ([the allocator](allocator.md)).
 Tracking prevention (WebKit's ITP) is on, and there is no keyring for
@@ -265,8 +264,10 @@ allows. A phone's own kernel may not: see [what is not done](not-done.md).
 
 ## Settings
 
-`/etc/danube/settings.conf` (from `losos.danube.*`), then the user's
-`~/.config/danube/settings.conf`, `key = value` per line:
+The user's `~/.config/danube/settings.conf`, `key = value` per line; a
+key left out keeps its default. There are no NixOS options for them:
+`losos.danube.home` and `losos.danube.jit`, which wrote
+`/etc/danube/settings.conf` under it, went because nothing set them.
 
 | Key | Meaning |
 | --- | --- |
