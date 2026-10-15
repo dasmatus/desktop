@@ -179,6 +179,14 @@ definition is a persistent domain that carries its label and template in
 `<metadata>`, a vsock device and a channel for the QEMU guest agent. derisk's
 Machines app runs these same commands.
 
+`--installer CD.iso` (more than once for more CDs) makes an empty machine
+that installs its system from them instead, and `--system windows` makes it
+a Windows PC; pm adds the image's CD of guest tools for that system, from
+`share/pm/machines` on `XDG_DATA_DIRS`, or the one `--tools` names
+([Machines from an installer CD](hypervisor.md#machines-from-an-installer-cd)).
+Removing a machine deletes only its own disk (`virsh undefine --storage
+vda`), never a template or CD another machine may share.
+
 `nixos/tests/machines.nix` makes a machine from the image's own template
 this way, under TCG, and checks that it boots, grows its root over its
 8 GiB disk, gets an address on libvirt's network, lists its apps through the

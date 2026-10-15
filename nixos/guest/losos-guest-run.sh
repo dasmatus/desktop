@@ -6,10 +6,15 @@
 #   losos-guest-run <id>     start that app as the guest's user and return
 #
 # The agent runs this as root, with an environment of its own; the app runs
-# in the user's systemd manager instead, which has WAYLAND_DISPLAY pointing
-# at the guest's waypipe server, so its windows go to the host's desktop.
+# in the user's systemd manager instead, with WAYLAND_DISPLAY pointing at the
+# guest's waypipe server, so its windows go to the host's desktop.
+#
+# The same script runs in the LosOS guest template and, from the Linux tools
+# CD, in other distributions (nixos/guest-tools/linux/); what differs between
+# them is substituted in: the user, and the waypipe server's socket.
 
 user=@user@
+display=@display@
 
 # Where desktop files are, the user's own first, as XDG orders them: an ID
 # found earlier hides the same ID further down.
@@ -18,6 +23,8 @@ dirs=(
   "/home/$user/.local/share/flatpak/exports/share/applications"
   /var/lib/flatpak/exports/share/applications
   /run/current-system/sw/share/applications
+  /usr/local/share/applications
+  /usr/share/applications
 )
 
 # The [Desktop Entry] group's value for `key`, unlocalised, from `file`.
@@ -80,6 +87,7 @@ for dir in "${dirs[@]}"; do
   # does not linger.
   exec systemd-run --quiet --collect --user --machine="$user@.host" \
     --description="$(entry "$file" Name)" \
+    --setenv=WAYLAND_DISPLAY="$display" --setenv=XDG_SESSION_TYPE=wayland \
     -- "$BASH" -lc "exec $exec"
 done
 
