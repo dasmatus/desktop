@@ -37,6 +37,8 @@
         useEFIBoot = false;
         fileSystems = lib.mkVMOverride { };
         memorySize = 3072;
+        # A second disk, made to look like another LosOS disk's root below.
+        emptyDiskImages = [ 256 ];
       };
 
       boot.initrd.systemd.repart.device = "/dev/vda";
@@ -69,7 +71,11 @@
 
       with subtest("GRUB started the system, and first boot found its disk"):
           machine.fail("test -d /sys/firmware/efi")
-          machine.succeed("grep -q 'root=PARTLABEL=root-x86-64' /proc/cmdline")
+          # GRUB named the ESP it started the kernel from, and the initrd
+          # mounted root from that ESP's disk (bios.nix).
+          machine.succeed("grep -q 'root=/dev/disk/by-loader/root' /proc/cmdline")
+          machine.succeed("grep -q 'losos.esp=' /proc/cmdline")
+          machine.succeed('test "$(findmnt --noheadings --output SOURCE /)" = "$(readlink -f /dev/disk/by-loader/root)"')
           machine.succeed("grep -q 'usrhash=' /proc/cmdline")
           machine.succeed("findmnt --kernel --types ext4 /")
           machine.succeed("findmnt --kernel /home")
@@ -85,6 +91,30 @@
           # still fails if its job was dropped or it failed.
           machine.wait_for_unit("losos-grub-bless.service")
 
+      with subtest("An update rewrites GRUB's BIOS boot code"):
+          # Without the record of what it installed, losos-grub-update
+          # writes the boot code again, so a BIOS boot partition emptied
+          # here is whole again for the reboot below.
+          machine.wait_for_unit("losos-grub-update.service")
+          machine.succeed(f"test -f {esp}/EFI/losos/installed")
+          bios = machine.succeed(
+              "lsblk --raw --noheadings --output PATH,PARTTYPE /dev/vda"
+              " | awk '$2 == \"21686148-6449-6e6f-744e-656564454649\" { print $1 }'"
+          ).strip()
+          machine.succeed(f"dd if=/dev/zero of={bios} bs=1M count=1 conv=fsync")
+          machine.succeed(f"rm {esp}/EFI/losos/installed")
+          machine.succeed("systemctl restart losos-grub-update.service")
+          machine.fail(f"cmp --bytes=512 {bios} /dev/zero")
+
+      with subtest("Another disk's root partition is not mounted in its place"):
+          machine.succeed(
+              "printf 'label: gpt\\nsize=64M, type=4f68bce3-e8cd-4db1-96e7-fbcaf984b709, name=root-x86-64\\n'"
+              " | sfdisk /dev/vdb"
+          )
+          machine.succeed("udevadm settle")
+          machine.succeed("mkfs.ext4 -q /dev/vdb1")
+          machine.succeed("mount /dev/vdb1 /mnt && touch /mnt/other-disk && umount /mnt")
+
       with subtest("A counted UKI is blessed once it boots"):
           # The name sysupdate gives a new UKI (update.nix).
           machine.succeed(
@@ -97,5 +127,8 @@
           machine.succeed(f"test -f {esp}/EFI/Linux/losos-desktop_1.efi")
           machine.fail(f"ls {esp}/EFI/Linux/ | grep -q '+'")
           machine.fail(f"grep -q '^losos_' {esp}/EFI/losos/grubenv")
+          # Both disks now have a root partition by that label.
+          machine.succeed("findmnt --noheadings --output SOURCE / | grep -q '^/dev/vda'")
+          machine.fail("test -e /other-disk")
     '';
 }

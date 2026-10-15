@@ -179,6 +179,50 @@ in
     chooser_cmd=${pkgs.derisk}/bin/derisk choose
   '';
 
+  # X11 apps, through xwayland-satellite: Xwayland as an ordinary Wayland
+  # client of derisk, turning each X11 window into an xdg_toplevel, so the
+  # compositor needs nothing beyond xdg-shell and wp_viewporter, both of
+  # which it has. It starts with the session, on the lowest display number
+  # nobody else's session holds (sessions share /tmp/.X11-unix), and once
+  # Xwayland is up it puts DISPLAY into the user manager's environment and
+  # D-Bus activation's. derisk starts every app as a transient unit of that
+  # manager, so apps started after it reach Xwayland, and derisk's own
+  # DISPLAY= at session start stays the value until then.
+  systemd.user.services.xwayland-satellite =
+    let
+      start = pkgs.writeShellScript "xwayland-satellite-start" ''
+        n=0
+        while [ -e "/tmp/.X11-unix/X$n" ] || [ -e "/tmp/.X$n-lock" ]; do
+          n=$((n + 1))
+        done
+        echo ":$n" > "$RUNTIME_DIRECTORY/display"
+        exec ${lib.getExe pkgs.xwayland-satellite} ":$n"
+      '';
+      export = pkgs.writeShellScript "xwayland-satellite-export" ''
+        display=$(cat "$RUNTIME_DIRECTORY/display")
+        ${pkgs.systemd}/bin/systemctl --user set-environment "DISPLAY=$display"
+        ${pkgs.dbus}/bin/dbus-update-activation-environment --systemd "DISPLAY=$display"
+      '';
+    in
+    {
+      description = "Xwayland for X11 apps";
+      bindsTo = [ "graphical-session.target" ];
+      partOf = [ "graphical-session.target" ];
+      after = [ "graphical-session.target" ];
+      requisite = [ "graphical-session.target" ];
+      wantedBy = [ "graphical-session.target" ];
+      serviceConfig = {
+        # satellite says READY once Xwayland has its display.
+        Type = "notify";
+        NotifyAccess = "all";
+        RuntimeDirectory = "xwayland-satellite";
+        ExecStart = start;
+        ExecStartPost = export;
+        ExecStopPost = "${pkgs.systemd}/bin/systemctl --user unset-environment DISPLAY";
+        Restart = "on-failure";
+      };
+    };
+
   # Let systemd-oomd act on a desktop session before the kernel OOM killer
   # does. oomd watches cgroup pressure and kills the worst-behaved application
   # cgroup while the machine is still responsive, but only in slices that opt

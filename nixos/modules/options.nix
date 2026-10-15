@@ -40,8 +40,11 @@ in
       type = types.str;
       default = "nightly";
       description = ''
-        The release channel. It is the GitHub release tag CI moves rather than
-        creates anew, so the update URL stays the same across releases.
+        The release channel: `nightly`, which every CI run on main
+        publishes, or `stable`, which a tagged release is built for. CI
+        moves the channel's tag in GHCR to each release of it, and proxy/
+        serves that tag at `/updates/<channel>/`, so the update URL stays
+        the same across releases. flake.nix sets it from `LOSOS_CHANNEL`.
       '';
     };
 

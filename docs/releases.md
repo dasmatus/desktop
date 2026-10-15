@@ -46,10 +46,18 @@ A tagged release is a run of `ci` started by hand (Actions, ci, Run
 workflow) on the commit to release, with a **tag** such as `v0.1.0` and a
 **title** such as `LosOS 0.1`. The run checks the tag first and fails within
 a minute if it is malformed, starts with `nightly`, or is already released.
-Otherwise it builds the commit, mostly from the cache, and publishes the same
-files as a nightly would, as a full release rather than a prerelease. It
-leaves the channel's GHCR tags alone, so installed systems keep following
-the nightlies. A run started by hand without a tag publishes a nightly.
+Otherwise it builds the commit for the **stable channel**
+(`losos.channel = "stable"`, which `flake.nix` takes from `LOSOS_CHANNEL`
+in CI), mostly from the cache, and publishes the same kinds of files as a
+nightly would, as a full release rather than a prerelease. Its images
+update from `<proxy>/updates/stable/<arch>/`, and the run moves
+`images:stable-<arch>` in GHCR to it, so a system installed from a tagged
+release, or from its installer ISO or Windows installer, follows the tagged
+releases, and one installed from a nightly keeps following the nightlies.
+Only what names the channel differs from the nightly of the same commit:
+the update URL in `/usr`'s sysupdate transfers, and so `/usr`, the UKI and
+the images built from them; every package is the same store path. A run
+started by hand without a tag publishes a nightly.
 
 ![CI pushes store paths, releases and compiler caches to GHCR; the proxy redirects Nix, sysupdate and CI to GHCR's storage and streams the GSI's files to the web flasher; each nightly is also a GitHub release](images/binary-cache.svg)
 
