@@ -24,7 +24,6 @@ let
         inherit (rule)
           classes
           vendor
-          devices
           virtualisation
           load
           blacklist
@@ -68,19 +67,15 @@ in
             default = null;
             description = "The PCI or USB vendor ID of a matching device.";
           };
-          devices = mkOption {
-            type = types.nullOr (types.listOf (types.either types.ints.u16 types.str));
-            default = null;
-            description = ''
-              IDs that match: device IDs of `vendor`'s, as numbers or hex
-              strings, or "vvvv:dddd" pairs. With devicesFile also null, any
-              device in the classes from `vendor` matches.
-            '';
-          };
           devicesFile = mkOption {
             type = types.nullOr types.path;
             default = null;
-            description = "The same as devices, as a JSON array in a file read at boot, for lists that are build products.";
+            description = ''
+              IDs that match, as a JSON array in a file read at boot, for
+              lists that are build products: device IDs of `vendor`'s, as
+              numbers or hex strings, or "vvvv:dddd" pairs. When null, any
+              device in the classes from `vendor` matches.
+            '';
           };
           virtualisation = mkOption {
             type = types.nullOr (types.listOf types.str);

@@ -39,7 +39,7 @@ use serde_json::Value;
 /// One choice the configuration makes about the machine.
 ///
 /// A rule names what it matches by up to three selectors, all of which must
-/// hold: a device (`classes`, with `vendor` and `devices`), the hypervisor
+/// hold: a device (`classes`, with `vendor` and `devices_file`), the hypervisor
 /// facter detected (`virtualisation`), and the CPU's vendor (`cpu_vendor`).
 /// A rule with none of them never matches.
 #[derive(Debug, Clone, Deserialize)]
@@ -52,16 +52,16 @@ pub struct Rule {
     #[serde(default)]
     pub classes: Vec<String>,
     /// The PCI or USB vendor ID a matching device has.
-    #[serde(default, deserialize_with = "vendor")]
-    pub vendor: Option<u16>,
-    /// IDs that match: a bare device ID, of `vendor`'s, or a `vvvv:dddd`
-    /// pair. Every device in `classes` from `vendor` matches when this and
-    /// `devices_file` are both absent.
     #[serde(default)]
+    pub vendor: Option<u16>,
+    /// The IDs in `devices_file`, read with the rules.
+    #[serde(skip)]
     pub devices: Option<Ids>,
-    /// The same as `devices`, read from a JSON array in a file, for lists
-    /// that are build products: NVIDIA's table of the GPUs its driver
-    /// supports, libfprint's of the readers it drives.
+    /// IDs that match, as a JSON array in a file: a bare device ID, of
+    /// `vendor`'s, or a `vvvv:dddd` pair. The lists are build products:
+    /// NVIDIA's table of the GPUs its driver supports, libfprint's of the
+    /// readers it drives. Every device in `classes` from `vendor` matches
+    /// when this is absent.
     #[serde(default)]
     pub devices_file: Option<PathBuf>,
     /// facter's `virtualisation` values that match, `none` for bare metal.
@@ -151,11 +151,6 @@ impl Ids {
         self.pairs.contains(&(d.vendor, d.device))
             || (vendor == Some(d.vendor) && self.devices.contains(&d.device))
     }
-
-    fn extend(&mut self, other: Ids) {
-        self.devices.extend(other.devices);
-        self.pairs.extend(other.pairs);
-    }
 }
 
 #[derive(Debug, Deserialize)]
@@ -171,8 +166,7 @@ pub fn read_rules(path: &Path) -> io::Result<Vec<Rule>> {
         .into_iter()
         .map(|mut rule| {
             if let Some(file) = rule.devices_file.take() {
-                let listed: Ids = serde_json::from_slice(&fs::read(&file)?)?;
-                rule.devices.get_or_insert_with(Ids::default).extend(listed);
+                rule.devices = Some(serde_json::from_slice(&fs::read(&file)?)?);
             }
             Ok(rule)
         })
@@ -345,14 +339,6 @@ fn write(path: PathBuf, text: &str) -> io::Result<()> {
         fs::create_dir_all(parent)?;
     }
     fs::write(path, text)
-}
-
-/// A vendor ID, as a number or as a hex string such as "0x10DE".
-fn vendor<'de, D: Deserializer<'de>>(d: D) -> Result<Option<u16>, D::Error> {
-    Option::<Value>::deserialize(d)?
-        .map(|v| parse_id(&v))
-        .transpose()
-        .map_err(serde::de::Error::custom)
 }
 
 impl<'de> Deserialize<'de> for Ids {
