@@ -69,6 +69,9 @@ pub enum Command {
     },
     /// The window gained or lost the keyboard.
     Focus(bool),
+    /// The page is on screen or not: a hidden one stops painting, slows
+    /// its timers, and pauses its animations and media.
+    Shown(bool),
     Input(TabId, Vec<Input>),
     /// Paste `text` into the page: put it on WebKit's clipboard, then
     /// press Ctrl+V there.
@@ -145,6 +148,13 @@ pub enum Event {
     /// A load began, so a page that had crashed is running again.
     LoadStarted(TabId),
     Crashed(TabId),
+    /// A load failed for good (not cancelled by the next one): the
+    /// address and why. WebKit shows its error page in the tab.
+    LoadFailed {
+        tab: TabId,
+        uri: String,
+        error: String,
+    },
     Activated(TabId),
     Closed(TabId),
     /// A tab's latest frame, premultiplied RGBA at device pixels.
