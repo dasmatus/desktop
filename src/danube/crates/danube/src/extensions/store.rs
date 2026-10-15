@@ -7,15 +7,15 @@
 //!
 //! An install takes a `.zip`, a Chrome `.crx` (a zip after its header), a
 //! Firefox `.xpi` (a zip under another name) or an unpacked directory. The
-//! zip reader is this file's own: the browser needs the central directory
-//! and deflate, which `flate2` has, and nothing else from a zip crate.
+//! zip crate reads the archive, built with deflate and nothing else: the
+//! extension stores write entries stored or deflated, and a reader of our
+//! own was more code to keep right than the crate is to depend on.
 
 use std::collections::BTreeMap;
 use std::fs;
-use std::io::{Read, Write};
+use std::io::{self, Cursor, Write};
 use std::path::{Component, Path, PathBuf};
 
-use flate2::read::DeflateDecoder;
 use serde_json::Value;
 use sha2::{Digest, Sha256};
 
@@ -33,7 +33,7 @@ pub enum Error {
     #[error("{0} is not a zip, crx, xpi or directory")]
     Format(PathBuf),
     #[error("the archive is malformed: {0}")]
-    Zip(&'static str),
+    Zip(#[from] zip::result::ZipError),
     #[error("the archive holds a path it may not: {0}")]
     Path(String),
     #[error("{0}: no such extension")]
@@ -313,19 +313,22 @@ fn keep_key(dir: &Path, key: &[u8]) -> Result<(), Error> {
 }
 
 /// Unpacks `zip` into `into`, refusing entries that would land outside it.
+/// The zip crate's own `enclosed_name` would refuse them too, but
+/// [`safe_relative`] is what inline.rs and the runtime check names with, so
+/// one rule decides for all three.
 fn extract(zip: &[u8], into: &Path) -> Result<(), Error> {
-    for entry in central_directory(zip)? {
-        let relative = safe_relative(&entry.name)?;
-        let target = into.join(&relative);
-        if entry.name.ends_with('/') {
+    let mut archive = zip::ZipArchive::new(Cursor::new(zip))?;
+    for index in 0..archive.len() {
+        let mut entry = archive.by_index(index)?;
+        let target = into.join(safe_relative(&entry.name()?)?);
+        if entry.is_dir() {
             fs::create_dir_all(&target)?;
             continue;
         }
         if let Some(parent) = target.parent() {
             fs::create_dir_all(parent)?;
         }
-        let data = entry.data(zip)?;
-        fs::write(&target, data)?;
+        io::copy(&mut entry, &mut fs::File::create(&target)?)?;
     }
     Ok(())
 }
@@ -347,84 +350,6 @@ pub(super) fn safe_relative(name: &str) -> Result<PathBuf, Error> {
         return Err(Error::Path(name.to_string()));
     }
     Ok(relative)
-}
-
-struct Entry {
-    name: String,
-    method: u16,
-    compressed: usize,
-    uncompressed: usize,
-    header_offset: usize,
-}
-
-impl Entry {
-    /// The entry's bytes, inflated when stored deflated. The local header's
-    /// name and extra field lengths are read there, since they may differ
-    /// from the central directory's.
-    fn data(&self, zip: &[u8]) -> Result<Vec<u8>, Error> {
-        let at = self.header_offset;
-        let header = zip.get(at..at + 30).ok_or(Error::Zip("local header past the end"))?;
-        if &header[0..4] != b"PK\x03\x04" {
-            return Err(Error::Zip("local header signature"));
-        }
-        let name_len = u16::from_le_bytes([header[26], header[27]]) as usize;
-        let extra_len = u16::from_le_bytes([header[28], header[29]]) as usize;
-        let start = at + 30 + name_len + extra_len;
-        let raw = zip
-            .get(start..start + self.compressed)
-            .ok_or(Error::Zip("entry data past the end"))?;
-        match self.method {
-            0 => Ok(raw.to_vec()),
-            8 => {
-                let mut out = Vec::with_capacity(self.uncompressed);
-                DeflateDecoder::new(raw)
-                    .read_to_end(&mut out)
-                    .map_err(|_| Error::Zip("deflate stream"))?;
-                Ok(out)
-            }
-            _ => Err(Error::Zip("compression method other than store or deflate")),
-        }
-    }
-}
-
-/// The entries the end-of-central-directory record points at. ZIP64 is not
-/// read: an extension that needs it is larger than any browser would load.
-fn central_directory(zip: &[u8]) -> Result<Vec<Entry>, Error> {
-    let eocd = zip
-        .len()
-        .checked_sub(22)
-        .and_then(|last| (0..=last.min(65535 + 1)).map(|back| last - back).find(|&at| zip[at..].starts_with(b"PK\x05\x06")))
-        .ok_or(Error::Zip("no end of central directory"))?;
-    let u16_at = |at: usize| u16::from_le_bytes([zip[at], zip[at + 1]]) as usize;
-    let u32_at = |at: usize| u32::from_le_bytes(zip[at..at + 4].try_into().unwrap()) as usize;
-    let count = u16_at(eocd + 10);
-    let mut at = u32_at(eocd + 16);
-    let mut entries = Vec::with_capacity(count);
-    for _ in 0..count {
-        let header = zip.get(at..at + 46).ok_or(Error::Zip("central directory past the end"))?;
-        if &header[0..4] != b"PK\x01\x02" {
-            return Err(Error::Zip("central directory signature"));
-        }
-        let method = u16::from_le_bytes([header[10], header[11]]);
-        let compressed = u32_at(at + 20);
-        let uncompressed = u32_at(at + 24);
-        let name_len = u16_at(at + 28);
-        let extra_len = u16_at(at + 30);
-        let comment_len = u16_at(at + 32);
-        let header_offset = u32_at(at + 42);
-        let name = zip
-            .get(at + 46..at + 46 + name_len)
-            .ok_or(Error::Zip("entry name past the end"))?;
-        entries.push(Entry {
-            name: String::from_utf8_lossy(name).into_owned(),
-            method,
-            compressed,
-            uncompressed,
-            header_offset,
-        });
-        at += 46 + name_len + extra_len + comment_len;
-    }
-    Ok(entries)
 }
 
 /// When `dir` holds one directory and nothing else, its contents move up
@@ -474,54 +399,25 @@ fn copy_tree(from: &Path, to: &Path) -> Result<(), Error> {
 mod tests {
     use super::*;
 
-    /// A zip of `files`, stored or deflated, written as Python's zipfile
-    /// would: local headers, central directory, end record.
+    /// A zip of `files`, stored or deflated; a name ending in `/` is a
+    /// directory entry.
     fn zip_of(files: &[(&str, &[u8])], deflate: bool) -> Vec<u8> {
-        let mut out = Vec::new();
-        let mut central = Vec::new();
+        let method = if deflate {
+            zip::CompressionMethod::Deflated
+        } else {
+            zip::CompressionMethod::Stored
+        };
+        let options = zip::write::SimpleFileOptions::default().compression_method(method);
+        let mut writer = zip::ZipWriter::new(Cursor::new(Vec::new()));
         for (name, data) in files {
-            let body = if deflate {
-                let mut encoder = flate2::write::DeflateEncoder::new(Vec::new(), flate2::Compression::default());
-                encoder.write_all(data).unwrap();
-                encoder.finish().unwrap()
+            if name.ends_with('/') {
+                writer.add_directory(*name, options).unwrap();
             } else {
-                data.to_vec()
-            };
-            let method: u16 = if deflate { 8 } else { 0 };
-            let offset = out.len() as u32;
-            let mut local = Vec::new();
-            local.extend_from_slice(b"PK\x03\x04");
-            local.extend_from_slice(&[20, 0, 0, 0]);
-            local.extend_from_slice(&method.to_le_bytes());
-            local.extend_from_slice(&[0; 8]); // time, date, crc
-            local.extend_from_slice(&(body.len() as u32).to_le_bytes());
-            local.extend_from_slice(&(data.len() as u32).to_le_bytes());
-            local.extend_from_slice(&(name.len() as u16).to_le_bytes());
-            local.extend_from_slice(&0u16.to_le_bytes());
-            local.extend_from_slice(name.as_bytes());
-            out.extend_from_slice(&local);
-            out.extend_from_slice(&body);
-            central.extend_from_slice(b"PK\x01\x02");
-            central.extend_from_slice(&[20, 0, 20, 0, 0, 0]);
-            central.extend_from_slice(&method.to_le_bytes());
-            central.extend_from_slice(&[0; 8]);
-            central.extend_from_slice(&(body.len() as u32).to_le_bytes());
-            central.extend_from_slice(&(data.len() as u32).to_le_bytes());
-            central.extend_from_slice(&(name.len() as u16).to_le_bytes());
-            central.extend_from_slice(&[0; 12]); // extra, comment, disk, attrs
-            central.extend_from_slice(&offset.to_le_bytes());
-            central.extend_from_slice(name.as_bytes());
+                writer.start_file(*name, options).unwrap();
+                writer.write_all(data).unwrap();
+            }
         }
-        let start = out.len() as u32;
-        out.extend_from_slice(&central);
-        out.extend_from_slice(b"PK\x05\x06");
-        out.extend_from_slice(&[0; 4]);
-        out.extend_from_slice(&(files.len() as u16).to_le_bytes());
-        out.extend_from_slice(&(files.len() as u16).to_le_bytes());
-        out.extend_from_slice(&(central.len() as u32).to_le_bytes());
-        out.extend_from_slice(&start.to_le_bytes());
-        out.extend_from_slice(&[0; 2]);
-        out
+        writer.finish().unwrap().into_inner()
     }
 
     const MANIFEST: &[u8] = br#"{"manifest_version": 3, "name": "Test", "version": "1.0"}"#;
@@ -606,12 +502,14 @@ mod tests {
     #[test]
     fn refuses_escaping_paths() {
         let home = temp_home("escape");
-        let zip = zip_of(&[("../evil.js", b"1"), ("manifest.json", MANIFEST)], false);
-        let file = home.join("ext.zip");
-        fs::write(&file, zip).unwrap();
         let store = Store::new(&home);
-        assert!(matches!(store.install(&file, "en"), Err(Error::Path(_))));
-        assert!(!home.join("evil.js").exists());
-        assert!(store.list("en").is_empty());
+        for evil in ["../evil.js", "/evil.js"] {
+            let zip = zip_of(&[(evil, b"1"), ("manifest.json", MANIFEST)], false);
+            let file = home.join("ext.zip");
+            fs::write(&file, zip).unwrap();
+            assert!(matches!(store.install(&file, "en"), Err(Error::Path(_))));
+            assert!(!home.join("evil.js").exists());
+            assert!(store.list("en").is_empty());
+        }
     }
 }
