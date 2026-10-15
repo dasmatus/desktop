@@ -613,7 +613,7 @@ fn parse_shortcut(key: &str) -> Option<egui::KeyboardShortcut> {
 fn ctrl_key(c: char) -> Vec<input::Input> {
     let keyval = c as u32;
     vec![
-        input::Input::Modifiers(input::Mods(crate::ffi::WPE_MODIFIER_KEYBOARD_CONTROL)),
+        input::Input::Modifiers(crate::ffi::WPE_MODIFIER_KEYBOARD_CONTROL),
         input::Input::Key {
             keyval,
             pressed: true,
@@ -622,7 +622,7 @@ fn ctrl_key(c: char) -> Vec<input::Input> {
             keyval,
             pressed: false,
         },
-        input::Input::Modifiers(input::Mods(0)),
+        input::Input::Modifiers(0),
     ]
 }
 

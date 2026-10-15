@@ -35,7 +35,7 @@ use crate::ffi::{
     WPE_INPUT_SOURCE_MOUSE, WPE_INPUT_SOURCE_TOUCHPAD, WPE_MODIFIER_KEYBOARD_CONTROL,
     WPE_MODIFIER_POINTER_BUTTON1, WPE_MODIFIER_POINTER_BUTTON2, WPE_MODIFIER_POINTER_BUTTON3,
 };
-use crate::input::{Input, Touch};
+use crate::input::Input;
 use crate::permissions::{self, Kind};
 use crate::shared::{Command, Event, Events, ExtCommand, PermissionAsk, Tab, TabId};
 use crate::webkit::{
@@ -578,7 +578,7 @@ impl Engine {
         let time = self.time();
         let event = match input {
             Input::Modifiers(m) => {
-                self.modifiers = m.0;
+                self.modifiers = m;
                 return;
             }
             Input::Move { x, y } => {
@@ -638,14 +638,8 @@ impl Engine {
                     count,
                 )
             }
-            Input::Scroll {
-                x,
-                y,
-                dx,
-                dy,
-                precise,
-            } => {
-                let (x, y) = if x.is_nan() { self.pointer } else { (x, y) };
+            Input::Scroll { dx, dy, precise } => {
+                let (x, y) = self.pointer;
                 let source = if precise {
                     WPE_INPUT_SOURCE_TOUCHPAD
                 } else {
@@ -664,10 +658,10 @@ impl Engine {
             }
             Input::Touch { id, x, y, phase } => {
                 let kind = match phase {
-                    Touch::Down => WPE_EVENT_TOUCH_DOWN,
-                    Touch::Move => WPE_EVENT_TOUCH_MOVE,
-                    Touch::Up => WPE_EVENT_TOUCH_UP,
-                    Touch::Cancel => WPE_EVENT_TOUCH_CANCEL,
+                    egui::TouchPhase::Start => WPE_EVENT_TOUCH_DOWN,
+                    egui::TouchPhase::Move => WPE_EVENT_TOUCH_MOVE,
+                    egui::TouchPhase::End => WPE_EVENT_TOUCH_UP,
+                    egui::TouchPhase::Cancel => WPE_EVENT_TOUCH_CANCEL,
                 };
                 webkit::Event::touch(kind, view, time, self.modifiers, id, x, y)
             }
