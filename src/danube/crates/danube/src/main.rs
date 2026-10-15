@@ -4,6 +4,9 @@
 //!     danube [URL...]                 open a window, or tabs in the open one
 //!     danube --captive-portal [URL]   the network sign-in window
 //!     danube captive-watch            open that window when a portal appears
+//!     danube --background URL --size WxH [--scale S]
+//!                                     a page as derisk's desktop background,
+//!                                     frames on stdout (background.rs)
 //!
 //! Started outside its sandbox, Danube builds it (danube-sandbox's
 //! `browser` plan) and runs itself again inside; `--no-sandbox` skips that
@@ -13,6 +16,7 @@
 //! later `danube` runs, the captive portal's recheck) beside them in one
 //! scope, so that all of them have ended when `run` returns.
 
+mod background;
 mod captive;
 mod config;
 mod derisk;
@@ -61,6 +65,15 @@ enum Error {
     Window(String),
     #[error("{0}")]
     #[diagnostic(
+        code(danube::background),
+        help("danube --background https://example.org/ --size 1920x1080 [--scale 1.5]; file:/// works too")
+    )]
+    Background(String),
+    #[error("{0}")]
+    #[diagnostic(code(danube::background_page))]
+    NotShown(String),
+    #[error("{0}")]
+    #[diagnostic(
         code(danube::extension),
         help("an extension is a .zip, .crx or .xpi, or an unpacked directory with manifest.json")
     )]
@@ -76,6 +89,10 @@ struct Args {
     /// `list-extensions`: done here, told to the running browser, no
     /// window.
     extension: Option<ExtensionArg>,
+    /// `--background URL` and its `--size` and `--scale`.
+    background: Option<String>,
+    size: Option<String>,
+    scale: Option<String>,
 }
 
 enum ExtensionArg {
@@ -91,12 +108,18 @@ fn args() -> Args {
         sandbox: true,
         uris: Vec::new(),
         extension: None,
+        background: None,
+        size: None,
+        scale: None,
     };
     let mut rest = std::env::args().skip(1);
     while let Some(arg) = rest.next() {
         match arg.as_str() {
             "--captive-portal" => args.captive = true,
             "--no-sandbox" => args.sandbox = false,
+            "--background" => args.background = rest.next(),
+            "--size" => args.size = rest.next(),
+            "--scale" => args.scale = rest.next(),
             "captive-watch" if args.uris.is_empty() => args.watch = true,
             "install-extension" if args.uris.is_empty() => {
                 args.extension = rest.next().map(|f| ExtensionArg::Install(PathBuf::from(f)));
@@ -154,15 +177,18 @@ fn run(args: Args) -> Result<ExitCode, Error> {
     if let Some(what) = args.extension {
         return extension_command(&home, &instance, what);
     }
+    let background = background_page(&args)?;
 
     // One browser per profile: WebKit's storage is not shared between
-    // processes, so a second `danube URL` hands its URLs to the first.
-    if !args.captive && hand_over(&instance, &args.uris) {
+    // processes, so a second `danube URL` hands its URLs to the first. A
+    // background has a throwaway profile of its own.
+    if !args.captive && background.is_none() && hand_over(&instance, &args.uris) {
         return Ok(ExitCode::SUCCESS);
     }
 
     if args.sandbox && std::env::var_os("DANUBE_SANDBOXED").is_none() {
-        return sandboxed(&exe, &home);
+        let shown = background.as_ref().and_then(|p| background::folder(&p.uri));
+        return sandboxed(&exe, &home, shown);
     }
 
     let settings = config::Settings::load(&home);
@@ -189,6 +215,28 @@ fn run(args: Args) -> Result<ExitCode, Error> {
     let (commands, inbox) = Commands::channel(engine::wake);
     let (events, outbox) = Events::channel(commands.clone());
 
+    if let Some(page) = background {
+        let out = background::take_stdout()
+            .map_err(|e| Error::Background(format!("cannot keep stdout for the frames: {e}")))?;
+        let options = engine::Options {
+            profile: None,
+            adblock: Some(PathBuf::from(ADBLOCK_STATE).join("webkit")),
+            filter_cache: home.join(".cache/danube/content-filters"),
+            permissions: None,
+            downloads: home.join("Downloads"),
+            settings,
+            open: vec![page.uri.clone()],
+            extensions: None,
+            muted: true,
+        };
+        let shown = thread::scope(|s| {
+            let pump = s.spawn(|| background::run(&commands, outbox, &page, out));
+            engine::run(inbox, events, options);
+            pump.join().unwrap_or(Ok(()))
+        });
+        return shown.map(|()| ExitCode::SUCCESS).map_err(Error::NotShown);
+    }
+
     let check = args.captive.then(captive::Check::load).flatten();
     let options = if args.captive {
         let open = if args.uris.is_empty() {
@@ -208,6 +256,7 @@ fn run(args: Args) -> Result<ExitCode, Error> {
             settings: settings.clone(),
             open,
             extensions: None,
+            muted: false,
         }
     } else {
         engine::Options {
@@ -222,6 +271,7 @@ fn run(args: Args) -> Result<ExitCode, Error> {
                 home: home.clone(),
                 lang: lang(),
             }),
+            muted: false,
         }
     };
     let listener = (!args.captive).then(|| listener(&instance)).flatten();
@@ -322,6 +372,43 @@ fn window(
         }),
     )
     .map_err(|e| Error::Window(e.to_string()))
+}
+
+/// The page `--background` asks for, checked; `None` without it.
+fn background_page(args: &Args) -> Result<Option<background::Page>, Error> {
+    let Some(uri) = &args.background else {
+        return Ok(None);
+    };
+    // A file given by path is shown as a file:// URL, as when opened.
+    let uri = if Path::new(uri).is_absolute() {
+        format!("file://{uri}")
+    } else {
+        uri.clone()
+    };
+    if !background::allowed(&uri) {
+        return Err(Error::Background(format!(
+            "{uri} is not an http(s) address or a file"
+        )));
+    }
+    let (width, height) = args
+        .size
+        .as_deref()
+        .and_then(background::parse_size)
+        .ok_or_else(|| Error::Background("--size WIDTHxHEIGHT is missing".into()))?;
+    let scale = match &args.scale {
+        None => 1.0,
+        Some(s) => s
+            .parse()
+            .ok()
+            .filter(|s: &f64| (0.5..=8.0).contains(s))
+            .ok_or_else(|| Error::Background(format!("--scale {s} is not 0.5 to 8")))?,
+    };
+    Ok(Some(background::Page {
+        uri,
+        width,
+        height,
+        scale,
+    }))
 }
 
 /// Hands `uris` to a Danube already running on this profile; `false` when
@@ -454,8 +541,9 @@ fn listen(listener: &UnixListener, commands: &Commands, stop: &Stop) {
     }
 }
 
-/// Runs Danube again inside its sandbox, with a filtered session bus.
-fn sandboxed(exe: &Path, home: &Path) -> Result<ExitCode, Error> {
+/// Runs Danube again inside its sandbox, with a filtered session bus, and
+/// `shown` (a background page's folder) read-only.
+fn sandboxed(exe: &Path, home: &Path, shown: Option<&Path>) -> Result<ExitCode, Error> {
     let runtime_dir = std::env::var_os("XDG_RUNTIME_DIR")
         .map(PathBuf::from)
         .unwrap_or_else(|| {
@@ -471,6 +559,7 @@ fn sandboxed(exe: &Path, home: &Path) -> Result<ExitCode, Error> {
         wayland_display: std::env::var("WAYLAND_DISPLAY").unwrap_or_else(|_| "wayland-0".into()),
         bus_proxy: bus.clone(),
         adblock_state: ADBLOCK_STATE.into(),
+        read_only: shown.into_iter().map(Path::to_path_buf).collect(),
         program,
     };
     let result = danube_sandbox::run(danube_sandbox::browser::plan(&session));
