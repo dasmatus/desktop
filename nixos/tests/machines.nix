@@ -3,7 +3,9 @@
 # the image ships, the machine boots and takes an address on libvirt's
 # network, its guest agent lists its apps, and opening one sends its window
 # to the host over vsock from the address libvirt gave that machine, which
-# is how the desktop tells whose window it is.
+# is how the desktop tells whose window it is. Then a Windows machine, as
+# far as libvirt goes without Windows: defined with the image's drivers CD
+# and started with its TPM.
 #
 # The desktop's own half, the gate that hands that connection to the
 # machine's waypipe client and the compositor that labels the window, is
@@ -159,5 +161,43 @@
         machine.fail(f"{virsh} dominfo work")
         machine.fail(f"{virsh} vol-info --pool default pm-machine-work.qcow2")
         machine.succeed(f"{virsh} vol-list default | grep -q 'pm-template-losos-guest-'")
+
+    with subtest("the image carries the CDs of guest tools where pm looks"):
+        tools = "/run/current-system/sw/share/pm/machines"
+        machine.succeed(f"test -s {tools}/windows-tools.iso")
+        machine.succeed(f"test -s {tools}/linux-tools.iso")
+        # pm finds them through the session's XDG_DATA_DIRS, so a login
+        # shell's environment, not the test driver's.
+        machine.succeed("bash -lc 'echo \"$XDG_DATA_DIRS\" | grep -q /run/current-system/sw/share'")
+
+    with subtest("a Windows machine gets the drivers CD, a TPM and a screen, and starts"):
+        # Windows itself cannot be installed here, so its CD is a stand-in:
+        # what is checked is that libvirt takes the machine pm defines for it
+        # and starts it, swtpm and all, with the host's drivers CD beside it.
+        machine.succeed("head -c 1048576 /dev/zero > /tmp/win11.iso")
+        machine.succeed(
+            "bash -lc 'pm machine create win --installer /tmp/win11.iso"
+            " --system windows --label red --memory 512 --disk 4'"
+        )
+        xml = machine.succeed(f"{virsh} dumpxml --inactive win")
+        for expected in [
+            "<tpm model='tpm-crb'>",
+            "<graphics type='spice'>",
+            "<clock offset='localtime'>",
+            "pm-media-win11-",
+            "pm-media-windows-tools-",
+        ]:
+            assert expected in xml, f"{expected} is not in {xml}"
+        assert "<vsock" not in xml, xml
+        machine.succeed("LIBVIRT_DEFAULT_URI=qemu:///system pm machine start win")
+        machine.wait_until_succeeds(f"{virsh} domstate win | grep -qx running", timeout=60)
+        machine.succeed("pgrep -x swtpm")
+
+    with subtest("removing it keeps the CDs another machine may share"):
+        machine.succeed("LIBVIRT_DEFAULT_URI=qemu:///system pm machine remove win")
+        machine.fail(f"{virsh} dominfo win")
+        machine.fail(f"{virsh} vol-info --pool default pm-machine-win.qcow2")
+        machine.succeed(f"{virsh} vol-list default | grep -q 'pm-media-windows-tools-'")
+        machine.succeed(f"{virsh} vol-list default | grep -q 'pm-media-win11-'")
   '';
 }
