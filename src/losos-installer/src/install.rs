@@ -124,6 +124,7 @@ fn install(plan: &Plan, events: &Sender<Event>) -> Result<(), String> {
 
     step(Step::Partition);
     let disk = plan.disk.to_string_lossy().into_owned();
+    forget_partitions(&disk, events)?;
     let definitions = format!("--definitions={}", plan.repart_definitions.display());
     // --empty=force writes a fresh partition table whatever was there; the
     // person typed `erase` to get here.
@@ -172,6 +173,25 @@ fn install(plan: &Plan, events: &Sender<Event>) -> Result<(), String> {
         }
     }
     command("sync", &[], false, events)?;
+    Ok(())
+}
+
+/// Erases `disk`'s partition table and has the kernel drop the partitions it
+/// knew from it, before repart writes the new one.
+///
+/// repart formats the ESP through a partition device it adds to the kernel
+/// itself, and that fails with "Failed to create new partition '/dev/vda2':
+/// Device or resource busy" whenever the kernel still has a partition 2 from
+/// the table that was there: any disk with a table on it, not only one left
+/// by a failed install. Asking the kernel to reread the table first also
+/// stops an install, before anything is written, when a partition on the
+/// disk is mounted or otherwise open, since the kernel then refuses.
+fn forget_partitions(disk: &str, events: &Sender<Event>) -> Result<(), String> {
+    let in_use = |e: String| format!("{disk} has a partition in use, so it cannot be erased: {e}");
+    command("blockdev", &["--rereadpt", disk], false, events).map_err(in_use)?;
+    command("wipefs", &["--all", "--force", disk], false, events)?;
+    command("blockdev", &["--rereadpt", disk], false, events).map_err(in_use)?;
+    command("udevadm", &["settle"], false, events)?;
     Ok(())
 }
 
