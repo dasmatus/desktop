@@ -148,8 +148,13 @@ in
   # asks which screen or window through `derisk choose`, a dialog in the
   # session, named by the config below for XDG_CURRENT_DESKTOP=derisk.
   #
-  # Left off, because nothing in derisk has a UI for them yet: Bluetooth,
-  # power profiles and geoclue.
+  # Bluetooth and power profiles are derisk Settings' Bluetooth page and its
+  # Power mode row, which run bluetoothctl and powerprofilesctl; both
+  # modules put those on PATH. bluetooth.service starts only where
+  # /sys/class/bluetooth exists, so a machine without an adapter runs
+  # nothing. geoclue stays off: nothing in derisk asks for a location.
+  hardware.bluetooth.enable = true;
+  services.power-profiles-daemon.enable = true;
   services.pipewire = {
     enable = true;
     pulse.enable = true;
