@@ -217,6 +217,32 @@ block. That window checks again every three seconds and closes itself once
 the network lets traffic through. The desktop entry's "Sign in to network"
 action opens it by hand.
 
+## The desktop background
+
+derisk can show a web page as the desktop background (Settings,
+Wallpaper, "Web page"), and Danube draws it. derisk starts
+`danube --background URL --size WIDTHxHEIGHT --scale S` at the screen's
+size, as it starts ffmpeg for a video wallpaper, and reads frames from
+its stdout: a width and a height (32-bit little-endian), then that many
+premultiplied RGBA pixels, for every frame the page renders
+(`src/danube/crates/danube/src/background.rs`). There is no window. An
+`http://`, `https://` or `file:///` address is all it takes; a local page
+can load the pictures and scripts beside it, since the sandbox shows its
+folder read-only.
+
+The page gets nothing of the person's: a profile that ends with it, no
+extensions, every permission refused, no sound, no keyboard or pointer.
+It gets the content blockers like any tab. When a window covers the
+screen (or in low power mode, as the Settings app chooses), derisk writes
+`hide` on Danube's stdin: WebKit stops painting the page and slows its
+timers, and Danube pauses its CSS animations, videos and sounds, which
+WebKit's compositor would otherwise keep running; `show` resumes exactly
+those. A frame derisk has not read yet is replaced by the next instead of
+queueing. A load that fails, or a web process that dies, ends the run
+with the reason on stderr, and derisk shows its own background instead.
+Danube's stdout carries only frames: the web processes it starts write
+theirs to stderr.
+
 ## Sandbox and hardening
 
 Two sandboxes, both built with the [Hakoniwa](https://github.com/souk4711/hakoniwa)

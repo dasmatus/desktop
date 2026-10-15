@@ -62,6 +62,8 @@ pub struct Options {
     /// The extension runtime's, or `None` for a browser without
     /// extensions (captive portal).
     pub extensions: Option<runtime::Options>,
+    /// No page makes a sound (the desktop background).
+    pub muted: bool,
 }
 
 /// One tab: its page and the WPE view drawing it.
@@ -94,6 +96,9 @@ pub(crate) struct Engine {
     next_tab: TabId,
     pub(crate) size: (i32, i32, f64),
     pub(crate) focused: bool,
+    /// Whether the active tab is on screen at all (`Command::Shown`).
+    shown: bool,
+    muted: bool,
     modifiers: u32,
     buttons: u32,
     pointer: (f64, f64),
@@ -113,6 +118,16 @@ pub(crate) struct Engine {
     /// Tab changes the runtime missed while it was busy (`runtime::notify`).
     pub(crate) tab_changes: Vec<TabChange>,
 }
+
+/// Pause and resume a hidden page's animations and media, keeping the
+/// ones paused here under a symbol of their own, so that only those
+/// resume. In the page's own world: an isolated one keeps no globals from
+/// one evaluation to the next.
+const PAUSE: &str = "document[Symbol.for('danube.held')] = [...document.getAnimations(), ...document.querySelectorAll('video, audio')]
+    .filter(m => m instanceof Animation ? m.playState === 'running' : !m.paused);
+for (const m of document[Symbol.for('danube.held')]) m.pause();";
+const RESUME: &str = "for (const m of document[Symbol.for('danube.held')] ?? []) m.play();
+delete document[Symbol.for('danube.held')];";
 
 /// The rule sets in force, kept apart from the engine because the store's
 /// callbacks run on their own schedule.
@@ -256,6 +271,8 @@ pub fn run(commands: Receiver<Command>, events: Events, options: Options) {
         next_tab: 1,
         size: (800, 600, 1.0),
         focused: true,
+        shown: true,
+        muted: options.muted,
         modifiers: 0,
         buttons: 0,
         pointer: (0.0, 0.0),
@@ -341,6 +358,19 @@ impl Engine {
                 if let Some(view) = self.active.and_then(|id| self.view(id)) {
                     self.set_focus(&view, focused);
                 }
+            }
+            Command::Shown(shown) => {
+                self.shown = shown;
+                let Some(entry) = self.active.and_then(|id| self.entry(id)) else {
+                    return;
+                };
+                entry.view.set_visible(shown);
+                // Hidden, WebKit stops painting the page and slows its
+                // timers, but its compositor keeps running CSS animations
+                // and videos keep playing; those are paused by hand, and
+                // only those resume.
+                let script = if shown { RESUME } else { PAUSE };
+                entry.page.evaluate(script, None, None);
             }
             Command::Input(id, inputs) => {
                 if let Some(view) = self.view(id) {
@@ -472,6 +502,14 @@ impl Engine {
             }
         });
         page.on_close(move |_| later(Command::Close(id)));
+        page.on_load_failed(move |_, uri, error| {
+            warn!(tab = id, uri, error, "a load failed");
+            emit(Event::LoadFailed {
+                tab: id,
+                uri,
+                error,
+            });
+        });
         page.on_web_process_terminated(move |_| {
             warn!(tab = id, "a web process ended");
             emit(Event::Crashed(id));
@@ -479,6 +517,7 @@ impl Engine {
         page.on_decide_policy(|_, decision, kind| decide(decision, kind));
         page.on_permission_request(move |page, request| ask(page, request, id));
         page.on_mouse_target_changed(|_, result| emit(Event::HoveredLink(result.link_uri())));
+        page.set_muted(self.muted);
         let view = page.view();
         view.on_buffer_rendered(move |_, buffer| frame(buffer, id));
         view.set_visible(false);
@@ -508,7 +547,7 @@ impl Engine {
         }
         let previous = self.active.replace(id);
         for entry in &self.tabs {
-            entry.view.set_visible(entry.id == id);
+            entry.view.set_visible(entry.id == id && self.shown);
         }
         if let Some(old) = previous
             .filter(|old| *old != id)

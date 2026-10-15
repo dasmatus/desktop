@@ -76,6 +76,9 @@ pub struct Session {
     pub bus_proxy: Option<PathBuf>,
     /// Where losos-adblock compiles its lists.
     pub adblock_state: PathBuf,
+    /// More to show read-only: the folder of a page shown as the desktop
+    /// background.
+    pub read_only: Vec<PathBuf>,
     /// The program (and its arguments) to run inside.
     pub program: Vec<String>,
 }
@@ -199,6 +202,10 @@ pub fn plan(session: &Session) -> Plan {
         bind(&mut plan, &home.join(dir), Access::Read, true);
     }
     plan.landlock.push((s(home), Access::Read));
+    // After the home's tmpfs, so that a folder in it shows through.
+    for path in &session.read_only {
+        bind(&mut plan, path, Access::Read, true);
+    }
 
     // Marks the inside, so the browser does not try to sandbox itself again.
     plan.env.push(("DANUBE_SANDBOXED".into(), Some("1".into())));
@@ -218,6 +225,7 @@ mod tests {
             wayland_display: "wayland-0".into(),
             bus_proxy: None,
             adblock_state: "/var/lib/losos-adblock".into(),
+            read_only: vec![root.join("home/Pictures/page")],
             program: vec!["/bin/danube".into()],
         };
         let plan = plan(&session);
@@ -243,6 +251,21 @@ mod tests {
             );
         }
         assert!(plan.ops.contains(&Op::Tmpfs(s(&session.home))));
+        // A background page's folder shows, read-only, after the home's
+        // tmpfs that would hide it.
+        let page = s(&session.read_only[0]);
+        let tmpfs = plan
+            .ops
+            .iter()
+            .position(|op| *op == Op::Tmpfs(s(&session.home)));
+        let bound = plan
+            .ops
+            .iter()
+            .position(|op| matches!(op, Op::Bind { src, ro: true, .. } if *src == page));
+        assert!(
+            bound > tmpfs,
+            "{page} is not bound read-only after the home"
+        );
         let _ = std::fs::remove_dir_all(&root);
     }
 }

@@ -1006,6 +1006,49 @@ impl WebView {
         self.connect("load-changed", trampoline::<F> as *const (), f);
     }
 
+    /// `load-failed`, with the address and the error's message, for a
+    /// load that really failed: one cancelled by the next, or turned into
+    /// a download, is not passed on. WebKit's own error page shows either
+    /// way.
+    pub fn on_load_failed<F: Fn(&WebView, String, String) + 'static>(&self, f: F) {
+        unsafe extern "C" fn trampoline<F: Fn(&WebView, String, String)>(
+            view: *mut WebKitWebView,
+            _: WebKitLoadEvent,
+            uri: *const c_char,
+            error: *mut GError,
+            data: gpointer,
+        ) -> gboolean {
+            // The error belongs to the signal; read it, do not free it.
+            let (domain, code, message) = unsafe {
+                if error.is_null() {
+                    (0, 0, None)
+                } else {
+                    ((*error).domain, (*error).code, string((*error).message))
+                }
+            };
+            let superseded = unsafe {
+                (domain == webkit_network_error_quark()
+                    && code == WEBKIT_NETWORK_ERROR_CANCELLED as i32)
+                    || (domain == webkit_policy_error_quark()
+                        && code
+                            == WEBKIT_POLICY_ERROR_FRAME_LOAD_INTERRUPTED_BY_POLICY_CHANGE as i32)
+            };
+            if !superseded {
+                let uri = unsafe { string(uri) }.unwrap_or_default();
+                unsafe {
+                    (*(data as *const F))(&WebView::passing(view), uri, message.unwrap_or_default())
+                }
+            }
+            FALSE
+        }
+        self.connect("load-failed", trampoline::<F> as *const (), f);
+    }
+
+    /// Silences the page's audio and video.
+    pub fn set_muted(&self, muted: bool) {
+        unsafe { webkit_web_view_set_is_muted(self.as_ptr(), gbool(muted)) }
+    }
+
     /// `create`: a page wants a popup. `f` returns the view to open it in,
     /// made with [`WebView::related`], or `None` to block it. WebKit takes
     /// a reference of its own to the view returned.
