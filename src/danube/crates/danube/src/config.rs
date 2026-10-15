@@ -1,6 +1,7 @@
-//! Danube's settings: `key = value` lines, as derisk's own are, first
-//! `/etc/danube/settings.conf`, which `losos.danube.*` writes, then the
-//! person's `~/.config/danube/settings.conf`, whose lines win.
+//! Danube's settings: `key = value` lines, as derisk's own are, in the
+//! person's `~/.config/danube/settings.conf`; a key it leaves out keeps
+//! the default below. An `/etc/danube/settings.conf` from NixOS options
+//! was read first once; nothing set them, so it went.
 //!
 //! There is no `search` key and no reading of what is typed: the window
 //! has no address bar. Addresses are typed into derisk's command palette,
@@ -34,13 +35,8 @@ impl Settings {
     /// The settings for the person whose home is `home`.
     pub fn load(home: &Path) -> Self {
         let mut settings = Self::default();
-        for path in [
-            Path::new("/etc/danube/settings.conf").to_path_buf(),
-            home.join(".config/danube/settings.conf"),
-        ] {
-            let text = fs::read_to_string(path).unwrap_or_default();
-            settings.apply(&text);
-        }
+        let text = fs::read_to_string(home.join(".config/danube/settings.conf")).unwrap_or_default();
+        settings.apply(&text);
         settings
     }
 

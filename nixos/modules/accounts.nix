@@ -40,23 +40,9 @@
   # administrator, and keeps the wizard only as a fallback for a machine
   # derisk cannot draw on.
 
-  # userdbd serves homed's records over Varlink to NSS and to everything else
-  # that asks. The homed module enables it; it is named here because it is
-  # half of how a user exists at all.
-  #
-  # It used to set silenceHighSystemUsers, for gdm's greeter users at 60578
-  # and up. derisk's one `derisk-greeter` user takes a UID from the ordinary
-  # system range, so nothing is left to silence, and the warning stays on to
-  # catch a system user that could make first-boot setup think a
-  # regular user already exists. The VM test's userdbctl step checks the
-  # same thing.
-  services.userdbd.enable = true;
-
-  # NixOS routes NSS through a caching daemon so that glibc can find
-  # nss-systemd in the store, and the homed module asserts it. This is the one
-  # place a non-systemd daemon is load-bearing for accounts, and it is nsncd:
-  # a stateless forwarder, not a cache with its own idea of who exists.
-  services.nscd.enable = true;
+  # The homed module turns on userdbd, which serves homed's records over
+  # Varlink, and NixOS's nscd (nsncd, a stateless forwarder), through which
+  # glibc finds nss-systemd in the store. Neither is restated here.
 
   # No root password and no root login. Administration is run0, which asks
   # polkit, which asks a wheel member to authenticate -- as that member.

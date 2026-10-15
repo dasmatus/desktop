@@ -1,9 +1,9 @@
-# Build output. `plugins/` and `proxy/` are cargo workspaces. target/ holds the
-# wasm32 core modules and the host-side encoder, and dist/ holds the
-# components built from them. A compiled copy in git goes stale without anyone
-# noticing, and `just plugins` rebuilds them, so neither is committed.
+# Build output. `plugins/` and `proxy/` are cargo workspaces, and target/ holds
+# what they compile. plugins/dist is the result link `just plugins` leaves, a
+# symlink, so the pattern has no trailing slash. A compiled copy in git goes
+# stale without anyone noticing, so neither is committed.
 target/
-plugins/dist/
+/plugins/dist
 
 # nix-direnv caches the dev shell in .direnv/, `nix build` leaves result
 # symlinks, and `nix run .#vm` writes a disk and a firmware variable store into

@@ -22,6 +22,8 @@ use miette::{IntoDiagnostic, Result, WrapErr, bail, miette};
 use pgp::composed::{Deserializable, DetachedSignature, SignedPublicKey};
 use sha2::{Digest, Sha256};
 
+use uuid::uuid;
+
 use crate::guid::Guid;
 
 /// The per-architecture names update.nix matches, from options.nix's table.
@@ -29,11 +31,11 @@ use crate::guid::Guid;
 pub struct Arch {
     pub name: &'static str,
     pub usr: &'static str,
-    pub usr_type: &'static str,
+    pub usr_type: Guid,
     pub verity: &'static str,
-    pub verity_type: &'static str,
+    pub verity_type: Guid,
     /// Root, which first boot makes: only `--uninstall` needs to know it.
-    pub root_type: &'static str,
+    pub root_type: Guid,
     /// The EFI machine type GRUB's file on the ESP is named after.
     pub efi: &'static str,
 }
@@ -42,19 +44,19 @@ pub const ARCHES: [Arch; 2] = [
     Arch {
         name: "x86_64",
         usr: "usr-x86-64",
-        usr_type: "8484680c-9521-48c6-9c11-b0720656f69e",
+        usr_type: uuid!("8484680c-9521-48c6-9c11-b0720656f69e"),
         verity: "usr-x86-64-verity",
-        verity_type: "77ff5f63-e7b6-4633-acf4-1565b864c0e6",
-        root_type: "4f68bce3-e8cd-4db1-96e7-fbcaf984b709",
+        verity_type: uuid!("77ff5f63-e7b6-4633-acf4-1565b864c0e6"),
+        root_type: uuid!("4f68bce3-e8cd-4db1-96e7-fbcaf984b709"),
         efi: "x64",
     },
     Arch {
         name: "aarch64",
         usr: "usr-arm64",
-        usr_type: "b0e01050-ee5f-4390-949a-9101b17104e9",
+        usr_type: uuid!("b0e01050-ee5f-4390-949a-9101b17104e9"),
         verity: "usr-arm64-verity",
-        verity_type: "6e11a4e7-fbca-4ded-b9e9-e1a512bb664e",
-        root_type: "b921b045-1df0-41c3-af44-4c6f280d3fae",
+        verity_type: uuid!("6e11a4e7-fbca-4ded-b9e9-e1a512bb664e"),
+        root_type: uuid!("b921b045-1df0-41c3-af44-4c6f280d3fae"),
         efi: "aa64",
     },
 ];
@@ -62,18 +64,6 @@ pub const ARCHES: [Arch; 2] = [
 impl Arch {
     pub fn named(name: &str) -> Option<Arch> {
         ARCHES.into_iter().find(|a| a.name == name)
-    }
-
-    pub fn usr_type(&self) -> Guid {
-        Guid::parse(self.usr_type).expect("a GUID literal")
-    }
-
-    pub fn verity_type(&self) -> Guid {
-        Guid::parse(self.verity_type).expect("a GUID literal")
-    }
-
-    pub fn root_type(&self) -> Guid {
-        Guid::parse(self.root_type).expect("a GUID literal")
     }
 }
 
@@ -153,7 +143,7 @@ pub fn newest(sums: &str, id: &str, arch: &Arch) -> Result<Release> {
                 let uuid = name.strip_prefix(&head)?.strip_suffix(".raw.xz")?;
                 Some(Slot {
                     file: file(name, hash),
-                    uuid: Guid::parse(uuid)?,
+                    uuid: Guid::parse_str(uuid).ok()?,
                 })
             })
         };

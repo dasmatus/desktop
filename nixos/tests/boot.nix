@@ -9,6 +9,9 @@
 
 { lib, ... }:
 
+let
+  image = import ./image.nix { inherit self; };
+in
 {
   name = "losos-desktop-boot";
 
@@ -16,66 +19,12 @@
   # read-only package set would refuse.
   node.pkgsReadOnly = false;
 
-  nodes.machine =
-    { config, lib, ... }:
-    {
-      imports = [ self.nixosModules.default ];
-
-      losos.version = "1";
-
-      # The boot tests build three disks from the image, and the guest
-      # template in each was what ran CI's runner out of space; booting the
-      # image does not use it, and tests/machines.nix tests it on its own.
-      losos.machines.templates = false;
-
-      # First-boot setup waits on the seat for a person, which a test has
-      # none of. The user is created by the test script instead.
-      services.homed.promptOnFirstBoot = lib.mkForce false;
-      systemd.services.derisk-setup.enable = false;
-
-      # Boot the image as firmware would, from its own disk, instead of the
-      # test driver's kernel with the host's store mounted in.
-      virtualisation = {
-        directBoot.enable = false;
-        mountHostNixStore = false;
-        useEFIBoot = true;
-        fileSystems = lib.mkVMOverride { };
-        memorySize = 3072;
-      };
-
-      # The VM's first-boot disk is /dev/vda. Repart cannot infer it from
-      # /sysroot before the root partition exists.
-      boot.initrd.systemd.repart.device = "/dev/vda";
-      boot.initrd.systemd.services.systemd-repart.after = lib.mkForce [ "dev-vda.device" ];
-
-      # The VM module empties swapDevices with the same override it uses on
-      # fileSystems. Put back what disk.nix gives the real image, so the test
-      # boots the same fstab and zswap has the backing device it asserts on.
-      swapDevices = lib.mkVMOverride [
-        {
-          device = "/dev/mapper/swap";
-          options = [ "nofail" ];
-        }
-      ];
-    };
+  nodes.machine = image.node;
 
   testScript =
     { nodes, ... }:
-    ''
-      import os
-      import subprocess
-      import tempfile
-
-      # A copy-on-write disk backed by the image, grown so first boot has room
-      # for slot B, root, /home and swap.
-      tmp = tempfile.NamedTemporaryFile()
-      subprocess.run([
-        "${nodes.machine.virtualisation.qemu.package}/bin/qemu-img", "create",
-        "-f", "qcow2", "-F", "raw",
-        "-b", "${nodes.machine.system.build.disk}/${nodes.machine.image.filePath}",
-        tmp.name, "32G",
-      ], check=True)
-      os.environ["NIX_DISK_IMAGE"] = tmp.name
+    image.disk nodes.machine
+    + ''
 
       machine.wait_for_unit("multi-user.target")
 

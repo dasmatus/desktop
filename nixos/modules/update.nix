@@ -45,16 +45,9 @@ let
   };
 in
 {
-  warnings = lib.optional (cfg.update.pubring == null) ''
-    losos.update.pubring is unset, so systemd-sysupdate will install updates
-    without verifying SHA256SUMS.gpg. Commit the release signing key's public
-    half as nixos/keys/update-signing.asc (docs/nixos.md) before shipping an
-    image to anyone.
-  '';
-
-  environment.etc."systemd/import-pubring.gpg" = lib.mkIf (cfg.update.pubring != null) {
-    source = cfg.update.pubring;
-  };
+  # sysupdate verifies SHA256SUMS.gpg against this keyring; Verify= is on by
+  # default in every transfer below.
+  environment.etc."systemd/import-pubring.gpg".source = cfg.update.pubring;
 
   systemd.sysupdate = {
     enable = true;
@@ -68,17 +61,12 @@ in
       # All three belong to one version and sysupdate installs them as a set.
       # A /usr slot no UKI names is inert, so the UKI is the half that decides
       # whether a new version boots at all.
-      "10-usr-verity" = lib.recursiveUpdate (partition arch.usrVerity) {
-        Transfer.Verify = cfg.update.pubring != null;
-      };
-      "20-usr" = lib.recursiveUpdate (partition arch.usr) {
-        Transfer.Verify = cfg.update.pubring != null;
-      };
+      "10-usr-verity" = partition arch.usrVerity;
+      "20-usr" = partition arch.usr;
 
       "30-uki" = {
         Transfer = {
           ProtectVersion = "%A";
-          Verify = cfg.update.pubring != null;
         };
         Source = {
           Type = "url-file";

@@ -43,20 +43,18 @@ let
   # inherits them.
   backend = pkgs.writeShellScript "losos-installer-serve" ''
     export PATH=${
-      lib.makeBinPath (
-        [
-          systemd
-          sysupdateBin
-          pkgs.coreutils
-          pkgs.util-linux
-          # repart formats the ESP and copies GRUB into it with these.
-          pkgs.dosfstools
-          pkgs.mtools
-        ]
+      lib.makeBinPath [
+        systemd
+        sysupdateBin
+        pkgs.coreutils
+        pkgs.util-linux
+        # repart formats the ESP and copies GRUB into it with these.
+        pkgs.dosfstools
+        pkgs.mtools
         # systemd-pull checks SHA256SUMS.gpg with gpg itself, and the
         # installer does the same for a release disk.
-        ++ lib.optional (losos.pubring != null) pkgs.gnupg
-      )
+        pkgs.gnupg
+      ]
     }:$PATH
     exec ${lib.getExe pkgs.losos-installer} "$@"
   '';
@@ -198,11 +196,9 @@ in
   # default goes.
   environment.systemPackages = [ pkgs.curl ];
 
-  # The release signing key, when the OS has one: sysupdate verifies
-  # SHA256SUMS.gpg here exactly as it does on the installed system.
-  environment.etc."systemd/import-pubring.gpg" = lib.mkIf (losos.pubring != null) {
-    source = losos.pubring;
-  };
+  # The release signing key: sysupdate verifies SHA256SUMS.gpg here exactly
+  # as it does on the installed system.
+  environment.etc."systemd/import-pubring.gpg".source = losos.pubring;
 
   # A release disk: any filesystem labelled LOSOS-RELEASE holding a release's
   # files (SHA256SUMS, SHA256SUMS.gpg and what they list), which the installer

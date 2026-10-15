@@ -53,7 +53,7 @@ use windows_sys::Win32::System::WindowsProgramming::{
 use windows_sys::Win32::UI::Shell::{IsUserAnAdmin, SHELLEXECUTEINFOW, ShellExecuteExW};
 use windows_sys::core::GUID;
 
-use crate::disk::{Device, RawDevice};
+use crate::disk::Device;
 use crate::efi;
 use crate::guid::{Guid, types};
 use crate::install::{EspFile, Target};
@@ -68,17 +68,17 @@ fn last_error() -> io::Error {
 }
 
 fn to_guid(g: Guid) -> GUID {
-    let (data1, data2, data3, data4) = g.fields();
+    let (data1, data2, data3, data4) = g.as_fields();
     GUID {
         data1,
         data2,
         data3,
-        data4,
+        data4: *data4,
     }
 }
 
 fn from_guid(g: &GUID) -> Guid {
-    Guid::from_fields(g.data1, g.data2, g.data3, g.data4)
+    Guid::from_fields(g.data1, g.data2, g.data3, &g.data4)
 }
 
 // ---------------------------------------------------------------------------
@@ -454,9 +454,7 @@ impl Layout {
     }
 
     pub fn esp(&self) -> Option<&PARTITION_INFORMATION_EX> {
-        self.entries
-            .iter()
-            .find(|e| Self::type_of(e) == types::esp())
+        self.entries.iter().find(|e| Self::type_of(e) == types::ESP)
     }
 
     /// The free space directly behind the partition at `offset`.
@@ -599,8 +597,8 @@ impl Disk {
         Ok(())
     }
 
-    pub fn device(&self) -> Result<RawDevice> {
-        Ok(RawDevice::new(
+    pub fn device(&self) -> Result<Device> {
+        Ok(Device::new(
             self.file.try_clone().into_diagnostic()?,
             self.sector,
         ))
@@ -802,7 +800,7 @@ fn is_ours(option: &[u8], loader: &str) -> bool {
 
 pub struct WindowsTarget {
     disk: Disk,
-    device: RawDevice,
+    device: Device,
     esp_offset: u64,
     esp_uuid: Guid,
     /// The table before LosOS's partitions went in, for undo.
@@ -829,7 +827,7 @@ impl WindowsTarget {
 }
 
 impl Target for WindowsTarget {
-    fn device(&mut self) -> &mut dyn Device {
+    fn device(&mut self) -> &mut Device {
         &mut self.device
     }
 
@@ -978,9 +976,8 @@ impl Target for WindowsTarget {
 /// directly behind Windows' at `windows_end`. Only that run, so another
 /// Linux elsewhere on the disk is left alone.
 pub fn losos_partitions(layout: &Layout, windows_end: u64, usr: &[Guid]) -> Vec<usize> {
-    let ours = |g: Guid| {
-        g == types::xbootldr() || g == types::home() || g == types::swap() || usr.contains(&g)
-    };
+    let ours =
+        |g: Guid| g == types::XBOOTLDR || g == types::HOME || g == types::SWAP || usr.contains(&g);
     let mut sorted: Vec<usize> = (0..layout.entries.len()).collect();
     sorted.sort_by_key(|&i| layout.entries[i].StartingOffset);
     sorted

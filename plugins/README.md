@@ -1,12 +1,12 @@
 # This distribution's pm plugins
 
-Four WebAssembly components, built against pm's `wit/plugin.wit`
+Three WebAssembly components, built against pm's `wit/plugin.wit`
 ([pm#4](https://github.com/dichhead/pm/pull/4)). pm loads every `*.wasm` in
 `$XDG_CONFIG_HOME/pm/plugins/` and asks it two questions its built-in tables
 cannot always answer.
 
 Read pm's `plugins/README.md` for the sandbox and the trust model. What follows
-is why *these four* exist.
+is why *these three* exist.
 
 ## `losos-image` — classify-command
 
@@ -51,53 +51,6 @@ Filesystem builders are named individually (`mkfs.ext4`, not `mkfs*`) so a typo
 is an unrecognised command, which pm reports, rather than a wildcard quietly
 matching something else.
 
-## `losos-mkosi` — classify-command, and symbols
-
-`mkosi` is not in pm's fingerprint table either, so pm refuses a build file
-that calls it. This plugin names it, so a build file can:
-
-```
-$ pm explain build.yaml
-grants:     Toolchain, Coreutils, Archive
-plugins:    losos-image 0.1.0, losos-mkosi 0.1.0, losos-systemd 0.1.0
-
-COMMAND                                              FINGERPRINT
-mkosi --directory … --output-dir /build/media build  losos-mkosi:mkosi
-```
-
-Again no `Network`, and the ceiling says so. mkosi normally installs a
-distribution's packages, which is a network build; this one does not, because
-the image layer hands it a tree pm has already built (`BaseTrees=`,
-`Distribution=custom`) and there is nothing left to download. That distinction
-matters more here than elsewhere: network in a pm build file is per *file*, not
-per step (C8), so one careless grant would put the whole image layer's jail on
-the host network.
-
-It is also the one plugin here that publishes **symbols** — the handful of
-paths mkosi and the Boot Loader Specification fix, which a build file would
-otherwise spell out:
-
-```
-$ pm plugins
-losos-mkosi 0.1.0 (signed)
-symbols:    5
-  %{losos-mkosi:config} = mkosi.conf
-  %{losos-mkosi:esp} = /efi
-  %{losos-mkosi:loader-dir} = /efi/EFI/systemd
-  %{losos-mkosi:uki-dir} = /efi/EFI/Linux
-  %{losos-mkosi:xbootldr} = /boot
-```
-
-The test for whether something belongs in that list is whether the ecosystem
-fixed it or this distribution chose it. `/efi/EFI/Linux` is where a UKI goes,
-by specification, on every machine; where *this* build writes its output is a
-decision the build file is free to make, so it stays in the build file.
-
-`mkosi-sandbox` is deliberately not classified. mkosi execs it for itself from
-inside a build, where pm's first-word resolution is never consulted, and naming
-it here would suggest a recipe could call it directly — which would mean
-building an image outside mkosi's own bookkeeping.
-
 ## `losos-nix` — classify-command, and symbols
 
 pm is the system manager on the NixOS build of this OS as well
@@ -107,7 +60,7 @@ its fingerprint table. This names the commands that read or build a flake:
 ```
 $ pm explain build.yaml
 grants:     Toolchain, Coreutils, Archive
-plugins:    losos-image 0.1.0, losos-mkosi 0.1.0, losos-nix 0.1.0, losos-systemd 0.1.0
+plugins:    losos-image 0.1.0, losos-nix 0.1.0, losos-systemd 0.1.0
 
 COMMAND                                                  FINGERPRINT
 nix --store /build/nix flake check --offline /build/src  losos-nix:flake-check-offline
@@ -149,11 +102,13 @@ laid out as a pm package's `/dest` (`docs/pm.md`, "nixpkgs in a pm build").
 
 Its symbols are the paths NixOS fixes — `store`, `current-system`,
 `booted-system`, `system-bin` — for a package that installs something referring
-to them. Only the store is visible inside the jail.
+to them. The test for a symbol is whether the ecosystem fixed the path or this
+distribution chose it; a path a build chooses stays in its build file. Only the
+store is visible inside the jail.
 
 pm's own tree already carries `sysupdate`, `sysext` and `systemd` plugins,
-so there is no losos copy of those; `just plugins` builds them from the pm
-checkout beside this one (next section).
+so there is no losos copy of those; `just plugins` builds them from the
+`components/pm` pin (next section).
 
 ## `losos-systemd` — scan-source
 
@@ -203,28 +158,25 @@ never a path.
 ## Building
 
 ```sh
-rustup target add wasm32-unknown-unknown
-just plugins                     # all eight, into dist/
-just plugins losos-mkosi         # one
-just plugins sysupdate           # one of pm's, from $PM_ROOT/plugins
+just plugins    # nix build .#pm-plugins -o plugins/dist
 ```
 
-Eight: this tree's four, and four of pm's own — `libvirt`, `sysext`,
-`sysupdate` and `systemd` — built from the pm checkout at `PM_ROOT` (by default
-`../pm`, which should be the commit `nixos/pkgs/pm.nix` pins) rather than copied
-here to drift. Three read the sysupdate transfers and sysext definitions
-`nixos/` ships and name the systemd tools a recipe calls; `libvirt` boots a
+That leaves seven components in `dist/share/pm/plugins`: this tree's three,
+and four of pm's own — `libvirt`, `sysext`, `sysupdate` and `systemd` — built
+from the `components/pm` submodule, the commit pm itself is built from, rather
+than copied here to drift. Three read the sysupdate transfers and sysext
+definitions `nixos/` ships and name the systemd tools a recipe calls; `libvirt` boots a
 package's own kernel through the libvirt the image runs (`docs/pm.md`, "Virtual
 machines"). pm's `zig` is left out: nothing here
 builds with it. pm consults plugins in file-name order and takes the first
 verdict, so where `losos-image` and pm's `sysext` both name a tool
 (`systemd-repart`, `mkfs.erofs`), `losos-image` answers. The NixOS image carries all
-eight, unsigned, in `/run/current-system/sw/share/pm/plugins`
+seven, unsigned, in `/run/current-system/sw/share/pm/plugins`
 (`nixos/pkgs/pm-plugins.nix`).
 
 pm loads plugins only from `~/.config/pm/plugins`, and only ones signed by a
 key that user trusts; `docs/pm.md`, "pm's plugins", has the two commands.
-Without that pm loads no plugins at all, and a build file calling `mkosi` is
+Without that pm loads no plugins at all, and a build file calling `nix` is
 refused with "no built-in fingerprint matches", which reads as a problem with
 the build file rather than with a component that was never installed.
 
@@ -232,4 +184,5 @@ Nothing checks any more that `wit/plugin.wit` here still matches pm's. A
 Python gate did, and it went with the pm recipe tree. pm cannot catch the
 mismatch either: from pm's side a plugin built against an older contract is
 simply a plugin, right up to the point where a record gains a field and every
-component stops loading. Copy pm's `wit/plugin.wit` here when `PM_ROOT` moves.
+component stops loading. Copy pm's `wit/plugin.wit` here when the
+`components/pm` pin moves.

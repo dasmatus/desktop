@@ -206,15 +206,42 @@ remembered; remembered answers are lines in `~/.config/danube/permissions`
 ## Captive portals
 
 `danube captive-watch`, a user service in every session, rechecks the
-network whenever systemd-networkd's state changes: it fetches
-`losos.captivePortal.checkUrl` over plain HTTP, which a portal intercepts,
-and compares the answer with `losos.captivePortal.expect`. Anything else
-means a portal, and it opens `danube --captive-portal`: one window titled
+network whenever systemd-networkd's state changes: it fetches GNOME's
+check, `http://nmcheck.gnome.org/check_network_status.txt`, over plain HTTP,
+which a portal intercepts, sending the request line, the host and "Danube"
+as the User-Agent and nothing else. Any answer but a 200 saying
+"NetworkManager is online" means a portal, and it opens `danube --captive-portal`: one window titled
 "Sign in to network", no tabs, a profile that ends with the window, and no
 content blockers, since a portal's page is often built from what they
 block. That window checks again every three seconds and closes itself once
 the network lets traffic through. The desktop entry's "Sign in to network"
 action opens it by hand.
+
+## The desktop background
+
+derisk can show a web page as the desktop background (Settings,
+Wallpaper, "Web page"), and Danube draws it. derisk starts
+`danube --background URL --size WIDTHxHEIGHT --scale S` at the screen's
+size, as it starts ffmpeg for a video wallpaper, and reads frames from
+its stdout: a width and a height (32-bit little-endian), then that many
+premultiplied RGBA pixels, for every frame the page renders
+(`src/danube/crates/danube/src/background.rs`). There is no window. An
+`http://`, `https://` or `file:///` address is all it takes; a local page
+can load the pictures and scripts beside it, since the sandbox shows its
+folder read-only.
+
+The page gets nothing of the person's: a profile that ends with it, no
+extensions, every permission refused, no sound, no keyboard or pointer.
+It gets the content blockers like any tab. When a window covers the
+screen (or in low power mode, as the Settings app chooses), derisk writes
+`hide` on Danube's stdin: WebKit stops painting the page and slows its
+timers, and Danube pauses its CSS animations, videos and sounds, which
+WebKit's compositor would otherwise keep running; `show` resumes exactly
+those. A frame derisk has not read yet is replaced by the next instead of
+queueing. A load that fails, or a web process that dies, ends the run
+with the reason on stderr, and derisk shows its own background instead.
+Danube's stdout carries only frames: the web processes it starts write
+theirs to stderr.
 
 ## Sandbox and hardening
 
@@ -252,8 +279,7 @@ aarch64). WebDriver, the remote inspector and WebKit's unshipped
 JIT compilers are off by default (`JSC_useJIT=false`): scripts and
 WebAssembly run in its interpreters, slower, and a page can no longer have
 the browser write and run machine code, which most WebKit exploits rely on.
-`losos.danube.jit` or `javascript.jit = true` in the user's settings turns
-them back on. WebKit keeps its own allocator (libpas, with its Gigacage)
+`javascript.jit = true` in the user's settings turns them back on. WebKit keeps its own allocator (libpas, with its Gigacage)
 for JavaScript and DOM objects; everything else it allocates through
 `malloc`, which is hardened_malloc on a PC ([the allocator](allocator.md)).
 Tracking prevention (WebKit's ITP) is on, and there is no keyring for
@@ -264,8 +290,10 @@ allows. A phone's own kernel may not: see [what is not done](not-done.md).
 
 ## Settings
 
-`/etc/danube/settings.conf` (from `losos.danube.*`), then the user's
-`~/.config/danube/settings.conf`, `key = value` per line:
+The user's `~/.config/danube/settings.conf`, `key = value` per line; a
+key left out keeps its default. There are no NixOS options for them:
+`losos.danube.home` and `losos.danube.jit`, which wrote
+`/etc/danube/settings.conf` under it, went because nothing set them.
 
 | Key | Meaning |
 | --- | --- |

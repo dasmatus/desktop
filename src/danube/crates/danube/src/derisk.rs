@@ -565,14 +565,12 @@ mod tests {
         let ext = vec![ExtensionInfo {
             id: "abc".into(),
             name: "Bitwarden".into(),
-            version: "1".into(),
             enabled: true,
             title: "Bitwarden (3)".into(),
             options: true,
             commands: vec![crate::shared::Shortcut {
                 name: "_execute_action".into(),
                 key: Some("Ctrl+Shift+U".into()),
-                description: String::new(),
             }],
         }];
         let menus = menus(&[], None, 0, &ext);

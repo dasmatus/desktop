@@ -24,7 +24,6 @@ let
         inherit (rule)
           classes
           vendor
-          devices
           virtualisation
           load
           blacklist
@@ -68,19 +67,15 @@ in
             default = null;
             description = "The PCI or USB vendor ID of a matching device.";
           };
-          devices = mkOption {
-            type = types.nullOr (types.listOf (types.either types.ints.u16 types.str));
-            default = null;
-            description = ''
-              IDs that match: device IDs of `vendor`'s, as numbers or hex
-              strings, or "vvvv:dddd" pairs. With devicesFile also null, any
-              device in the classes from `vendor` matches.
-            '';
-          };
           devicesFile = mkOption {
             type = types.nullOr types.path;
             default = null;
-            description = "The same as devices, as a JSON array in a file read at boot, for lists that are build products.";
+            description = ''
+              IDs that match, as a JSON array in a file read at boot, for
+              lists that are build products: device IDs of `vendor`'s, as
+              numbers or hex strings, or "vvvv:dddd" pairs. When null, any
+              device in the classes from `vendor` matches.
+            '';
           };
           virtualisation = mkOption {
             type = types.nullOr (types.listOf types.str);
@@ -155,6 +150,9 @@ in
     # NVIDIA cards older than Turing keep nouveau, with Mesa's NVK for Vulkan;
     # newer ones get NVIDIA's open module when nvidia.nix's rule matches.
 
+    # The rules as the boot units read them, for `losos-hardware plan` by hand.
+    environment.etc."losos/hardware-rules.json".source = rules;
+
     # Probe the hardware and write this boot's driver choices, before udev's
     # coldplug could load a driver a rule displaces and before
     # systemd-modules-load reads the ones it wants. That is every boot rather
@@ -163,9 +161,6 @@ in
     # facts from sysfs and skips facter's slow items (monitors over DDC, disks)
     # and the udev database, which is not up yet. It needs nothing mounted
     # beyond what the initrd mounted.
-    # The rules as the boot units read them, for `losos-hardware plan` by hand.
-    environment.etc."losos/hardware-rules.json".source = rules;
-
     systemd.services.losos-hardware = {
       description = "Choose drivers for this machine's hardware";
       wantedBy = [ "sysinit.target" ];

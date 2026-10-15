@@ -15,12 +15,6 @@ pub struct Disk {
     pub removable: bool,
 }
 
-impl Disk {
-    pub fn size_text(&self) -> String {
-        human_size(self.size)
-    }
-}
-
 /// Block devices that are not disks someone would install onto: loop and RAM
 /// devices, optical drives, device-mapper and RAID assemblies (whose members
 /// are offered instead), and an eMMC's boot and RPMB areas.
@@ -91,20 +85,4 @@ pub fn backing_disk(mountinfo: &str, sys: &Path, mount_point: &str) -> Option<St
         dir
     };
     disk.file_name()?.to_str().map(str::to_owned)
-}
-
-pub fn human_size(bytes: u64) -> String {
-    const UNITS: [&str; 5] = ["B", "KB", "MB", "GB", "TB"];
-    // Decimal, as drives are sold.
-    let mut value = bytes as f64;
-    let mut unit = 0;
-    while value >= 1000.0 && unit < UNITS.len() - 1 {
-        value /= 1000.0;
-        unit += 1;
-    }
-    if unit == 0 {
-        format!("{bytes} B")
-    } else {
-        format!("{value:.1} {}", UNITS[unit])
-    }
 }

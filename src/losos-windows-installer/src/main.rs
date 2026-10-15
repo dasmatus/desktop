@@ -10,13 +10,13 @@
 use std::io::{self, BufRead, IsTerminal, Write};
 use std::path::PathBuf;
 use std::process::ExitCode;
-use std::time::Instant;
 
 use miette::{IntoDiagnostic, Result, bail, miette};
 use tracing_subscriber::EnvFilter;
 
 use losos_windows_installer::config;
-use losos_windows_installer::install::{self, Boot, Report};
+use losos_windows_installer::guid::Guid;
+use losos_windows_installer::install::{self, Boot, Console};
 use losos_windows_installer::layout::{self, GIB};
 use losos_windows_installer::release::{self, Arch, Release, Source};
 
@@ -76,44 +76,6 @@ fn parse(mut args: impl Iterator<Item = String>) -> Result<Options> {
         }
     }
     Ok(o)
-}
-
-/// Prints steps and a progress percentage on one line.
-#[derive(Default)]
-struct Console {
-    last: Option<Instant>,
-    /// The percentage on screen. A decoder keeps reporting after its input
-    /// is all read, and each of those would print 100% again.
-    shown: Option<u64>,
-}
-
-impl Report for Console {
-    fn step(&mut self, title: &str) {
-        if self.last.take().is_some() {
-            println!();
-        }
-        self.shown = None;
-        println!("==> {title}");
-    }
-
-    fn progress(&mut self, done: u64, total: u64) {
-        let now = Instant::now();
-        if self
-            .last
-            .is_some_and(|t| now - t < std::time::Duration::from_millis(500))
-            && done < total
-        {
-            return;
-        }
-        let percent = (done * 100).checked_div(total).unwrap_or(100).min(100);
-        if self.shown == Some(percent) {
-            return;
-        }
-        self.last = Some(now);
-        self.shown = Some(percent);
-        print!("\r    {percent:3}%");
-        let _ = io::stdout().flush();
-    }
 }
 
 fn ask(question: &str) -> Result<String> {
@@ -228,7 +190,7 @@ fn image_install(o: &Options) -> Result<()> {
         config::IMAGE_ID,
         config::USR_SIZE,
         ram,
-        layout::random_guid()?,
+        Guid::new_v4(),
     )?;
     println!(
         "Installing LosOS {} into {} behind Windows on {}",
@@ -284,6 +246,7 @@ mod platform {
     use losos_windows_installer::install::Target;
     use losos_windows_installer::layout::{MIB, required, size_text};
     use losos_windows_installer::windows::{self as win, BitLocker, Disk, Layout, WindowsTarget};
+    use windows_sys::Win32::System::Ioctl::PARTITION_INFORMATION_EX;
 
     /// Free space Windows keeps on C: whatever is asked for: below this,
     /// Windows Update stops installing.
@@ -294,6 +257,19 @@ mod platform {
     fn cache() -> PathBuf {
         let data = std::env::var_os("ProgramData").unwrap_or_else(|| "C:\\ProgramData".into());
         PathBuf::from(data).join("LosOS").join("Downloads")
+    }
+
+    /// C:, the disk it is on, that disk's partition table, and C:'s entry in
+    /// the table.
+    fn system_disk() -> Result<(String, Disk, Layout, PARTITION_INFORMATION_EX)> {
+        let drive = win::system_drive();
+        let extent = win::volume_extent(&drive)?;
+        let disk = Disk::open(extent.DiskNumber)?;
+        let table = disk.read_layout()?;
+        let windows = *table
+            .at(extent.StartingOffset as u64)
+            .ok_or_else(|| miette!("{drive} is not a partition of disk {}", disk.number))?;
+        Ok((drive, disk, table, windows))
     }
 
     pub fn run(o: &Options) -> Result<()> {
@@ -308,16 +284,9 @@ mod platform {
         let machine = win::machine()?;
         check(&machine, &s.arch)?;
 
-        let drive = win::system_drive();
-        let extent = win::volume_extent(&drive)?;
-        let disk = Disk::open(extent.DiskNumber)?;
-        let table = disk.read_layout()?;
-        let offset = extent.StartingOffset as u64;
-        let windows = table
-            .at(offset)
-            .ok_or_else(|| miette!("{drive} is not a partition of disk {}", disk.number))?;
-        if Layout::type_of(windows) != losos_windows_installer::guid::types::microsoft_basic_data()
-        {
+        let (drive, disk, table, windows) = system_disk()?;
+        let offset = windows.StartingOffset as u64;
+        if Layout::type_of(&windows) != losos_windows_installer::guid::types::MICROSOFT_BASIC_DATA {
             bail!("{drive} is not an ordinary Windows partition");
         }
         if table.esp().is_none() {
@@ -453,7 +422,7 @@ mod platform {
                 config::IMAGE_ID,
                 config::USR_SIZE,
                 machine.ram,
-                layout::random_guid()?,
+                Guid::new_v4(),
             )?;
             let mut target = WindowsTarget::new(Disk::open(disk.number)?, &table)?;
             let boot = Boot {
@@ -532,16 +501,9 @@ mod platform {
     fn uninstall(o: &Options) -> Result<()> {
         println!("Removing LosOS\n");
         let s = settings(o)?;
-        let drive = win::system_drive();
-        let extent = win::volume_extent(&drive)?;
-        let disk = Disk::open(extent.DiskNumber)?;
-        let table = disk.read_layout()?;
-        let offset = extent.StartingOffset as u64;
-        let windows = table
-            .at(offset)
-            .ok_or_else(|| miette!("{drive} is not a partition of disk {}", disk.number))?;
+        let (drive, disk, table, windows) = system_disk()?;
         let windows_end = (windows.StartingOffset + windows.PartitionLength) as u64;
-        let usr = [s.arch.usr_type(), s.arch.verity_type(), s.arch.root_type()];
+        let usr = [s.arch.usr_type, s.arch.verity_type, s.arch.root_type];
         let ours = win::losos_partitions(&table, windows_end, &usr);
         let size: u64 = ours
             .iter()

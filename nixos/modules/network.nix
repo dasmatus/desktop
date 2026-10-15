@@ -13,10 +13,6 @@
     useNetworkd = true;
     useDHCP = false;
 
-    # GNOME turned NetworkManager on by default, and a desktop module still may. Two daemons fighting over the
-    # same links is the one outcome worse than either alone.
-    networkmanager.enable = lib.mkForce false;
-
     # systemd has no packet filter, so this is the one piece of networking that
     # is not systemd's. nftables rather than the iptables default, because it
     # is what networkd's own NFTSet= speaks, should anything want to use it.
@@ -88,8 +84,6 @@
   };
 
   # timesyncd is NixOS's default already and is left as the default, not
-  # restated: a VM sets it off at the same priority to use the host's clock.
-
-  # resolved answers mDNS itself; avahi would be a second responder on 5353.
-  services.avahi.enable = lib.mkForce false;
+  # restated: a VM sets it off at the same priority to use the host's clock.  # avahi stays off (NixOS's default): resolved answers mDNS itself, and
+  # avahi would be a second responder on 5353.
 }

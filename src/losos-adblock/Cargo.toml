@@ -3,14 +3,6 @@ name = "losos-adblock"
 version = "0.1.0"
 edition = "2021"
 
-[lib]
-name = "losos_adblock"
-path = "src/lib.rs"
-
-[[bin]]
-name = "losos-adblock"
-path = "src/main.rs"
-
 [dependencies]
 # Logs go through tracing to stderr, `RUST_LOG` choosing the level, and
 # failures are reported by miette, as in every LosOS program.

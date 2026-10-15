@@ -137,7 +137,7 @@ pub fn plan(
     let label = release.label(id);
     let boot = NewPartition {
         role: Role::Boot,
-        type_guid: crate::guid::types::xbootldr(),
+        type_guid: crate::guid::types::XBOOTLDR,
         uuid: boot_uuid,
         label: BOOT_LABEL.to_owned(),
         start,
@@ -146,7 +146,7 @@ pub fn plan(
     };
     let verity = NewPartition {
         role: Role::Verity,
-        type_guid: arch.verity_type(),
+        type_guid: arch.verity_type,
         uuid: release.verity.uuid,
         label: label.clone(),
         start: boot.end(),
@@ -155,7 +155,7 @@ pub fn plan(
     };
     let usr = NewPartition {
         role: Role::Usr,
-        type_guid: arch.usr_type(),
+        type_guid: arch.usr_type,
         uuid: release.usr.uuid,
         label,
         start: verity.end(),
@@ -169,15 +169,6 @@ pub fn plan(
         usr,
         left,
     })
-}
-
-/// A random version 4 GUID, for the XBOOTLDR partition.
-pub fn random_guid() -> Result<Guid> {
-    let mut bytes = [0u8; 16];
-    getrandom::fill(&mut bytes).map_err(|e| miette::miette!("no randomness: {e}"))?;
-    bytes[6] = (bytes[6] & 0x0f) | 0x40;
-    bytes[8] = (bytes[8] & 0x3f) | 0x80;
-    Ok(Guid(bytes))
 }
 
 /// Bytes as a person reads them on a disk: GB, one decimal, base 1024 as
@@ -201,11 +192,11 @@ mod tests {
             uki: file("uki"),
             usr: Slot {
                 file: file("usr"),
-                uuid: Guid::parse("a28067f9-25ea-dd94-670f-df04370bfc83").unwrap(),
+                uuid: Guid::parse_str("a28067f9-25ea-dd94-670f-df04370bfc83").unwrap(),
             },
             verity: Slot {
                 file: file("verity"),
-                uuid: Guid::parse("80afbdea-1680-4d3e-322a-5f743f301a68").unwrap(),
+                uuid: Guid::parse_str("80afbdea-1680-4d3e-322a-5f743f301a68").unwrap(),
             },
         }
     }
@@ -224,7 +215,7 @@ mod tests {
     #[test]
     fn places_three_partitions_at_the_front_of_the_space() {
         let arch = Arch::named("x86_64").unwrap();
-        let boot = random_guid().unwrap();
+        let boot = Guid::new_v4();
         let region = Region {
             start: 20 * GIB + 123,
             end: 80 * GIB,
@@ -270,7 +261,7 @@ mod tests {
                 "id",
                 8 * GIB,
                 8 * GIB,
-                Guid([0; 16])
+                Guid::nil()
             )
             .is_ok()
         );
@@ -287,16 +278,9 @@ mod tests {
                 "id",
                 8 * GIB,
                 8 * GIB,
-                Guid([0; 16])
+                Guid::nil()
             )
             .is_err()
         );
-    }
-
-    #[test]
-    fn random_guids_are_version_4() {
-        let g = random_guid().unwrap().to_string();
-        assert_eq!(&g[14..15], "4");
-        assert!(matches!(&g[19..20], "8" | "9" | "a" | "b"));
     }
 }

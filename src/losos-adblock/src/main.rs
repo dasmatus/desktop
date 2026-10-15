@@ -1,4 +1,14 @@
-//! losos-adblock's commands:
+//! losos-adblock: ad and tracker blocking for every program on the OS, from
+//! the same filter lists browsers use (docs/adblock.md).
+//!
+//! Two blockers share the lists. A DNS forwarder in front of resolved
+//! refuses the domains they block, which covers every program, Flatpaks and
+//! statically linked ones included, since they all resolve through
+//! resolved's stub. A resolver only ever sees a name, though, and most of
+//! EasyList is about URLs and page elements, so the same lists are also
+//! compiled into WebKit content blockers that Danube loads.
+//!
+//! Its commands:
 //!
 //!     losos-adblock update           # fetch the lists and compile both blockers
 //!     losos-adblock compile          # compile from the lists already fetched
@@ -9,17 +19,45 @@
 //! /var/lib/losos-adblock, and `--listen ADDR` makes `serve` bind its own
 //! sockets instead of taking systemd's.
 
+mod dns;
+mod lists;
+mod rules;
+mod serve;
+
 use std::io::IsTerminal;
 use std::net::SocketAddr;
 use std::path::PathBuf;
 use std::process::ExitCode;
 
-use losos_adblock::lists::{self, Paths};
-use losos_adblock::rules::{Blocklist, Verdict};
-use losos_adblock::serve::{self, Sockets};
-use losos_adblock::Error;
 use miette::IntoDiagnostic;
 use tracing_subscriber::EnvFilter;
+
+use lists::Paths;
+use rules::{Blocklist, Verdict};
+use serve::Sockets;
+
+/// Why a command failed.
+#[derive(Debug, thiserror::Error, miette::Diagnostic)]
+pub enum Error {
+    #[error("{0} is neither an http(s) URL nor an absolute path")]
+    #[diagnostic(
+        code(losos_adblock::source),
+        help("each line of /etc/losos-adblock/lists names one filter list")
+    )]
+    Source(String),
+    #[error("cannot fetch {0}: {1}")]
+    #[diagnostic(code(losos_adblock::fetch))]
+    Fetch(String, String),
+    #[error("cannot write {}", .0.display())]
+    #[diagnostic(code(losos_adblock::write))]
+    Write(PathBuf, #[source] std::io::Error),
+    #[error("cannot listen for DNS queries")]
+    #[diagnostic(
+        code(losos_adblock::listen),
+        help("run it from losos-adblock.socket, or pass --listen with a free address")
+    )]
+    Listen(#[source] std::io::Error),
+}
 
 const USAGE: &str = "usage: losos-adblock [--config DIR] [--state DIR] update|compile|serve [--listen ADDR]|check NAME...";
 
@@ -89,7 +127,7 @@ fn run() -> miette::Result<ExitCode> {
                     Error::Listen(std::io::Error::other("no sockets from systemd"))
                 })?,
             };
-            serve::run(sockets, paths.dns()).map_err(Error::Listen)?;
+            serve::run(sockets, paths.dns());
             Ok(ExitCode::SUCCESS)
         }
         Some("check") if words.len() > 1 => {

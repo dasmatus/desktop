@@ -23,9 +23,8 @@ pub enum Input {
         button: u32,
         pressed: bool,
     },
+    /// At the pointer's last position: egui's wheel events carry none.
     Scroll {
-        x: f64,
-        y: f64,
         dx: f64,
         dy: f64,
         precise: bool,
@@ -38,43 +37,31 @@ pub enum Input {
         id: u32,
         x: f64,
         y: f64,
-        phase: Touch,
+        phase: TouchPhase,
     },
     Leave,
-    /// The keyboard modifiers now held; carried by every event after it.
-    Modifiers(Mods),
+    /// The keyboard modifiers now held, in WPE's bits; carried by every
+    /// event after it.
+    Modifiers(u32),
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum Touch {
-    Down,
-    Move,
-    Up,
-    Cancel,
-}
-
-/// Held modifiers, in WPE's bits.
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
-pub struct Mods(pub u32);
-
-impl From<Modifiers> for Mods {
-    fn from(m: Modifiers) -> Self {
-        use crate::ffi::*;
-        let mut bits = 0;
-        if m.ctrl || m.command {
-            bits |= WPE_MODIFIER_KEYBOARD_CONTROL;
-        }
-        if m.shift {
-            bits |= WPE_MODIFIER_KEYBOARD_SHIFT;
-        }
-        if m.alt {
-            bits |= WPE_MODIFIER_KEYBOARD_ALT;
-        }
-        if m.mac_cmd {
-            bits |= WPE_MODIFIER_KEYBOARD_META;
-        }
-        Mods(bits)
+/// egui's held modifiers in WPE's bits.
+fn wpe_modifiers(m: Modifiers) -> u32 {
+    use crate::ffi::*;
+    let mut bits = 0;
+    if m.ctrl || m.command {
+        bits |= WPE_MODIFIER_KEYBOARD_CONTROL;
     }
+    if m.shift {
+        bits |= WPE_MODIFIER_KEYBOARD_SHIFT;
+    }
+    if m.alt {
+        bits |= WPE_MODIFIER_KEYBOARD_ALT;
+    }
+    if m.mac_cmd {
+        bits |= WPE_MODIFIER_KEYBOARD_META;
+    }
+    bits
 }
 
 /// The keysym for a key that types nothing by itself, or for a letter or
@@ -161,7 +148,7 @@ pub fn translate(
     let mut out = Vec::new();
     for event in events {
         match event {
-            Event::ModifiersChanged(m) => out.push(Input::Modifiers((*m).into())),
+            Event::ModifiersChanged(m) => out.push(Input::Modifiers(wpe_modifiers(*m))),
             Event::PointerMoved(p) if !has_touch && !*touch_active => {
                 if over(*p) {
                     let (x, y) = at(*p);
@@ -186,7 +173,7 @@ pub fn translate(
                     _ => continue,
                 };
                 let (x, y) = at(*pos);
-                out.push(Input::Modifiers((*modifiers).into()));
+                out.push(Input::Modifiers(wpe_modifiers(*modifiers)));
                 out.push(Input::Button {
                     x,
                     y,
@@ -194,47 +181,31 @@ pub fn translate(
                     pressed: *pressed,
                 });
             }
-            Event::MouseWheel {
-                unit,
-                delta,
-                modifiers,
-                ..
-            } => {
-                // Wheel events carry no position; egui's latest pointer
-                // position is the one the window passes in as hover.
-                let _ = modifiers;
+            Event::MouseWheel { unit, delta, .. } => {
                 let precise = *unit == egui::MouseWheelUnit::Point;
                 let scale = match unit {
                     egui::MouseWheelUnit::Page => rect.height() as f64 / 40.0,
                     _ => 1.0,
                 };
                 out.push(Input::Scroll {
-                    x: f64::NAN,
-                    y: f64::NAN,
                     dx: delta.x as f64 * scale,
                     dy: delta.y as f64 * scale,
                     precise,
                 });
             }
             Event::Touch { id, phase, pos, .. } => {
-                let phase = match phase {
-                    TouchPhase::Start => Touch::Down,
-                    TouchPhase::Move => Touch::Move,
-                    TouchPhase::End => Touch::Up,
-                    TouchPhase::Cancel => Touch::Cancel,
-                };
                 match phase {
-                    Touch::Down if !rect.contains(*pos) => continue,
-                    Touch::Down => *touch_active = true,
-                    Touch::Up | Touch::Cancel => *touch_active = false,
-                    Touch::Move => {}
+                    TouchPhase::Start if !rect.contains(*pos) => continue,
+                    TouchPhase::Start => *touch_active = true,
+                    TouchPhase::End | TouchPhase::Cancel => *touch_active = false,
+                    TouchPhase::Move => {}
                 }
                 let (x, y) = at(*pos);
                 out.push(Input::Touch {
                     id: id.0 as u32,
                     x,
                     y,
-                    phase,
+                    phase: *phase,
                 });
             }
             Event::Key {
@@ -247,7 +218,7 @@ pub fn translate(
                     continue;
                 }
                 if let Some(keyval) = keysym(*key) {
-                    out.push(Input::Modifiers((*modifiers).into()));
+                    out.push(Input::Modifiers(wpe_modifiers(*modifiers)));
                     out.push(Input::Key {
                         keyval,
                         pressed: *pressed,
@@ -355,7 +326,7 @@ mod tests {
         assert_eq!(
             out,
             vec![
-                Input::Modifiers(Mods(0)),
+                Input::Modifiers(0),
                 Input::Button {
                     x: 10.0,
                     y: 10.0,
@@ -391,7 +362,7 @@ mod tests {
                 id: 7,
                 x: 5.0,
                 y: 5.0,
-                phase: Touch::Down
+                phase: TouchPhase::Start
             }]
         );
         assert!(touch);
