@@ -74,23 +74,26 @@ enum Kind {
     Offscreen,
 }
 
-/// Each kind's name as api.js and the runtime's messages give it, read
-/// both ways.
-const KIND_NAMES: [(Kind, &str); 5] = [
-    (Kind::Content, "content"),
-    (Kind::Tab, "tab"),
-    (Kind::Background, "background"),
-    (Kind::Popup, "popup"),
-    (Kind::Offscreen, "offscreen"),
-];
-
 impl Kind {
     fn from_name(name: &str) -> Option<Self> {
-        KIND_NAMES.iter().find(|(_, n)| *n == name).map(|(kind, _)| *kind)
+        Some(match name {
+            "content" => Kind::Content,
+            "tab" => Kind::Tab,
+            "background" => Kind::Background,
+            "popup" => Kind::Popup,
+            "offscreen" => Kind::Offscreen,
+            _ => return None,
+        })
     }
 
     fn name(self) -> &'static str {
-        KIND_NAMES.iter().find(|(kind, _)| *kind == self).map(|(_, n)| *n).expect("KIND_NAMES names every kind")
+        match self {
+            Kind::Content => "content",
+            Kind::Tab => "tab",
+            Kind::Background => "background",
+            Kind::Popup => "popup",
+            Kind::Offscreen => "offscreen",
+        }
     }
 
     /// chrome.runtime.getContexts's name for it.
