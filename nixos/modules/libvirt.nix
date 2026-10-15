@@ -30,6 +30,10 @@ in
     # every target QEMU has, which is most of its size and nothing a desktop's
     # machines run.
     qemu.package = pkgs.qemu_kvm;
+    # The TPM a Windows machine is given (pm's libvirt plugin), which
+    # Windows 11 will not install without: libvirt runs an swtpm for each
+    # such machine and keeps its state beside the machine's.
+    qemu.swtpm.enable = true;
   };
 
   # libvirtd starts at boot, as NixOS has it, rather than only on its socket
@@ -60,7 +64,18 @@ in
   # The other end of the guests' windows: derisk starts `waypipe client` for
   # each running machine, by name from the session's PATH, and it turns what
   # the guest's `waypipe server` sends back into Wayland.
-  environment.systemPackages = [ pkgs.waypipe ];
+  #
+  # virt-viewer shows a machine's own screen, which a machine that installs
+  # from a CD has for its installer and a Windows machine for its whole
+  # desktop; derisk starts it attached through libvirt, on the machine's
+  # labelled socket. WinApps opens a Windows machine's apps as windows of
+  # their own instead, over RDP through FreeRDP, which it brings; Windows
+  # machines are x86-64 only (pm's libvirt plugin).
+  environment.systemPackages = [
+    pkgs.waypipe
+    pkgs.virt-viewer
+  ]
+  ++ lib.optional pkgs.stdenv.hostPlatform.isx86_64 pkgs.winapps;
 
   # Who may manage machines on qemu:///system. NixOS grants it to the libvirtd
   # group, but people here are systemd-homed records the module system never
