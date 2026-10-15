@@ -26,6 +26,11 @@
 
       losos.version = "1";
 
+      # The boot tests build three disks from the image, and the guest
+      # template in each was what ran CI's runner out of space; booting the
+      # image does not use it, and tests/machines.nix tests it on its own.
+      losos.machines.templates = false;
+
       services.homed.promptOnFirstBoot = lib.mkForce false;
       systemd.services.derisk-setup.enable = false;
 
