@@ -69,38 +69,20 @@ let
       }
     fi
   '';
-  # What the menu uses on either firmware, beside each one's disk drivers
-  # and loader.
+  # What the menu uses on either firmware, beside what grub-image.nix gives
+  # every image.
   modules = [
     "iso9660"
-    "part_gpt"
-    "part_msdos"
     "search"
     "search_label"
-    "regexp"
-    "normal"
-    "memdisk"
-    "tar"
-    "configfile"
-    "test"
-    "echo"
-    "serial"
-    "terminal"
   ];
 
   efi = import ../modules/grub-image.nix {
     inherit pkgs menu art;
-    format = if pkgs.stdenv.hostPlatform.isx86_64 then "x86_64-efi" else "arm64-efi";
+    format = "efi";
     output = "grub.efi";
     early = "normal (memdisk)/grub.cfg";
-    modules =
-      modules
-      ++ [
-        "fat"
-        "chain"
-      ]
-      # The framebuffer of firmware that predates GOP, which only x86 has.
-      ++ lib.optional pkgs.stdenv.hostPlatform.isx86_64 "efi_uga";
+    inherit modules;
   };
 
   # GRUB alone, as the removable-media boot path: the UKI it starts is on
@@ -135,10 +117,7 @@ let
       format = "i386-pc-eltorito";
       output = "eltorito.img";
       early = "normal (memdisk)/grub.cfg";
-      modules = modules ++ [
-        "biosdisk"
-        "linux"
-      ];
+      inherit modules;
     };
     mbr = "${pkgs.grub2}/lib/grub/i386-pc/boot_hybrid.img";
   };

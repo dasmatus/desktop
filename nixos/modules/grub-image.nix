@@ -11,7 +11,8 @@
 # GRUB was started from: the prefix has no device so that it is.
 {
   pkgs,
-  # grub-mkimage's -O: i386-pc, i386-pc-eltorito, x86_64-efi or arm64-efi.
+  # grub-mkimage's -O: i386-pc or i386-pc-eltorito, or "efi" for this
+  # architecture's EFI program.
   format,
   # The file under $out.
   output,
@@ -22,8 +23,18 @@
 }:
 
 let
-  bios = format == "i386-pc" || format == "i386-pc-eltorito";
-  dir = if bios then "${pkgs.grub2}/lib/grub/i386-pc" else "${pkgs.grub2_efi}/lib/grub/${format}";
+  inherit (pkgs) lib;
+  bios = format != "efi";
+  target =
+    if bios then
+      format
+    else
+      {
+        x86_64 = "x86_64-efi";
+        aarch64 = "arm64-efi";
+      }
+      .${pkgs.stdenv.hostPlatform.parsed.cpu.name};
+  dir = if bios then "${pkgs.grub2}/lib/grub/i386-pc" else "${pkgs.grub2_efi}/lib/grub/${target}";
 
   # The screen's own mode on UEFI. On a BIOS, where VBE's "auto" is often a
   # mode the screen cannot show, 1024x768 first, and Linux keeps it as its
@@ -55,6 +66,37 @@ let
     fi
   '';
 
+  # What every image's own menu needs: the memdisk it is in, the scripting
+  # it is written in, and the serial console; then each firmware's disks
+  # and the way it starts what the menu picks.
+  common = [
+    "part_gpt"
+    "part_msdos"
+    "regexp"
+    "test"
+    "echo"
+    "normal"
+    "memdisk"
+    "tar"
+    "configfile"
+    "serial"
+    "terminal"
+  ]
+  ++ (
+    if bios then
+      [
+        "biosdisk"
+        "linux"
+      ]
+    else
+      [
+        "fat"
+        "chain"
+      ]
+      # The framebuffer of firmware that predates GOP, which only x86 has.
+      ++ lib.optional (target == "x86_64-efi") "efi_uga"
+  );
+
   graphics = [
     "font"
     "gfxterm"
@@ -72,7 +114,7 @@ let
       [ "efi_gop" ]
   );
 in
-pkgs.runCommand "losos-grub-${format}"
+pkgs.runCommand "losos-grub-${target}"
   {
     nativeBuildInputs = [ pkgs.buildPackages.grub2 ];
     passthru = { inherit menu; };
@@ -87,6 +129,6 @@ pkgs.runCommand "losos-grub-${format}"
     cat > early.cfg <<'EOF'
     ${early}
     EOF
-    grub-mkimage -O ${format} -d ${dir} -m memdisk.tar -c early.cfg -p / \
-      -o $out/${output} ${toString (modules ++ graphics)}
+    grub-mkimage -O ${target} -d ${dir} -m memdisk.tar -c early.cfg -p / \
+      -o $out/${output} ${toString (lib.unique (common ++ modules ++ graphics))}
   ''
