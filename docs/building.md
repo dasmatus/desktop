@@ -30,8 +30,8 @@ run, so a boot that breaks under the runner's KVM does not hold back the
 nightly. Run `nix flake check` locally to see one fail for real.
 
 `just` has short names for the same commands. `just plugins` builds pm's
-plugin components for a pm installed outside the image ([pm on
-LosOS](pm.md)).
+plugin components into `plugins/dist/share/pm/plugins`, for a pm installed
+outside the image ([pm on LosOS](pm.md)).
 
 Before trusting a change to `nixos/`, evaluate every target; that runs every
 module and assertion without building an image:

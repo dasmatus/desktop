@@ -2,9 +2,9 @@
 
 ## pm's plugins
 
-`nixos/pkgs/pm-plugins.nix` builds the same eight components `just plugins`
-builds for the pm tree, this repository's four and pm's own `libvirt`,
-`sysext`, `sysupdate` and `systemd`, and the image carries them in
+`nixos/pkgs/pm-plugins.nix` builds seven components, this repository's three
+and pm's own `libvirt`, `sysext`, `sysupdate` and `systemd`, and the image
+carries them in
 `/run/current-system/sw/share/pm/plugins`. pm loads plugins only from a user's
 own `~/.config/pm/plugins`, and only signed by a key that user trusts, so the
 image offers them and trusts them for no one:
@@ -24,7 +24,7 @@ itself has no Nix and its users are systemd-homed records), the flake's
 {
   imports = [ losos-desktop.homeModules.pm ];
   programs.pm.enable = true;
-  # All eight by default; or name the ones you want:
+  # All seven by default; or name the ones you want:
   # programs.pm.plugins = [ "losos-nix" "systemd" ];
 }
 ```
@@ -126,7 +126,7 @@ administrator's password.
 pm boots a package that ships its own kernel (`kernel(...)` in its recipe, see
 pm's README) in a virtual machine. On its own it starts QEMU itself, as you.
 With pm's `libvirt` plugin installed and signed (as above; it is one of the
-eight), it asks libvirt instead:
+seven), it asks libvirt instead:
 
 ```
 pm run hello.cpkg          # through libvirt, when the plugin is installed

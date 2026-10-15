@@ -1,12 +1,6 @@
-# Short names for the commands CI runs. Each recipe is one nix command, except
-# `plugins`. Running nix directly does the same thing.
+# Short names for the commands CI runs. Each recipe is one nix command; running
+# nix directly does the same thing.
 set shell := ["bash", "-euo", "pipefail", "-c"]
-
-# `just plugins -- losos-nix` forwards the `--` as the first argument, and the
-# plugin Justfile drops it.
-set positional-arguments
-
-repo := canonicalize(justfile_directory())
 
 default:
   @just --list
@@ -27,8 +21,9 @@ fmt:
 vm:
   nix run .#vm --impure
 
-# Builds pm's plugins as WebAssembly components into plugins/dist, for a pm
-# installed outside the image. The image builds its own copies in
-# nixos/pkgs/pm-plugins.nix.
-plugins *args:
-  just --justfile "{{repo}}/plugins/Justfile" --working-directory "{{repo}}" build "$@"
+# pm's plugins as WebAssembly components, for a pm installed outside the image:
+# the package the image carries (nixos/pkgs/pm-plugins.nix), so pm's own are
+# built from the components/pm pin rather than a checkout that can drift.
+# plugins/dist/share/pm/plugins holds them.
+plugins:
+  nix build -L .#pm-plugins -o plugins/dist

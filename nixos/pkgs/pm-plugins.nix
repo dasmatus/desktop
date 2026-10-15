@@ -1,6 +1,6 @@
-# pm's plugins as WebAssembly components: the same eight `just plugins` builds
-# for the pm tree -- this repository's four and the four from pm's own tree
-# that this OS needs (plugins/Justfile says which and why).
+# pm's plugins as WebAssembly components, and what `just plugins` builds: this
+# repository's three and the four from pm's own tree that this OS needs
+# (plugins/README.md, "Building", says which and why).
 #
 # Installed under share/pm/plugins and deliberately nowhere pm loads from. pm
 # reads only <config>/pm/plugins and runs a plugin only when it is signed by a
@@ -28,7 +28,6 @@ let
       ../../plugins/Cargo.lock
       ../../plugins/wit
       ../../plugins/losos-image
-      ../../plugins/losos-mkosi
       ../../plugins/losos-nix
       ../../plugins/losos-systemd
     ];
@@ -41,7 +40,6 @@ let
 
   local = [
     "losos-image"
-    "losos-mkosi"
     "losos-nix"
     "losos-systemd"
   ];

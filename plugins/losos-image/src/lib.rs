@@ -2,11 +2,10 @@
 //!
 //! pm's built-in fingerprint table knows compilers, build systems, archivers and
 //! coreutils. It does not know the tools that turn a staged tree into something
-//! bootable, because those are not build systems -- so today a recipe that calls
-//! `qemu-img` or `xorriso` is refused before a single step runs, and this repository
-//! worked around that by writing its own cpio and PE writers in Python.
+//! bootable, because those are not build systems -- so without this plugin a recipe
+//! that calls `qemu-img` or `xorriso` is refused before a single step runs.
 //!
-//! This plugin removes the need for those workarounds by naming the tools. It also
+//! This plugin names those tools. It also
 //! names `patchelf`, which is the other half of a self-contained bundle: setting
 //! `RUNPATH` to `$ORIGIN/../lib` is what lets a package carry its own libraries and
 //! resolve them from inside itself rather than from whatever the host happens to
