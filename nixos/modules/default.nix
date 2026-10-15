@@ -14,6 +14,7 @@
     ./hardware.nix
     ./nvidia.nix
     ./libvirt.nix
+    ./machines.nix
     ./allocator.nix
     ./image.nix
     ./disk.nix

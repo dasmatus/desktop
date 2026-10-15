@@ -13,6 +13,7 @@ module.exports = {
       collapsed: false,
       items: [
         'systemd',
+        'hypervisor',
         'layout',
         'hibernation',
         'drivers',
