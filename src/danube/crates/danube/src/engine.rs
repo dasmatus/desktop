@@ -128,7 +128,6 @@ struct Filters {
     /// Identifiers of the sets now loaded, `<id>-<mtime>`, so a changed set
     /// compiles again under a new name and the old one can be removed.
     current: Vec<String>,
-    loaded: usize,
 }
 
 thread_local! {
@@ -227,7 +226,6 @@ pub fn run(commands: Receiver<Command>, events: Events, options: Options) {
             dir: dir.clone(),
             stamp: None,
             current: Vec::new(),
-            loaded: 0,
         }));
         reload_filters(&filters);
         // losos-adblock compiles daily; a minute is soon enough to pick
@@ -888,7 +886,6 @@ fn reload_filters(filters: &Rc<RefCell<Filters>>) {
             content.remove_all_filters();
         }
         f.loaded_sets.clear();
-        f.loaded = 0;
         f.current = jobs.iter().map(|(ident, _)| ident.clone()).collect();
         emit(Event::Filters(0));
         jobs
@@ -932,8 +929,7 @@ fn add_filter(filters: &Rc<RefCell<Filters>>, filter: &webkit::Filter) {
         content.add_filter(filter);
     }
     f.loaded_sets.push(filter.clone());
-    f.loaded += 1;
-    emit(Event::Filters(f.loaded));
+    emit(Event::Filters(f.loaded_sets.len()));
 }
 
 #[cfg(test)]

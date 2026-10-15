@@ -53,7 +53,6 @@ pub struct Window {
     last_size: Option<(i32, i32, f64)>,
     phone: Option<bool>,
     focused: bool,
-    title: String,
     remember: bool,
     theme: ThemeWatch,
 }
@@ -138,7 +137,7 @@ struct State {
     permissions: VecDeque<PermissionAsk>,
     /// How many content blocker rule sets are in force, for the Page menu.
     filters: usize,
-    /// The window's title, as sent to derisk.
+    /// The window's title, as last set and sent to derisk.
     title: String,
     /// The installed extensions, for the menus and the shortcuts.
     extensions: Vec<ExtensionInfo>,
@@ -297,7 +296,6 @@ impl Window {
             last_size: None,
             phone: None,
             focused: true,
-            title: String::new(),
             remember: false,
             theme: ThemeWatch::new(),
         }
@@ -676,10 +674,9 @@ impl eframe::App for Window {
                 None => "Danube".to_owned(),
             }
         };
-        if title != self.title {
+        if title != self.state.title {
             ctx.send_viewport_cmd(egui::ViewportCommand::Title(title.clone()));
-            self.state.title = title.clone();
-            self.title = title;
+            self.state.title = title;
             self.tell_derisk();
         }
 

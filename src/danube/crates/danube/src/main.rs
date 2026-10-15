@@ -179,7 +179,7 @@ fn run(args: Args) -> Result<ExitCode, Error> {
         }
     }
 
-    let (commands, inbox) = Commands::channel(engine::wake);
+    let (commands, inbox) = Commands::channel();
     let (events, outbox) = Events::channel(commands.clone());
 
     let options = if args.captive {

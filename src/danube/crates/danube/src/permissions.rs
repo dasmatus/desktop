@@ -27,6 +27,21 @@ pub enum Kind {
     StorageAccess,
 }
 
+/// Each kind's name in the permissions file, read both ways.
+const NAMES: [(Kind, &str); 11] = [
+    (Kind::Camera, "camera"),
+    (Kind::Microphone, "microphone"),
+    (Kind::CameraAndMicrophone, "camera+microphone"),
+    (Kind::Screen, "screen"),
+    (Kind::Location, "location"),
+    (Kind::Notifications, "notifications"),
+    (Kind::Clipboard, "clipboard"),
+    (Kind::PointerLock, "pointer-lock"),
+    (Kind::Devices, "devices"),
+    (Kind::MediaKeys, "media-keys"),
+    (Kind::StorageAccess, "storage-access"),
+];
+
 impl Kind {
     /// The request's kind from its GObject type name (WebKit has one
     /// request class per kind); camera and microphone are told apart by the
@@ -46,37 +61,11 @@ impl Kind {
     }
 
     fn as_str(self) -> &'static str {
-        match self {
-            Self::Camera => "camera",
-            Self::Microphone => "microphone",
-            Self::CameraAndMicrophone => "camera+microphone",
-            Self::Screen => "screen",
-            Self::Location => "location",
-            Self::Notifications => "notifications",
-            Self::Clipboard => "clipboard",
-            Self::PointerLock => "pointer-lock",
-            Self::Devices => "devices",
-            Self::MediaKeys => "media-keys",
-            Self::StorageAccess => "storage-access",
-        }
+        NAMES.iter().find(|(kind, _)| *kind == self).map(|(_, name)| *name).expect("NAMES names every kind")
     }
 
     fn parse(s: &str) -> Option<Self> {
-        [
-            Self::Camera,
-            Self::Microphone,
-            Self::CameraAndMicrophone,
-            Self::Screen,
-            Self::Location,
-            Self::Notifications,
-            Self::Clipboard,
-            Self::PointerLock,
-            Self::Devices,
-            Self::MediaKeys,
-            Self::StorageAccess,
-        ]
-        .into_iter()
-        .find(|k| k.as_str() == s)
+        NAMES.iter().find(|(_, name)| *name == s).map(|(kind, _)| *kind)
     }
 
     /// What the prompt says the site wants.

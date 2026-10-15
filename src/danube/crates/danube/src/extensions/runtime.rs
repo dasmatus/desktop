@@ -74,26 +74,23 @@ enum Kind {
     Offscreen,
 }
 
+/// Each kind's name as api.js and the runtime's messages give it, read
+/// both ways.
+const KIND_NAMES: [(Kind, &str); 5] = [
+    (Kind::Content, "content"),
+    (Kind::Tab, "tab"),
+    (Kind::Background, "background"),
+    (Kind::Popup, "popup"),
+    (Kind::Offscreen, "offscreen"),
+];
+
 impl Kind {
     fn from_name(name: &str) -> Option<Self> {
-        Some(match name {
-            "content" => Kind::Content,
-            "tab" => Kind::Tab,
-            "background" => Kind::Background,
-            "popup" => Kind::Popup,
-            "offscreen" => Kind::Offscreen,
-            _ => return None,
-        })
+        KIND_NAMES.iter().find(|(_, n)| *n == name).map(|(kind, _)| *kind)
     }
 
     fn name(self) -> &'static str {
-        match self {
-            Kind::Content => "content",
-            Kind::Tab => "tab",
-            Kind::Background => "background",
-            Kind::Popup => "popup",
-            Kind::Offscreen => "offscreen",
-        }
+        KIND_NAMES.iter().find(|(kind, _)| *kind == self).map(|(_, n)| *n).expect("KIND_NAMES names every kind")
     }
 
     /// chrome.runtime.getContexts's name for it.
@@ -307,16 +304,16 @@ fn now_ms() -> f64 {
         .map_or(0.0, |d| d.as_millis() as f64)
 }
 
-/// 128 random bits as hex, for tokens a page must not guess.
+/// 128 random bits as hex, for tokens a page must not guess. There is no
+/// fallback: a clock reading in their place, as there once was, is a
+/// token a page could guess.
 fn random_token() -> String {
     let mut bytes = [0u8; 16];
-    if let Ok(mut file) = std::fs::File::open("/dev/urandom") {
-        use std::io::Read;
-        let _ = file.read_exact(&mut bytes);
-    } else {
-        let t = now_ms() as u128;
-        bytes.copy_from_slice(&t.to_le_bytes());
-    }
+    // SAFETY: `bytes` is 16 writable bytes. getrandom(2) fills a request
+    // this small whole, uninterrupted, once the kernel's pool is ready,
+    // which it is long before a browser starts.
+    let filled = unsafe { libc::getrandom(bytes.as_mut_ptr().cast(), bytes.len(), 0) };
+    assert_eq!(filled, bytes.len() as isize, "getrandom fills 16 bytes");
     bytes.iter().map(|b| format!("{b:02x}")).collect()
 }
 
@@ -467,7 +464,6 @@ impl Runtime {
                 ExtensionInfo {
                     id: installed.id.clone(),
                     name: installed.manifest.name.clone(),
-                    version: installed.manifest.version.clone(),
                     enabled: installed.enabled && loaded.is_some(),
                     title,
                     options: installed.manifest.options_page.is_some(),
@@ -478,7 +474,6 @@ impl Runtime {
                         .map(|c| Shortcut {
                             name: c.name.clone(),
                             key: c.key.clone(),
-                            description: c.description.clone(),
                         })
                         .collect(),
                 }
