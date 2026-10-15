@@ -45,9 +45,11 @@
 - **The two gnome-control-center patches** in `nixos/pkgs/patches/`. Nothing
   upstream has them, so they stay. They are written against
   gnome-control-center 51.0, and nixpkgs carries 50.4, which moved the
-  System panel to Blueprint; neither applies. The factory reset is reachable
-  through `systemctl start factory-reset.target` and the Varlink API, and the
-  security report answers on the bus, but neither has a button in Settings.
+  System panel to Blueprint; neither applies, and gnome-control-center is no
+  longer in the image for them to go into. What they added is on derisk
+  Settings' System page instead: the security report, and the factory reset,
+  which only a UEFI machine offers, because systemd's request to reset
+  needs one. Neither has been tried on hardware.
 - **NVIDIA on real hardware.** The driver choice was tested in a VM with a
   report that names an RTX 4090 ([Hardware and NVIDIA](drivers.md)); no
   NVIDIA card has run the image. Untested: the open module taking a card,
@@ -63,13 +65,12 @@
   hotplug is not handled. X11 apps run through xwayland-satellite, a user
   unit that starts with the session (`desktop.nix`); it was seen serving an
   X11 client under a headless weston, not yet under derisk's compositor.
-  derisk has no UI for Bluetooth or power profiles, so those are left off. The gnome-control-center patches above
-  have no Settings app to go into any more.
-- **derisk's portal has gaps.** derisk's portal backend has no
-  area or color picker and does not set the lock screen's picture. Screen
-  sharing (xdg-desktop-portal-wlr) copies frames into shared memory, not
-  dma-bufs, and a shared window is cut out of the screen, so anything
-  covering it is shared too.
+- **derisk's portal has gaps.** Screen sharing (xdg-desktop-portal-wlr)
+  copies frames into shared memory, not dma-bufs, and a shared window is cut
+  out of the screen, so anything covering it is shared too. The color and
+  area pickers show a screenshot frozen across the screen; they were tried
+  under X11, not yet in a derisk session, and neither was the lock screen's
+  picture.
 - **The Halium GSI has not run on a device.** It evaluates for aarch64, and
   an x86_64 build of the same boot path booted under QEMU (see the pull
   request that made it the one target). No arm64 build has been flashed, no
@@ -105,9 +106,17 @@
   - **Telephony, audio, sensors, camera.** No ofono, no PulseAudio/PipeWire
     droid modules, no sensorfw. Android's init starts the HALs, and nothing
     on the Linux side talks to them yet beyond EGL.
-- **Wi-Fi after setup.** First-boot setup joins a network through
-  `wpa_supplicant`, which saves it, but nothing in the session lists or
-  joins networks afterwards: derisk's Settings has no Wi-Fi page yet.
+- **Wi-Fi, Bluetooth and power modes in Settings.** derisk Settings'
+  Network page lists, joins and forgets networks through
+  `wpa_supplicant`'s control socket, which only the `wpa_supplicant` group
+  may use. First-boot setup puts the account it creates in that group; an
+  account made before it did is not, and its Network page says so until
+  `homectl update --member-of=wheel,wpa_supplicant <user>` adds it. The
+  Bluetooth page pairs without asking anything, so a device that wants a
+  passkey typed or compared does not pair. None of the three pages has run
+  against a real adapter or `power-profiles-daemon` on hardware, and the
+  Halium GSI has no Bluetooth: the phone's controller is behind its vendor
+  HAL, which nothing here bridges to BlueZ.
 - **Two LosOS disks in one PC.** Root comes from the disk the boot loader
   started from, under UEFI and a BIOS alike ([Boot loader](boot-loaders.md)),
   but swap is found by its partition label, `losos-swap`
