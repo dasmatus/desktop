@@ -89,7 +89,7 @@ fn run() -> miette::Result<ExitCode> {
                     Error::Listen(std::io::Error::other("no sockets from systemd"))
                 })?,
             };
-            serve::run(sockets, paths.dns()).map_err(Error::Listen)?;
+            serve::run(sockets, paths.dns());
             Ok(ExitCode::SUCCESS)
         }
         Some("check") if words.len() > 1 => {

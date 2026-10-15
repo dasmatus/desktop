@@ -68,11 +68,6 @@ fn entries(paths: &Paths, name: &str) -> Vec<String> {
     out
 }
 
-/// A list's source, as the config names it.
-pub fn sources(paths: &Paths) -> Vec<String> {
-    entries(paths, "lists")
-}
-
 /// A stable file name for a source: its host and path made safe, and a hash
 /// so two URLs differing only in characters dropped here stay apart.
 pub fn slug(source: &str) -> String {
@@ -124,7 +119,7 @@ pub fn update(paths: &Paths) -> Result<usize, Error> {
         .build()
         .into();
     let mut failed = 0;
-    for source in sources(paths) {
+    for source in entries(paths, "lists") {
         if let Err(error) = fetch(&agent, paths, &source) {
             warn!(%source, %error, "keeping the last copy of this list");
             failed += 1;
@@ -224,7 +219,7 @@ pub fn compile(paths: &Paths) -> Result<(), Error> {
         }));
     }
 
-    for source in sources(paths) {
+    for source in entries(paths, "lists") {
         let Some(text) = read_source(paths, &source) else {
             warn!(%source, "not fetched yet; skipped");
             continue;

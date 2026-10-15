@@ -263,8 +263,9 @@ fn serve_tcp_client(shared: &Shared, mut stream: TcpStream) -> io::Result<()> {
     }
 }
 
-/// Serves until the process is stopped.
-pub fn run(sockets: Sockets, list: PathBuf) -> io::Result<()> {
+/// Serves until the process is stopped; nothing it meets ends it, so it
+/// has nothing to return.
+pub fn run(sockets: Sockets, list: PathBuf) {
     let own = sockets.local_addrs();
     let shared = Shared {
         state: RwLock::new(State {
@@ -354,7 +355,6 @@ pub fn run(sockets: Sockets, list: PathBuf) -> io::Result<()> {
             });
         }
     });
-    Ok(())
 }
 
 #[cfg(test)]
