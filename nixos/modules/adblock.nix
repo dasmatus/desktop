@@ -20,6 +20,31 @@ let
   cfg = config.losos.adblock;
   # Loopback, but not 127.0.0.53 or .54, which resolved listens on.
   address = "127.0.0.153";
+  # Both services run as the same user with the same confinement: a
+  # reader and writer of its own state and a sender of DNS and HTTPS,
+  # with no capabilities (systemd binds port 53 for the forwarder).
+  hardening = {
+    User = "losos-adblock";
+    Group = "losos-adblock";
+    CapabilityBoundingSet = "";
+    NoNewPrivileges = true;
+    ProtectSystem = "strict";
+    ProtectHome = true;
+    PrivateTmp = true;
+    PrivateDevices = true;
+    ProtectKernelTunables = true;
+    ProtectKernelModules = true;
+    ProtectControlGroups = true;
+    RestrictAddressFamilies = [
+      "AF_INET"
+      "AF_INET6"
+      "AF_UNIX"
+    ];
+    RestrictNamespaces = true;
+    LockPersonality = true;
+    SystemCallArchitectures = "native";
+    SystemCallFilter = [ "@system-service" ];
+  };
 in
 {
   options.losos.adblock = {
@@ -113,32 +138,12 @@ in
     systemd.services.losos-adblock = {
       description = "losos-adblock DNS forwarder";
       requires = [ "losos-adblock.socket" ];
-      serviceConfig = {
+      # Only a reader of its blocklist and resolved's server list, and a
+      # sender of DNS.
+      serviceConfig = hardening // {
         ExecStart = "${lib.getExe pkgs.losos-adblock} serve";
-        User = "losos-adblock";
-        Group = "losos-adblock";
         Restart = "always";
-        # Only a reader of its blocklist and resolved's server list, and a
-        # sender of DNS; port 53 is bound by systemd, so no capabilities.
-        CapabilityBoundingSet = "";
-        NoNewPrivileges = true;
-        ProtectSystem = "strict";
-        ProtectHome = true;
-        PrivateTmp = true;
-        PrivateDevices = true;
-        ProtectKernelTunables = true;
-        ProtectKernelModules = true;
-        ProtectControlGroups = true;
-        RestrictAddressFamilies = [
-          "AF_INET"
-          "AF_INET6"
-          "AF_UNIX"
-        ];
-        RestrictNamespaces = true;
         MemoryDenyWriteExecute = true;
-        LockPersonality = true;
-        SystemCallArchitectures = "native";
-        SystemCallFilter = [ "@system-service" ];
       };
     };
 
@@ -146,35 +151,15 @@ in
       description = "Fetch and compile losos-adblock's filter lists";
       wants = [ "network-online.target" ];
       after = [ "network-online.target" ];
-      serviceConfig = {
+      serviceConfig = hardening // {
         Type = "oneshot";
         ExecStart = "${lib.getExe pkgs.losos-adblock} update";
         # 2 means a list could not be fetched; the rest were compiled and
         # the last good copy of that one kept, so it is not a failure.
         SuccessExitStatus = [ 2 ];
-        User = "losos-adblock";
-        Group = "losos-adblock";
         StateDirectory = "losos-adblock";
         StateDirectoryMode = "0755";
         UMask = "0022";
-        CapabilityBoundingSet = "";
-        NoNewPrivileges = true;
-        ProtectSystem = "strict";
-        ProtectHome = true;
-        PrivateTmp = true;
-        PrivateDevices = true;
-        ProtectKernelTunables = true;
-        ProtectKernelModules = true;
-        ProtectControlGroups = true;
-        RestrictAddressFamilies = [
-          "AF_INET"
-          "AF_INET6"
-          "AF_UNIX"
-        ];
-        RestrictNamespaces = true;
-        LockPersonality = true;
-        SystemCallArchitectures = "native";
-        SystemCallFilter = [ "@system-service" ];
       };
     };
 
