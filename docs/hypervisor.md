@@ -130,6 +130,15 @@ starts things:
   (Files, Settings and the rest) stay on the host, and so does everything
   once that machine has been removed. An app the machine does not have
   opens nowhere; the session's log says why.
+- **A machine's own screen gets a window.** While a machine with a screen
+  runs (one installing from a CD, or Windows), the session shows it in
+  virt-viewer on that machine's socket, so the window is framed in its
+  colour like its apps' windows. Closing it hides the screen until the
+  machine starts again or the palette's "Show win's screen" brings it back.
+- **Keep on Top** is in a window's menu and the palette, for any window but
+  an untrusted (red) machine's. Such a window cannot be kept on top, and one
+  that asks to be raised gets attention instead of focus, so a machine
+  meant for untrusted work cannot cover a window to imitate it.
 
 ## The guest template
 
@@ -202,8 +211,9 @@ its disk first and the first CD while the disk has nothing on it, so the
 installer runs once and the installed system starts after it. Such a
 machine has a screen (SPICE, attached through libvirt and never on a port,
 with no clipboard channel), a USB tablet, and its CDs on SATA, which every
-installer has a driver for. `virt-viewer --attach -c qemu:///system win`
-shows it.
+installer has a driver for. The desktop shows it in a window of its own
+(see "On the desktop"); outside a session,
+`virt-viewer --attach -c qemu:///system win` does.
 
 pm also gives it the image's **CD of guest tools** for its system, which
 the image ships at `share/pm/machines/<system>-tools.iso` where pm looks
