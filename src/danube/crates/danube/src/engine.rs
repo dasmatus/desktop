@@ -202,15 +202,10 @@ pub fn run(commands: Receiver<Command>, events: Events, options: Options) {
     let downloads = options.downloads.clone();
     session.on_download_started(move |_, download| watch_download(download, &downloads));
 
-    let settings = webkit::Settings::new();
-    settings.set_enable_developer_extras(false);
-    // Without developer tools, a page's console (and an extension's frame
-    // in it) is only seen on stdout, when danube::engine traces.
-    settings.set_enable_write_console_messages_to_stdout(tracing::enabled!(tracing::Level::TRACE));
-    settings.set_javascript_can_open_windows_automatically(false);
-    settings.set_allow_file_access_from_file_urls(false);
-    settings.set_allow_universal_access_from_file_urls(false);
-    settings.set_allow_top_navigation_to_data_urls(false);
+    // No popups a page opens by itself. Without developer tools, a page's
+    // console (and an extension's frame in it) is only seen on stdout,
+    // when danube::engine traces.
+    let settings = webkit::Settings::new(false, tracing::enabled!(tracing::Level::TRACE));
     settings.set_application("Danube", env!("CARGO_PKG_VERSION"));
     let desktop_agent = settings.user_agent();
 

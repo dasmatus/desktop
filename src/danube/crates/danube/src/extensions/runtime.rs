@@ -388,13 +388,11 @@ impl Runtime {
             }
         });
 
-        let settings = webkit::Settings::new();
+        // An extension's pages may open windows. There are no developer
+        // tools, so an extension's console is only seen here: on stdout,
+        // when danube::extensions traces.
+        let settings = webkit::Settings::new(true, tracing::enabled!(tracing::Level::TRACE));
         settings.set_user_agent(CHROME_UA);
-        settings.set_javascript_can_open_windows_automatically(true);
-        settings.set_enable_developer_extras(false);
-        // There are no developer tools, so an extension's console is only
-        // seen here: on stdout, when danube::extensions traces.
-        settings.set_enable_write_console_messages_to_stdout(tracing::enabled!(tracing::Level::TRACE));
 
         let mut rt = Self {
             store: Store::new(&options.home),

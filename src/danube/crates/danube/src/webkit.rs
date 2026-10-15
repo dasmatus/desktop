@@ -173,43 +173,22 @@ fn gbool(b: bool) -> gboolean {
 
 // GLib's main loop and its sources.
 
-/// The thread's main loop; WebKit runs inside it.
-pub struct MainLoop {
-    ptr: NonNull<GMainLoop>,
-    _thread: PhantomData<*mut ()>,
-}
+counted!(
+    /// The thread's main loop; WebKit runs inside it.
+    MainLoop(GMainLoop, g_main_loop_ref, g_main_loop_unref)
+);
 
 impl MainLoop {
     pub fn new() -> Self {
-        let ptr = unsafe { g_main_loop_new(ptr::null_mut(), FALSE) };
-        Self {
-            ptr: NonNull::new(ptr).expect("GLib allocates or aborts"),
-            _thread: PhantomData,
-        }
+        unsafe { Self::owned(g_main_loop_new(ptr::null_mut(), FALSE)) }.expect("GLib allocates or aborts")
     }
 
     pub fn run(&self) {
-        unsafe { g_main_loop_run(self.ptr.as_ptr()) }
+        unsafe { g_main_loop_run(self.as_ptr()) }
     }
 
     pub fn quit(&self) {
-        unsafe { g_main_loop_quit(self.ptr.as_ptr()) }
-    }
-}
-
-impl Clone for MainLoop {
-    fn clone(&self) -> Self {
-        Self {
-            ptr: NonNull::new(unsafe { g_main_loop_ref(self.ptr.as_ptr()) })
-                .expect("ref returns its argument"),
-            _thread: PhantomData,
-        }
-    }
-}
-
-impl Drop for MainLoop {
-    fn drop(&mut self) {
-        unsafe { g_main_loop_unref(self.ptr.as_ptr()) }
+        unsafe { g_main_loop_quit(self.as_ptr()) }
     }
 }
 
@@ -636,45 +615,33 @@ object!(
 );
 
 impl Settings {
-    pub fn new() -> Self {
-        unsafe { Self::owned(webkit_settings_new()) }.expect("WebKit allocates or aborts")
-    }
-
-    pub fn set_enable_developer_extras(&self, enabled: bool) {
-        unsafe { webkit_settings_set_enable_developer_extras(self.as_ptr(), gbool(enabled)) }
-    }
-
-    pub fn set_enable_write_console_messages_to_stdout(&self, enabled: bool) {
-        unsafe {
-            webkit_settings_set_enable_write_console_messages_to_stdout(self.as_ptr(), gbool(enabled))
-        }
-    }
-
-    pub fn set_javascript_can_open_windows_automatically(&self, enabled: bool) {
-        unsafe {
-            webkit_settings_set_javascript_can_open_windows_automatically(
-                self.as_ptr(),
-                gbool(enabled),
+    /// Settings with WebKit's developer tools and local-file loopholes
+    /// shut: no inspector, no file:// page reading other files or any
+    /// origin, no top-level navigation to a data: URL. Those are WebKit's
+    /// defaults too, set here so a release that changed one does not
+    /// change Danube. `popups` lets a page's script open windows without
+    /// a click, and `console` writes the console to stdout, which with no
+    /// developer tools is the only place it is seen.
+    pub fn new(popups: bool, console: bool) -> Self {
+        let settings = unsafe {
+            g_object_new(
+                webkit_settings_get_type(),
+                c"enable-developer-extras".as_ptr(),
+                FALSE,
+                c"enable-write-console-messages-to-stdout".as_ptr(),
+                gbool(console),
+                c"javascript-can-open-windows-automatically".as_ptr(),
+                gbool(popups),
+                c"allow-file-access-from-file-urls".as_ptr(),
+                FALSE,
+                c"allow-universal-access-from-file-urls".as_ptr(),
+                FALSE,
+                c"allow-top-navigation-to-data-urls".as_ptr(),
+                FALSE,
+                ptr::null::<c_char>(),
             )
-        }
-    }
-
-    pub fn set_allow_file_access_from_file_urls(&self, allowed: bool) {
-        unsafe {
-            webkit_settings_set_allow_file_access_from_file_urls(self.as_ptr(), gbool(allowed))
-        }
-    }
-
-    pub fn set_allow_universal_access_from_file_urls(&self, allowed: bool) {
-        unsafe {
-            webkit_settings_set_allow_universal_access_from_file_urls(self.as_ptr(), gbool(allowed))
-        }
-    }
-
-    pub fn set_allow_top_navigation_to_data_urls(&self, allowed: bool) {
-        unsafe {
-            webkit_settings_set_allow_top_navigation_to_data_urls(self.as_ptr(), gbool(allowed))
-        }
+        };
+        unsafe { Self::owned(settings.cast()) }.expect("WebKit allocates or aborts")
     }
 
     /// Names the application in WebKit's own User-Agent string.
@@ -764,33 +731,32 @@ struct LoadFinish(Loaded);
 struct SaveFinish(Loaded);
 struct IdentifiersFinish(Vec<String>);
 
+/// The rule set a filter store's `_finish` function hands back, or the
+/// error it set; loading and compiling finish alike.
+type FilterFinishFn = unsafe extern "C" fn(
+    *mut WebKitUserContentFilterStore,
+    *mut GAsyncResult,
+    *mut *mut GError,
+) -> *mut WebKitUserContentFilter;
+
+unsafe fn filter_finish(finish: FilterFinishFn, source: *mut GObject, result: *mut GAsyncResult) -> Loaded {
+    let mut error = ptr::null_mut();
+    let filter = unsafe { finish(source.cast(), result, &mut error) };
+    match unsafe { Filter::owned(filter) } {
+        Some(filter) => Ok(filter),
+        None => Err(unsafe { take_error(error) }),
+    }
+}
+
 impl Finish for LoadFinish {
     unsafe fn finish(source: *mut GObject, result: *mut GAsyncResult) -> Self {
-        let mut error = ptr::null_mut();
-        let filter = unsafe {
-            webkit_user_content_filter_store_load_finish(source.cast(), result, &mut error)
-        };
-        Self(match unsafe { Filter::owned(filter) } {
-            Some(filter) => Ok(filter),
-            None => Err(unsafe { take_error(error) }),
-        })
+        Self(unsafe { filter_finish(webkit_user_content_filter_store_load_finish, source, result) })
     }
 }
 
 impl Finish for SaveFinish {
     unsafe fn finish(source: *mut GObject, result: *mut GAsyncResult) -> Self {
-        let mut error = ptr::null_mut();
-        let filter = unsafe {
-            webkit_user_content_filter_store_save_from_file_finish(
-                source.cast(),
-                result,
-                &mut error,
-            )
-        };
-        Self(match unsafe { Filter::owned(filter) } {
-            Some(filter) => Ok(filter),
-            None => Err(unsafe { take_error(error) }),
-        })
+        Self(unsafe { filter_finish(webkit_user_content_filter_store_save_from_file_finish, source, result) })
     }
 }
 
