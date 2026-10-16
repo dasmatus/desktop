@@ -141,7 +141,7 @@
         for line in in_guest(guest_run, "--list").splitlines():
             app, _, name = line.partition("\t")
             apps[app] = name
-        for app in ["foot", "org.losos.Danube", "org.derisk.calculator"]:
+        for app in ["org.derisk.terminal", "org.losos.Danube", "org.derisk.calculator"]:
             assert app in apps, f"{app} is not in {sorted(apps)}"
 
     with subtest("an app's window reaches the host from the machine's own address"):
@@ -151,7 +151,7 @@
         cid = found.group(1)
         machine.succeed("systemd-run --unit=vsock-listen python3 /etc/vsock-listen.py /tmp/peer")
         machine.wait_until_succeeds("ss -l --vsock | grep -q 7350")
-        in_guest(guest_run, "foot")
+        in_guest(guest_run, "org.derisk.terminal")
         machine.wait_until_succeeds("test -s /tmp/peer", timeout=120)
         peer = machine.succeed("cat /tmp/peer").strip()
         assert peer == cid, f"the connection came from {peer}, the machine is {cid}"

@@ -24,7 +24,10 @@ wallpaper, and asks for consent in a dialog of its own (`derisk-gpui ask`,
 drawn with the same toolkit as derisk's GPUI apps); GTK's covers the file
 chooser and the rest. The web browser is
 [Danube](danube.md), WPE WebKit inside an mcsapi window, and
-[ad blocking](adblock.md) from filter lists covers every app.
+[ad blocking](adblock.md) from filter lists covers every app. The terminal
+is derisk's own, `derisk-terminal`: the theme's monospace font through its
+Nerd Font build, so the icons prompts and TUIs print show, drawn on the GPU
+or, where there is none, in software.
 
 The same OS also builds as one generic system image for Treble phones and
 tablets that take GSIs and run Linux 5.10 or newer, over

@@ -116,7 +116,7 @@ Besides the Machines app, machines are a step away wherever the desktop
 starts things:
 
 - **The command palette** offers "Start work" for each machine that is off,
-  and, while it runs, "Foot in work" for each app it has and "Shut down
+  and, while it runs, "Terminal in work" for each app it has and "Shut down
   work". A machine's label colour is among its search words, so typing
   "blue" finds the machine whose windows are blue. The rows come from a
   palette plugin like the others, fed by the session itself; no other
@@ -167,7 +167,8 @@ left out). It has:
   stream to the host's desktop, port 7350. There is no GPU in a machine, so
   apps draw with Mesa's llvmpipe and lavapipe into shared memory, which is
   what waypipe carries;
-- **apps**: foot, Danube, derisk's Calculator (the one derisk core app that
+- **apps**: derisk's Terminal (`derisk-terminal`, drawing in software, as
+  there is no GPU), Danube, derisk's Calculator (the one derisk core app that
   is a window of its own, `derisk-gpui`; the rest are drawn by the host's
   compositor), and Flatpak with Flathub and Bazaar, as on the host. The
   guest's user may install Flatpaks for the whole machine without being
