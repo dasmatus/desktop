@@ -67,7 +67,7 @@ cache.nixos.org, and neither does anything built against it. In this image
 that is GTK3 and GTK4, Qt 6's qtbase, qtdeclarative, qtsvg, qttools and
 qtshadertools (qtbase links GTK3 for its GTK platform theme, and
 breeze-icons, which papirus-icon-theme builds against, needs Qt), and
-gjs, gcr, gnome-keyring, gnome-desktop, gnome-settings-daemon, libsecret,
+gjs, gcr, gnome-keyring, gnome-desktop, gnome-settings-daemon,
 xdg-desktop-portal and its GTK backend, ostree, flatpak and geoclue: about
 thirty derivations per architecture. CI's `prebuild` job builds them before
 the release build starts (`tools/nix-prebuild-plan` finds them: every

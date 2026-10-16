@@ -130,6 +130,11 @@ in
   # front end: virt-viewer draws a machine's screen, and the VM tests run
   # headless.
   qemu = plain.qemu;
+  # libsecret too. Only its test suite reaches the patched GTK, through gjs,
+  # so ours differed from nixpkgs' in a check input alone, compiled in CI,
+  # and failed there in test-collection when the test's D-Bus service
+  # dropped off the bus. nixpkgs' library is the same and substitutes.
+  libsecret = plain.libsecret;
   danube = callWithMold ./danube.nix { };
   # The system-wide ad blocker (docs/adblock.md).
   losos-adblock = callWithMold ./losos-adblock.nix { };
