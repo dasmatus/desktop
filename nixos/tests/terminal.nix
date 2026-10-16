@@ -63,15 +63,23 @@
     };
 
   testScript = ''
+    # Generous timeouts: without KVM, starting the terminal (fontconfig's
+    # scan, llvmpipe compiling its shaders) takes minutes.
     def started(renderer, line):
         machine.succeed(f"echo {renderer} > /run/terminal-renderer")
+        since = machine.succeed("date +%s").strip()
         machine.succeed("systemctl restart cage-tty1.service")
+        # Not -u cage-tty1.service: cage opens a login session, so what it
+        # and the terminal print is the session scope's.
         machine.wait_until_succeeds(
-            f"journalctl -b -u cage-tty1.service --grep '{line}'", timeout=300
+            f"journalctl --since @{since} -t cage --grep '{line}'", timeout=900
         )
-        machine.wait_for_text("renderer test", timeout=300)
+        machine.wait_for_text("renderer test", timeout=900)
 
-    machine.wait_for_unit("cage-tty1.service")
+    # Without KVM, cage can start before udev has given /dev/dri/card0 to
+    # the seat, and logind then refuses it; each start below comes after.
+    machine.wait_for_unit("multi-user.target")
+    machine.succeed("udevadm settle")
 
     with subtest("with no GPU it draws in software"):
         started("auto", "drawing in software")
