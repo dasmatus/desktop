@@ -17,9 +17,12 @@ without), it:
 1. Checks the machine. It refuses a Windows started in legacy BIOS mode, a
    machine of another architecture, Secure Boot turned on, and a drive that
    BitLocker is still encrypting or decrypting (below).
-2. Finds the newest release on the channel compiled into it, the one
-   `losos.update.baseUrl` names, and checks `SHA256SUMS.gpg` against the
-   key in `nixos/keys/update-signing.asc`. `--release DIR` takes a release
+2. Finds the newest release on the channel compiled into it, the one the
+   OS updates from: a proxy's `losos.update.baseUrl`, or, for an OS that
+   updates from GitHub Releases, the channel's index on the documentation
+   site ([Releases](releases.md#updating-from-github-releases)), whose split
+   files it downloads part by part and joins. It checks `SHA256SUMS.gpg`
+   against the key in `nixos/keys/update-signing.asc`. `--release DIR` takes a release
    from a folder instead, such as a `LOSOS-RELEASE` disk.
 3. Asks how much space LosOS gets, 64 GB unless the user types another
    number. The least is what first boot needs: the boot partition, two

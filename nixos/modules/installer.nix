@@ -141,6 +141,9 @@ let
     specialArgs.losos = {
       inherit (cfg) version;
       inherit (cfg.update) baseUrl pubring;
+      # Where the live system's losos-update-source reads the channel, when
+      # baseUrl is its address (update-source.nix).
+      updateIndex = config.services.losos-update-source.index;
       releaseRepo = cfg.release.repository;
       docsUrl = cfg.docs.url;
       inherit esp repartDefinitions sysupdateTemplates;

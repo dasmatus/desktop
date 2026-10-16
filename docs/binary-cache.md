@@ -18,12 +18,13 @@ fetches. It serves these from this project's GHCR namespace:
   first and from GHCR with oras when the proxy has nothing.
 - **Updates.** `/updates/<channel>/<arch>/<file>` serves a file of
   `images:<channel>-<arch>`, which CI's publish job moves to each release
-  that passed verification. CI sets `losos.update.baseUrl` to
-  `<proxy>/updates/<channel>/<arch>/`, so sysupdate fetches manifests and
-  images through the proxy. The channels are `nightly` and `stable`, which
-  tagged releases are built for. Each release is also a GitHub release of its own
-  ([Releases](releases.md)), but that splits files of 2 GiB or more into
-  parts, which sysupdate could not fetch.
+  that passed verification. With `LOSOS_PROXY_URL` set, CI sets
+  `losos.update.baseUrl` to `<proxy>/updates/<channel>/<arch>/`, so
+  sysupdate fetches manifests and images through the proxy. The channels
+  are `nightly` and `stable`, which tagged releases are built for. Without
+  it, images update from each channel's newest GitHub release instead,
+  through an index on the documentation site and a service on the machine
+  that joins split files ([Releases](releases.md#updating-from-github-releases)).
 - **The web flasher's files.** `/flasher/<channel>/<arch>/<file>` serves the
   same release's `_gsi-` files and `SHA256SUMS`, streamed one byte range at a
   time rather than redirected, because a page on another origin cannot read

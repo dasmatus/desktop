@@ -38,7 +38,9 @@ in
         The release channel: `nightly`, which every CI run on main
         publishes, or `stable`, which a tagged release is built for. CI
         moves the channel's tag in GHCR to each release of it, and proxy/
-        serves that tag at `/updates/<channel>/`, so the update URL stays
+        serves that tag at `/updates/<channel>/`; the documentation site
+        lists the channel's newest GitHub release at
+        `updates/<channel>/<arch>/index`. Either way the update URL stays
         the same across releases. flake.nix sets it from `LOSOS_CHANNEL`.
       '';
     };
@@ -83,11 +85,32 @@ in
     update = {
       baseUrl = mkOption {
         type = types.str;
-        default = "https://github.com/dasmatus/losos-desktop/releases/download/${config.losos.channel}/";
-        defaultText = lib.literalExpression ''"https://github.com/dasmatus/losos-desktop/releases/download/''${config.losos.channel}/"'';
+        default = "http://127.0.0.1:8485/";
         description = ''
           Where systemd-sysupdate looks for SHA256SUMS and the artifacts it
           lists. Must end in a slash: sysupdate appends file names to it.
+
+          The default is losos-update-source on this machine
+          (update-source.nix), which serves the channel's newest GitHub
+          release from `losos.update.index`. The flake sets it to the
+          proxy's `/updates/<channel>/<arch>/` instead when
+          LOSOS_PROXY_URL is set.
+        '';
+      };
+
+      index = mkOption {
+        type = types.nullOr types.str;
+        default =
+          if config.losos.docs.url == null then
+            null
+          else
+            "${config.losos.docs.url}/updates/${config.losos.channel}/${config.losos.arch.name}/index";
+        defaultText = lib.literalExpression ''"''${config.losos.docs.url}/updates/''${config.losos.channel}/<arch>/index"'';
+        description = ''
+          The channel's index on the documentation site
+          (website/release-index.js): which GitHub release assets make up
+          each file of its newest release. losos-update-source reads it
+          when `baseUrl` is its own address.
         '';
       };
 

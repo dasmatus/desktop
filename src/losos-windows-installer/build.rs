@@ -38,6 +38,15 @@ fn main() {
         text(var("LOSOS_UPDATE_URL"))
     )
     .unwrap();
+    // The channel's index on the documentation site, for an OS whose own
+    // updates come from GitHub Releases through it (update-source.nix);
+    // then there is no UPDATE_URL a Windows machine could reach.
+    writeln!(
+        out,
+        "pub const UPDATE_INDEX: Option<&str> = {};",
+        text(var("LOSOS_UPDATE_INDEX"))
+    )
+    .unwrap();
     writeln!(
         out,
         "pub const PUBRING: Option<&[u8]> = {};",

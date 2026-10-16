@@ -186,7 +186,7 @@ pub fn fetch_files(
         let hash = crate::release::sha256_file(&path, |done| report.progress(done, total))?;
         if !hash.eq_ignore_ascii_case(&file.sha256) {
             // A bad download is not kept to be resumed from.
-            if let crate::release::Source::Channel(_) = source {
+            if source.downloads() {
                 let _ = std::fs::remove_file(&path);
             }
             miette::bail!("{} does not match the release's SHA256SUMS", file.name);

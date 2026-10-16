@@ -73,7 +73,13 @@ in
     # The installed system's boot screen, which reads "LosOS Desktop
     # installer is starting" here.
     ../modules/splash.nix
+    # The channel served from GitHub Releases on 127.0.0.1, which `--source`
+    # names when the OS updates that way (update-source.nix): an install
+    # from the channel reads it exactly as an update would.
+    ../modules/update-source.nix
   ];
+
+  services.losos-update-source.index = losos.updateIndex;
 
   system.stateVersion = "26.05";
 
