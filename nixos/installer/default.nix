@@ -203,8 +203,9 @@ in
   environment.systemPackages = [ pkgs.curl ];
 
   # The release signing key: sysupdate verifies SHA256SUMS.gpg here exactly
-  # as it does on the installed system.
-  environment.etc."systemd/import-pubring.gpg".source = losos.pubring;
+  # as it does on the installed system, under the name systemd 261's
+  # systemd-pull reads (modules/update.nix).
+  environment.etc."systemd/import-pubring.pgp".source = losos.pubring;
 
   # A release disk: any filesystem labelled LOSOS-RELEASE holding a release's
   # files (SHA256SUMS, SHA256SUMS.gpg and what they list), which the installer
