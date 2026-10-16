@@ -30,6 +30,20 @@
   itself (`virt-viewer --attach` does) or frame WinApps' windows in the
   machine's colour: FreeRDP's RemoteApp windows are X11's, drawn through
   the session's one xwayland-satellite, which belongs to no machine.
+- **No hosted proxy.** GitHub Pages serves files only, so of what `proxy/`
+  did ([Binary cache](binary-cache.md)), updates moved to GitHub Releases
+  through an index on the documentation site and a service on each machine
+  ([Releases](releases.md#updating-from-github-releases)), and CI reads the
+  Nix cache through the proxy's own code on its runner. Three things still
+  need a deployment that runs code, set as `LOSOS_PROXY_URL`: the daily
+  `/ping` and the choice screens it turns on ([Choice
+  screens](choice-screens.md)), stay off without one; the web flasher
+  cannot download by itself and sends the person to the release page
+  ([Web flasher](web-flasher.md#where-the-files-come-from)); and a builder
+  outside CI has no public cache URL, though `proxy/serve.ts` runs the same
+  cache locally. Systems installed from an image built with a proxy URL
+  keep asking that proxy for updates until they are reinstalled or it
+  serves them one more update.
 - **A complete image build.** CI builds release images within its runner time
   budget; local image builds may take longer.
 - **Hibernation needs UEFI and a TPM.** A BIOS PC, or a laptop without a
