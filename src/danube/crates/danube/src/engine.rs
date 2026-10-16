@@ -14,18 +14,19 @@
 //! being handled already has it, which only happens when WebKit emits a
 //! signal from inside a call the engine made.
 
-use std::cell::RefCell;
+use std::cell::{Cell, RefCell};
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::rc::Rc;
 use std::sync::Arc;
 use std::time::{Instant, SystemTime};
 
-use crossbeam_channel::Receiver;
+use crossbeam_channel::{Receiver, Sender};
 use eframe::egui;
 use tracing::{debug, info, trace, warn};
 
 use crate::config::{self, Settings};
+use crate::downloads::{DownloadId, Job, Request, Update};
 use crate::extensions::runtime::{self, Runtime};
 use crate::ffi::{
     WEBKIT_LOAD_STARTED, WEBKIT_POLICY_DECISION_TYPE_NAVIGATION_ACTION,
@@ -36,8 +37,9 @@ use crate::ffi::{
     WPE_MODIFIER_POINTER_BUTTON1, WPE_MODIFIER_POINTER_BUTTON2, WPE_MODIFIER_POINTER_BUTTON3,
 };
 use crate::input::Input;
+use crate::notify::{self, Card, Notifier};
 use crate::permissions::{self, Kind};
-use crate::shared::{Command, Event, Events, ExtCommand, PermissionAsk, Tab, TabId};
+use crate::shared::{Command, DownloadCommand, Event, Events, ExtCommand, PermissionAsk, Tab, TabId};
 use crate::webkit::{
     self, Buffer, Display, Download, FilterStore, MainLoop, NetworkSession, PermissionRequest,
     PolicyDecision, UserContentManager, View, WebView,
@@ -56,6 +58,9 @@ pub struct Options {
     pub permissions: Option<PathBuf>,
     /// Where downloads go.
     pub downloads: PathBuf,
+    /// aria2's thread (downloads.rs), which fetches what WebKit would
+    /// have; `None` leaves every download to WebKit.
+    pub aria2: Option<Sender<Request>>,
     pub settings: Settings,
     /// What to open first; the home page when empty.
     pub open: Vec<String>,
@@ -117,6 +122,51 @@ pub(crate) struct Engine {
     pub(crate) extensions: Option<Runtime>,
     /// Tab changes the runtime missed while it was busy (`runtime::notify`).
     pub(crate) tab_changes: Vec<TabChange>,
+    downloads: Downloads,
+    /// Each download's notification, shared with WebKit's download signals.
+    notifier: Rc<RefCell<Notifier>>,
+}
+
+/// The downloads under way, by Danube's id for them.
+struct Downloads {
+    dir: PathBuf,
+    aria2: Option<Sender<Request>>,
+    held: HashMap<DownloadId, Held>,
+    /// Addresses aria2 could not fetch, for WebKit to fetch itself under
+    /// the same id and name when it starts the download again.
+    webkit_only: HashMap<String, (DownloadId, String)>,
+}
+
+enum Held {
+    /// aria2 has it, or will once its cookies are read. `origin` is the
+    /// address the page or extension asked for, which the extensions know
+    /// it by; `tab` the tab whose page asked, which WebKit asks again
+    /// when aria2 cannot fetch it.
+    Aria2 {
+        origin: String,
+        path: PathBuf,
+        tab: Option<TabId>,
+    },
+    /// WebKit fetches it itself; `cancelled` tells its `failed` handler
+    /// the person stopped it.
+    WebKit {
+        download: Download,
+        cancelled: Rc<Cell<bool>>,
+    },
+}
+
+thread_local! {
+    /// Ids for downloads, which WebKit's download signals take even when
+    /// the engine is busy.
+    static NEXT_DOWNLOAD: Cell<DownloadId> = const { Cell::new(1) };
+}
+
+fn next_download() -> DownloadId {
+    NEXT_DOWNLOAD.with(|n| {
+        let id = n.get();
+        n.set(id + 1);
+        id
+    })
 }
 
 /// Pause and resume a hidden page's animations and media, keeping the
@@ -213,8 +263,9 @@ pub fn run(commands: Receiver<Command>, events: Events, options: Options) {
     // No keyring: the sandbox has no Secret Service to talk to, and a
     // password manager extension keeps passwords.
     session.set_persistent_credential_storage_enabled(false);
-    let downloads = options.downloads.clone();
-    session.on_download_started(move |_, download| watch_download(download, &downloads));
+    let notifier = Notifier::new();
+    let (dir, notes) = (options.downloads.clone(), notifier.clone());
+    session.on_download_started(move |_, download| watch_download(download, &dir, &notes));
 
     // No popups a page opens by itself. Without developer tools, a page's
     // console (and an extension's frame in it) is only seen on stdout,
@@ -285,6 +336,13 @@ pub fn run(commands: Receiver<Command>, events: Events, options: Options) {
         pasted,
         extensions,
         tab_changes: Vec::new(),
+        downloads: Downloads {
+            dir: options.downloads.clone(),
+            aria2: options.aria2,
+            held: HashMap::new(),
+            webkit_only: HashMap::new(),
+        },
+        notifier,
     };
     let main_loop = engine.main_loop.clone();
     ENGINE.with(|e| *e.borrow_mut() = Some(engine));
@@ -436,6 +494,7 @@ impl Engine {
             Command::Extensions(command) => {
                 runtime::with(self, |rt, e| rt.command(e, command));
             }
+            Command::Download(command) => self.download(command),
             Command::Quit => {
                 if let Some(rt) = &mut self.extensions {
                     rt.flush_storage();
@@ -833,30 +892,277 @@ fn ask(page: &WebView, request: PermissionRequest, tab: TabId) -> bool {
     true
 }
 
-/// Saves a download into `dir` and tells the window how it went.
-fn watch_download(download: &Download, dir: &Path) {
+/// Decides where a download goes, once WebKit has its response, and who
+/// fetches it: aria2 (downloads.rs) for a plain GET over HTTP(S), WebKit
+/// for anything else (a POST's answer, a `blob:` or `data:` URL, a page of
+/// an extension's own scheme) and for what aria2 could not fetch. Either
+/// way the download shows a notification while it runs (notify.rs).
+fn watch_download(download: &Download, dir: &Path, notifier: &Rc<RefCell<Notifier>>) {
+    // Set once WebKit's own transfer is the one that runs, with how it is
+    // stopped; aria2's leaves WebKit's cancelled and its signals unheard.
+    let mine: Rc<RefCell<Option<WebKitDownload>>> = Rc::default();
     let dir = dir.to_path_buf();
+    let decided = mine.clone();
     download.on_decide_destination(move |download, suggested| {
         let _ = std::fs::create_dir_all(&dir);
-        // An extension that started the download may have named the file.
-        let uri = download.uri();
-        let asked = try_with(|e| runtime::with(e, |rt, _| rt.download_name(&uri)))
-            .flatten()
-            .flatten();
-        download.set_destination(&destination(&dir, asked.as_deref().unwrap_or(suggested)));
+        match try_with(|e| e.decide_download(download, suggested)) {
+            Some(Some(webkit)) => {
+                download.set_destination(&webkit.path);
+                *decided.borrow_mut() = Some(webkit);
+            }
+            // Handed to aria2: WebKit's transfer stops here, before any
+            // of the file is written.
+            Some(None) => download.cancel(),
+            // The engine is busy inside a call that made WebKit ask, which
+            // never happens for a page's own download: saved by WebKit, and
+            // shown, but not in the engine's list to be cancelled from.
+            None => {
+                let path = destination(&dir, suggested);
+                download.set_destination(&path);
+                *decided.borrow_mut() = Some(WebKitDownload {
+                    id: next_download(),
+                    path,
+                    cancelled: Rc::default(),
+                });
+            }
+        }
         true
     });
-    download.on_finished(|download| {
-        let path = download.destination().unwrap_or_default();
-        let uri = download.uri();
-        try_with(|e| runtime::with(e, |rt, _| rt.download_finished(&uri, &path)));
-        let name = Path::new(&path)
-            .file_name()
-            .map(|n| n.to_string_lossy().into_owned())
-            .unwrap_or(path);
-        emit(Event::Notice(format!("Downloaded {name} to Downloads")));
+    let (progress, notes) = (mine.clone(), notifier.clone());
+    download.on_received(move |download| {
+        let Some(webkit) = &*progress.borrow() else { return };
+        let total = download.content_length();
+        notes.borrow_mut().show(
+            webkit.id,
+            Card {
+                summary: file_name(&webkit.path.to_string_lossy()),
+                body: notify::progress_body(download.received(), total, None, None),
+                progress: notify::percent(download.received(), total),
+                running: true,
+            },
+        );
     });
-    download.on_failed(|_, message| emit(Event::Notice(format!("Download failed: {message}"))));
+    let failure: Rc<RefCell<Option<String>>> = Rc::default();
+    let failed = failure.clone();
+    download.on_failed(move |_, message| *failed.borrow_mut() = Some(message));
+    let notes = notifier.clone();
+    download.on_finished(move |download| {
+        let Some(WebKitDownload { id, cancelled, .. }) = mine.borrow_mut().take() else { return };
+        try_with(|e| e.downloads.held.remove(&id));
+        let path = download.destination().unwrap_or_default();
+        let name = file_name(&path);
+        let body = match failure.borrow_mut().take() {
+            _ if cancelled.get() => "Cancelled".to_owned(),
+            Some(message) => {
+                warn!(message, "a download failed");
+                format!("Failed: {message}")
+            }
+            None => {
+                let uri = download.uri();
+                try_with(|e| runtime::with(e, |rt, _| rt.download_finished(&uri, &path)));
+                "Downloaded to Downloads".to_owned()
+            }
+        };
+        notes.borrow_mut().show(id, ended(name, body));
+    });
+}
+
+/// The last card of a download.
+fn ended(summary: String, body: String) -> Card {
+    Card {
+        summary,
+        body,
+        progress: None,
+        running: false,
+    }
+}
+
+fn file_name(path: &str) -> String {
+    Path::new(path)
+        .file_name()
+        .map_or_else(|| path.to_owned(), |n| n.to_string_lossy().into_owned())
+}
+
+/// A download WebKit keeps: its id, where it goes, and its stop flag.
+struct WebKitDownload {
+    id: DownloadId,
+    path: PathBuf,
+    cancelled: Rc<Cell<bool>>,
+}
+
+impl Engine {
+    /// Names `download`'s file and hands it to aria2, or returns where
+    /// WebKit should save it itself.
+    fn decide_download(&mut self, download: &Download, suggested: &str) -> Option<WebKitDownload> {
+        let origin = download.uri();
+        // An extension that started the download may have named the file.
+        let asked = runtime::with(self, |rt, _| rt.download_name(&origin)).flatten();
+        let retry = self.downloads.webkit_only.remove(&origin);
+        let id = retry.as_ref().map_or_else(next_download, |(id, _)| *id);
+        let name = retry.as_ref().map(|(_, name)| name.clone()).or(asked);
+        let path = destination(&self.downloads.dir, name.as_deref().unwrap_or(suggested));
+        let uri = Some(download.response_uri()).filter(|u| !u.is_empty()).unwrap_or_else(|| origin.clone());
+        let aria2 = self.downloads.aria2.clone().filter(|_| {
+            retry.is_none()
+                && download.method().eq_ignore_ascii_case("GET")
+                && (uri.starts_with("https://") || uri.starts_with("http://"))
+        });
+        // The name is taken now, with an empty file, so that a second
+        // download of the same name started before aria2 writes this one
+        // is given another.
+        let reserved = aria2.is_some()
+            && std::fs::OpenOptions::new()
+                .write(true)
+                .create_new(true)
+                .open(&path)
+                .is_ok();
+        let name = file_name(&path.to_string_lossy());
+        self.notifier.borrow_mut().show(
+            id,
+            Card {
+                summary: name,
+                body: "Starting".into(),
+                progress: None,
+                running: true,
+            },
+        );
+        if !reserved {
+            let cancelled = Rc::new(Cell::new(false));
+            self.downloads.held.insert(
+                id,
+                Held::WebKit {
+                    download: download.clone(),
+                    cancelled: cancelled.clone(),
+                },
+            );
+            return Some(WebKitDownload { id, path, cancelled });
+        }
+        info!(id, uri, "aria2 takes a download");
+        let job = Job {
+            id,
+            uri: uri.clone(),
+            path: path.clone(),
+            cookie: None,
+            // What WebKit sent: a page's referrer policy is already in it,
+            // so a download it would have sent none for gets none here.
+            referer: download.request_header("Referer"),
+            // The page's own, the phone's when the window is laid out
+            // for one.
+            user_agent: self.settings.user_agent(),
+        };
+        let tab = download
+            .web_view()
+            .and_then(|view| self.tabs.iter().find(|t| t.page.is(&view)))
+            .map(|t| t.id);
+        self.downloads.held.insert(id, Held::Aria2 { origin, path, tab });
+        self.session.cookies(&uri, move |cookies| {
+            let cookie = (!cookies.is_empty()).then(|| {
+                cookies
+                    .iter()
+                    .map(|(name, value)| format!("{name}={value}"))
+                    .collect::<Vec<_>>()
+                    .join("; ")
+            });
+            later(Command::Download(DownloadCommand::Start(Job { cookie, ..job })));
+        });
+        None
+    }
+
+    fn download(&mut self, command: DownloadCommand) {
+        match command {
+            DownloadCommand::Start(job) => match (&self.downloads.held.get(&job.id), &self.downloads.aria2) {
+                (Some(Held::Aria2 { .. }), Some(aria2)) => {
+                    let _ = aria2.send(Request::Start(job));
+                }
+                // Gone already, or aria2's thread is: nothing fetches it.
+                _ => {
+                    let _ = std::fs::remove_file(&job.path);
+                }
+            },
+            DownloadCommand::Cancel(id) => match self.downloads.held.get(&id) {
+                Some(Held::Aria2 { .. }) => {
+                    if let Some(aria2) = &self.downloads.aria2 {
+                        let _ = aria2.send(Request::Cancel(id));
+                    }
+                }
+                Some(Held::WebKit {
+                    download,
+                    cancelled,
+                }) => {
+                    cancelled.set(true);
+                    download.cancel();
+                }
+                None => {}
+            },
+            DownloadCommand::Update(update) => self.aria2_update(update),
+        }
+    }
+
+    /// What aria2's thread said about one of its downloads.
+    fn aria2_update(&mut self, update: Update) {
+        let id = match &update {
+            Update::Progress { id, .. } | Update::Done(id) | Update::Cancelled(id) => *id,
+            Update::Failed { id, .. } => *id,
+        };
+        let Some(Held::Aria2 { origin, path, tab }) = self.downloads.held.get(&id) else {
+            return;
+        };
+        let (origin, path, tab) = (origin.clone(), path.clone(), *tab);
+        let name = file_name(&path.to_string_lossy());
+        let card = match update {
+            Update::Progress {
+                received,
+                total,
+                speed,
+                connections,
+                ..
+            } => {
+                let card = Card {
+                    summary: name,
+                    body: notify::progress_body(received, total, Some(speed), Some(connections)),
+                    progress: notify::percent(received, total),
+                    running: true,
+                };
+                return self.notifier.borrow_mut().show(id, card);
+            }
+            Update::Done(_) => {
+                let path = path.to_string_lossy().into_owned();
+                runtime::with(self, |rt, _| rt.download_finished(&origin, &path));
+                ended(name, "Downloaded to Downloads".into())
+            }
+            Update::Cancelled(_) => ended(name, "Cancelled".into()),
+            Update::Failed {
+                retry: true,
+                message,
+                started,
+                ..
+            } => {
+                // Nothing of it arrived: WebKit asks for it again, under
+                // the same id and name, from the tab that asked first, so
+                // that its cookies go with it (a download of the session's
+                // own carries none). A download no tab started (an
+                // extension's) is asked for by the session.
+                info!(id, message, "aria2 could not fetch a download; WebKit tries");
+                if !started {
+                    // aria2 cannot run at all: WebKit keeps the rest.
+                    self.downloads.aria2 = None;
+                }
+                self.downloads.held.remove(&id);
+                self.downloads.webkit_only.insert(origin.clone(), (id, name));
+                match tab.and_then(|t| self.page(t)) {
+                    Some(page) => drop(page.download_uri(&origin)),
+                    None => drop(self.session.download_uri(&origin)),
+                }
+                return;
+            }
+            Update::Failed { message, .. } => {
+                warn!(id, message, "a download failed");
+                ended(name, format!("Failed: {message}"))
+            }
+        };
+        self.downloads.held.remove(&id);
+        self.notifier.borrow_mut().show(id, card);
+    }
 }
 
 /// A file name for `suggested` in `dir` that is not taken: "name.ext",

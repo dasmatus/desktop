@@ -119,8 +119,50 @@ forward; a middle click on a link opens it in a tab behind. An
 extension's own shortcuts (its manifest's `commands`, Bitwarden's
 Ctrl+Shift+L to fill a login, say) work too, and Esc closes its popup.
 
-Downloads go to `~/Downloads`, never overwriting a file there, and a toast
-says when one finished.
+Downloads go to `~/Downloads`, never overwriting a file there; see
+[Downloads](#downloads) for how they are fetched and shown.
+
+## Downloads
+
+WebKit decides what is a download: a response it cannot show, a link with
+`download`, an extension's `downloads.download`. Once its response has
+arrived, Danube names the file (the server's name, or the extension's)
+and, for a plain GET over HTTP or HTTPS, stops WebKit's transfer and hands
+the file to [aria2](https://aria2.github.io/)
+(`src/danube/crates/danube/src/downloads.rs`). aria2 asks for the final
+address after WebKit's redirects with what WebKit would have sent: the
+cookies WebKit's jar holds for it (HttpOnly ones included), the request's
+Referer, and the window's User-Agent. It splits the file over one
+connection per hardware thread (`split`), at most 16 to one server, which
+is as many as aria2 allows (`max-connection-per-server`), in ranges of at
+least 1 MiB. A server that caps each connection's speed then delivers the
+file that many times faster; one that does not answer range requests
+gets one connection, as before.
+
+One aria2c runs per browser, started with the first download, inside
+Danube's sandbox, so it reaches the network and `~/Downloads` and nothing
+else of the home. Danube talks to it over JSON-RPC on a loopback port,
+with a random secret that aria2 reads from a file only the user can read,
+in the sandbox's private `/tmp`, removed once aria2 answers, and never sees
+on its command line. aria2 stops with Danube (`--stop-with-process`), and
+a download Danube had not finished is removed with it.
+
+WebKit keeps the downloads aria2 should not take: a POST's answer, a
+`blob:` or `data:` URL, an extension's own pages. It also takes over any
+download aria2 failed on before the first byte, such as one behind a login
+only the page's session knows, asking again from the same tab so its
+cookies go with it, and every download from then on if aria2 could not be
+started at all.
+
+Each download is a desktop notification while it runs: the file's name,
+how much of how much has arrived, the speed and aria2's connections, a
+progress bar, and a Cancel button. It stays until the download ends (no
+timeout, `resident`), is replaced in place at most once a second, and is
+replaced a last time by one saying it finished, failed or was cancelled,
+which the server then lets expire. A notification closed while its
+download runs is not shown again until it ends. derisk serves the
+notifications; with no notification server on the bus, Danube says how
+each download ended in a toast instead.
 
 ## Extensions
 
@@ -299,6 +341,8 @@ key left out keeps its default. There are no NixOS options for them:
 | --- | --- |
 | `home` | What a new tab opens (an empty page by default) |
 | `javascript.jit` | `true` turns JavaScriptCore's JIT compilers on |
+| `downloads.aria2` | `false` leaves downloads to WebKit's own downloader, one connection each (on by default) |
+| `downloads.connections` | How many connections aria2 splits a download over (one per hardware thread by default; at most 16 go to one server) |
 
 There is no `search` key, and `losos.danube.search` is gone with the
 address bar: the palette searches with the desktop's engine.

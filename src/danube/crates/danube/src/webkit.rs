@@ -1792,3 +1792,340 @@ impl Download {
         }
     }
 }
+
+// What handing a download to aria2 needs (downloads.rs): the response's
+// final address and size, the request's method and Referer, the cookies
+// WebKit would send, and a way to stop WebKit's own transfer.
+
+impl Download {
+    /// Stops it; WebKit then emits `failed` (cancelled) and `finished`.
+    pub fn cancel(&self) {
+        unsafe { webkit_download_cancel(self.as_ptr()) }
+    }
+
+    /// The address the response came from, after any redirects; empty
+    /// before there is a response.
+    pub fn response_uri(&self) -> String {
+        unsafe {
+            let response = webkit_download_get_response(self.as_ptr());
+            if response.is_null() {
+                return String::new();
+            }
+            string(webkit_uri_response_get_uri(response)).unwrap_or_default()
+        }
+    }
+
+    /// The size the server gave, if it gave one.
+    pub fn content_length(&self) -> Option<u64> {
+        let length = unsafe {
+            let response = webkit_download_get_response(self.as_ptr());
+            if response.is_null() {
+                return None;
+            }
+            webkit_uri_response_get_content_length(response)
+        };
+        (length > 0).then_some(length)
+    }
+
+    /// The request's HTTP method; WebKit leaves it unset for a plain GET.
+    pub fn method(&self) -> String {
+        let method = unsafe {
+            let request = webkit_download_get_request(self.as_ptr());
+            if request.is_null() {
+                None
+            } else {
+                string(webkit_uri_request_get_http_method(request))
+            }
+        };
+        method.filter(|m| !m.is_empty()).unwrap_or_else(|| "GET".into())
+    }
+
+    /// One of the headers the request was sent with.
+    pub fn request_header(&self, name: &str) -> Option<String> {
+        let name = cstring(name);
+        unsafe {
+            let request = webkit_download_get_request(self.as_ptr());
+            if request.is_null() {
+                return None;
+            }
+            let headers = webkit_uri_request_get_http_headers(request);
+            if headers.is_null() {
+                return None;
+            }
+            string(soup_message_headers_get_one(headers, name.as_ptr()))
+        }
+    }
+
+    /// Bytes saved so far.
+    pub fn received(&self) -> u64 {
+        unsafe { webkit_download_get_received_data_length(self.as_ptr()) }
+    }
+
+    /// `received-data`: more of it arrived.
+    pub fn on_received<F: Fn(&Download) + 'static>(&self, f: F) {
+        unsafe extern "C" fn trampoline<F: Fn(&Download)>(
+            download: *mut WebKitDownload,
+            _length: u64,
+            data: gpointer,
+        ) {
+            unsafe { (*(data as *const F))(&Download::passing(download)) }
+        }
+        self.connect("received-data", trampoline::<F> as *const (), f);
+    }
+}
+
+/// The cookies for an address, as name and value.
+struct CookiesFinish(Vec<(String, String)>);
+
+impl Finish for CookiesFinish {
+    unsafe fn finish(source: *mut GObject, result: *mut GAsyncResult) -> Self {
+        let mut error = ptr::null_mut();
+        let list = unsafe { webkit_cookie_manager_get_cookies_finish(source.cast(), result, &mut error) };
+        if list.is_null() {
+            // No cookies and an error look the same to a download: it is
+            // asked for without any.
+            if !error.is_null() {
+                unsafe { take_error(error) };
+            }
+            return Self(Vec::new());
+        }
+        let mut cookies = Vec::new();
+        let mut at = list;
+        unsafe {
+            while !at.is_null() {
+                let cookie = (*at).data as *mut SoupCookie;
+                cookies.push((
+                    string(soup_cookie_get_name(cookie)).unwrap_or_default(),
+                    string(soup_cookie_get_value(cookie)).unwrap_or_default(),
+                ));
+                soup_cookie_free(cookie);
+                at = (*at).next;
+            }
+            g_list_free(list);
+        }
+        Self(cookies)
+    }
+}
+
+impl NetworkSession {
+    /// The cookies WebKit would send to `uri`, HttpOnly ones included.
+    pub fn cookies<F: FnOnce(Vec<(String, String)>) + 'static>(&self, uri: &str, done: F) {
+        let uri = cstring(uri);
+        let (callback, data) = boxed(move |CookiesFinish(cookies)| done(cookies));
+        unsafe {
+            let manager = webkit_network_session_get_cookie_manager(self.as_ptr());
+            webkit_cookie_manager_get_cookies(manager, uri.as_ptr(), ptr::null_mut(), callback, data);
+        }
+    }
+
+    /// Starts saving `uri` with WebKit, outside any page.
+    pub fn download_uri(&self, uri: &str) -> Download {
+        let uri = cstring(uri);
+        unsafe { Download::owned(webkit_network_session_download_uri(self.as_ptr(), uri.as_ptr())) }
+            .expect("WebKit allocates or aborts")
+    }
+}
+
+// GDBus, for the desktop's notifications (notify.rs): calls on the session
+// bus with arguments built from [`Var`]s, and signals as [`Arg`]s.
+
+object!(
+    /// A connection to the session bus.
+    Bus(GDBusConnection)
+);
+
+/// A D-Bus value to send, as GVariant takes it.
+#[derive(Clone, Debug, PartialEq)]
+pub enum Var {
+    Str(String),
+    U32(u32),
+    I32(i32),
+    Bool(bool),
+    /// `as`
+    Strings(Vec<String>),
+    /// `a{sv}`
+    Dict(Vec<(String, Var)>),
+    /// The call's arguments.
+    Tuple(Vec<Var>),
+}
+
+impl Var {
+    /// A floating GVariant, which whatever takes it consumes.
+    unsafe fn to_gvariant(&self) -> *mut GVariant {
+        unsafe {
+            match self {
+                Var::Str(s) => g_variant_new_string(cstring(s).as_ptr()),
+                Var::U32(n) => g_variant_new_uint32(*n),
+                Var::I32(n) => g_variant_new_int32(*n),
+                Var::Bool(b) => g_variant_new_boolean(gbool(*b)),
+                Var::Strings(list) => {
+                    let owned: Vec<CString> = list.iter().map(|s| cstring(s)).collect();
+                    let pointers: Vec<*const c_char> = owned.iter().map(|s| s.as_ptr()).collect();
+                    // Copies the strings.
+                    g_variant_new_strv(pointers.as_ptr(), pointers.len() as gssize)
+                }
+                Var::Dict(entries) => {
+                    let children: Vec<*mut GVariant> = entries
+                        .iter()
+                        .map(|(key, value)| {
+                            g_variant_new_dict_entry(
+                                g_variant_new_string(cstring(key).as_ptr()),
+                                g_variant_new_variant(value.to_gvariant()),
+                            )
+                        })
+                        .collect();
+                    // G_VARIANT_TYPE("{sv}") is a cast of the type string.
+                    g_variant_new_array(
+                        c"{sv}".as_ptr().cast(),
+                        children.as_ptr(),
+                        children.len() as gsize,
+                    )
+                }
+                Var::Tuple(items) => {
+                    let children: Vec<*mut GVariant> = items.iter().map(|v| v.to_gvariant()).collect();
+                    g_variant_new_tuple(children.as_ptr(), children.len() as gsize)
+                }
+            }
+        }
+    }
+}
+
+/// A D-Bus value received: the two kinds the notification signals and
+/// replies carry, and anything else.
+#[derive(Clone, Debug, PartialEq)]
+pub enum Arg {
+    U32(u32),
+    Str(String),
+    Other,
+}
+
+/// The children of a tuple GVariant (a reply's or a signal's arguments).
+unsafe fn args(tuple: *mut GVariant) -> Vec<Arg> {
+    if tuple.is_null() {
+        return Vec::new();
+    }
+    let count = unsafe { g_variant_n_children(tuple) };
+    (0..count)
+        .map(|n| unsafe {
+            let child = g_variant_get_child_value(tuple, n);
+            let kind = CStr::from_ptr(g_variant_get_type_string(child)).to_bytes();
+            let arg = match kind {
+                b"u" => Arg::U32(g_variant_get_uint32(child)),
+                b"s" | b"o" => Arg::Str(string(g_variant_get_string(child, ptr::null_mut())).unwrap_or_default()),
+                _ => Arg::Other,
+            };
+            g_variant_unref(child);
+            arg
+        })
+        .collect()
+}
+
+/// A call's reply arguments, or its error's message.
+pub type Replied = Result<Vec<Arg>, String>;
+
+struct CallFinish(Replied);
+
+impl Finish for CallFinish {
+    unsafe fn finish(source: *mut GObject, result: *mut GAsyncResult) -> Self {
+        let mut error = ptr::null_mut();
+        let reply = unsafe { g_dbus_connection_call_finish(source.cast(), result, &mut error) };
+        if reply.is_null() {
+            return Self(Err(unsafe { take_error(error) }));
+        }
+        let parsed = unsafe { args(reply) };
+        unsafe { g_variant_unref(reply) };
+        Self(Ok(parsed))
+    }
+}
+
+impl Bus {
+    /// The session bus, or why there is none (the sandbox may have been
+    /// given no bus at all).
+    pub fn session() -> Result<Self, String> {
+        let mut error = ptr::null_mut();
+        let bus = unsafe { g_bus_get_sync(G_BUS_TYPE_SESSION, ptr::null_mut(), &mut error) };
+        unsafe { Self::owned(bus) }.ok_or_else(|| unsafe { take_error(error) })
+    }
+
+    /// Calls `method` on `dest` with `args` (a [`Var::Tuple`]), and hands
+    /// `done` the reply.
+    pub fn call<F: FnOnce(Replied) + 'static>(
+        &self,
+        dest: &str,
+        path: &str,
+        interface: &str,
+        method: &str,
+        args: &Var,
+        done: F,
+    ) {
+        let (dest, path, interface, method) = (cstring(dest), cstring(path), cstring(interface), cstring(method));
+        let (callback, data) = boxed(move |CallFinish(reply)| done(reply));
+        unsafe {
+            g_dbus_connection_call(
+                self.as_ptr(),
+                dest.as_ptr(),
+                path.as_ptr(),
+                interface.as_ptr(),
+                method.as_ptr(),
+                args.to_gvariant(),
+                ptr::null(),
+                G_DBUS_CALL_FLAGS_NONE,
+                // The bus's default timeout.
+                -1,
+                ptr::null_mut(),
+                callback,
+                data,
+            )
+        }
+    }
+
+    /// Calls `f` with the name and arguments of every signal `sender`
+    /// emits on `interface` at `path`, for as long as the connection lives.
+    pub fn on_signal<F: Fn(&str, Vec<Arg>) + 'static>(&self, sender: &str, interface: &str, path: &str, f: F) {
+        unsafe extern "C" fn trampoline<F: Fn(&str, Vec<Arg>)>(
+            _: *mut GDBusConnection,
+            _sender: *const c_char,
+            _path: *const c_char,
+            _interface: *const c_char,
+            signal: *const c_char,
+            parameters: *mut GVariant,
+            data: gpointer,
+        ) {
+            let signal = unsafe { string(signal) }.unwrap_or_default();
+            unsafe { (*(data as *const F))(&signal, args(parameters)) }
+        }
+        unsafe extern "C" fn free<F>(data: gpointer) {
+            drop(unsafe { Box::from_raw(data as *mut F) });
+        }
+        let (sender, interface, path) = (cstring(sender), cstring(interface), cstring(path));
+        let data = Box::into_raw(Box::new(f)) as gpointer;
+        unsafe {
+            g_dbus_connection_signal_subscribe(
+                self.as_ptr(),
+                sender.as_ptr(),
+                interface.as_ptr(),
+                ptr::null(),
+                path.as_ptr(),
+                ptr::null(),
+                G_DBUS_SIGNAL_FLAGS_NONE,
+                Some(trampoline::<F>),
+                data,
+                Some(free::<F>),
+            );
+        }
+    }
+}
+
+impl Download {
+    /// The view whose page started it, if a page did.
+    pub fn web_view(&self) -> Option<WebView> {
+        unsafe { WebView::borrowed(webkit_download_get_web_view(self.as_ptr())) }
+    }
+}
+
+impl WebView {
+    /// Whether `other` is this same view.
+    pub fn is(&self, other: &WebView) -> bool {
+        self.as_ptr() == other.as_ptr()
+    }
+}

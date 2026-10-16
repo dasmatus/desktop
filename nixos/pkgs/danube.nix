@@ -19,6 +19,7 @@
   libxi,
   libxrandr,
   xdg-dbus-proxy,
+  aria2,
   glib-networking,
   makeWrapper,
 }:
@@ -64,7 +65,9 @@ rustPlatform.buildRustPackage {
 
   # winit and glutin dlopen the windowing and GL libraries rather than
   # linking them, as derisk.nix explains; X11's for a session without
-  # Wayland. xdg-dbus-proxy filters the session bus the sandbox sees.
+  # Wayland. xdg-dbus-proxy filters the session bus the sandbox sees, and
+  # aria2c fetches downloads (src/danube's downloads.rs); the sandbox
+  # keeps PATH, so both are found from inside it too.
   # GIO finds its TLS backend only through GIO_EXTRA_MODULES, which nothing
   # in the image sets, and WebKit's network process inherits it from here:
   # without it every https page says "TLS support is not available".
@@ -81,7 +84,12 @@ rustPlatform.buildRustPackage {
       ]
     } $out/bin/danube
     wrapProgram $out/bin/danube \
-      --suffix PATH : ${lib.makeBinPath [ xdg-dbus-proxy ]} \
+      --suffix PATH : ${
+        lib.makeBinPath [
+          xdg-dbus-proxy
+          aria2
+        ]
+      } \
       --prefix GIO_EXTRA_MODULES : ${glib-networking}/lib/gio/modules
   '';
 

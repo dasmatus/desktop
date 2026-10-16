@@ -86,7 +86,20 @@ pub enum Command {
     Phone(bool),
     /// For the extension runtime (extensions/runtime.rs).
     Extensions(ExtCommand),
+    /// About a download handed to aria2 (downloads.rs, engine.rs).
+    Download(DownloadCommand),
     Quit,
+}
+
+/// What reaches WebKit's thread about the downloads aria2 fetches.
+#[derive(Debug)]
+pub enum DownloadCommand {
+    /// The cookies for a download arrived: aria2 can start it.
+    Start(crate::downloads::Job),
+    /// How a download is doing, from aria2's thread.
+    Update(crate::downloads::Update),
+    /// The person pressed Cancel on its notification.
+    Cancel(crate::downloads::DownloadId),
 }
 
 /// What the window, derisk's menus or a later `danube install-extension`
@@ -162,7 +175,8 @@ pub enum Event {
     /// Text a page put on the clipboard, for the window to hand to the
     /// desktop's.
     Copied(String),
-    /// A one-line message for the person: a finished download, a failure.
+    /// A one-line message for the person: a finished download when
+    /// nothing shows notifications, an extension's notification.
     Notice(String),
     Permission(PermissionAsk),
     /// The request was answered (or its tab closed); the bar goes away.

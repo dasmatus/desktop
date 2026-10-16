@@ -36,10 +36,19 @@ fn main() {
         // asked for with, and JavaScriptCore's values, which carry a
         // page's messages to the extension runtime.
         .allowlist_function("soup_message_headers_(new|append|unref|get_one)")
+        // The cookies a download is handed to aria2 with (downloads.rs),
+        // and GDBus with the GVariants it carries, for the notification
+        // each download shows (notify.rs).
+        .allowlist_function("soup_cookie_(get_name|get_value|free)|g_list_free")
+        .allowlist_function("g_bus_get_sync|g_dbus_connection_(call|call_finish|signal_subscribe)")
+        .allowlist_function(
+            "g_variant_(new_(string|int32|uint32|boolean|variant|dict_entry|tuple|array|strv)|get_child_value|get_uint32|get_string|get_type_string|n_children|unref)",
+        )
         .allowlist_function("jsc_value_(to_string|to_json|new_string|get_context)")
         .allowlist_type("(JSC|Soup).*")
         .allowlist_type("(WebKit|WPE).*")
         .allowlist_var("(WEBKIT|WPE|SOUP)_.*")
+        .allowlist_var("G_(BUS_TYPE|DBUS_CALL_FLAGS|DBUS_SIGNAL_FLAGS)_.*")
         // C enums as plain integer constants, as GLib's API takes them: a
         // Rust enum would be undefined behaviour for a value WebKit adds
         // in a later release.
