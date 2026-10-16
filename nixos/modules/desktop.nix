@@ -160,7 +160,8 @@ in
   #
   # Bluetooth and power profiles are derisk Settings' Bluetooth page and its
   # Power mode row, which run bluetoothctl and powerprofilesctl; both
-  # modules put those on PATH. bluetooth.service starts only where
+  # modules put those on PATH. The command palette's "Power Mode" rows run
+  # the same powerprofilesctl. bluetooth.service starts only where
   # /sys/class/bluetooth exists, so a machine without an adapter runs
   # nothing. geoclue stays off: nothing in derisk asks for a location.
   hardware.bluetooth.enable = true;
