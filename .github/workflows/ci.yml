@@ -80,10 +80,13 @@ jobs:
       contents: read
       packages: write
     env: &nix-env
-      # Release images need the public proxy URL; the optional key configures
-      # the project's Nix cache alongside cache.nixos.org.
+      # Release images need the public proxy URL. The project's Nix cache is
+      # read through proxy/serve.ts on the runner itself (the step after the
+      # checkout), not through the public deployment, so a build substitutes
+      # what earlier runs pushed even while that deployment is down. The
+      # optional key configures it alongside cache.nixos.org.
       LOSOS_PROXY_URL: ${{ vars.LOSOS_PROXY_URL }}
-      NIX_CACHE_URL: ${{ vars.LOSOS_PROXY_URL }}
+      NIX_CACHE_URL: http://127.0.0.1:8484
       NIX_CACHE_PUBLIC_KEY: ${{ vars.NIX_CACHE_PUBLIC_KEY }}
       NIX_VERSION: "2.34.8"
       # The installer script's own hash, from releases.nixos.org's
@@ -151,6 +154,29 @@ jobs:
       - &checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with: { persist-credentials: false, submodules: true }
+
+      # The proxy's handler, run by node on this runner at NIX_CACHE_URL,
+      # before anything asks Nix to substitute. The GHCR packages are public,
+      # so it holds no token. It runs in the background for the rest of the
+      # job; a step that dies before it is up leaves Nix with a substituter
+      # that refuses connections, which Nix warns about and skips.
+      - &serve-cache
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with: { node-version: 22 }
+      - &serve-cache-start
+        name: Serve the project's Nix cache on the runner
+        env:
+          GHCR_REPOSITORY: ${{ github.repository }}
+        run: |
+          sh proxy/build.sh
+          nohup node --experimental-strip-types proxy/serve.ts "${NIX_CACHE_URL#http://}" \
+            > "$RUNNER_TEMP/serve.log" 2>&1 &
+          for _ in $(seq 30); do
+            if curl -sSf "$NIX_CACHE_URL/nix-cache-info"; then exit 0; fi
+            sleep 1
+          done
+          cat "$RUNNER_TEMP/serve.log"
+          echo "::warning::The local cache did not start, so this build compiles what cache.nixos.org lacks."
 
       # Fixed-output inputs come from cache.nixos.org where it has them, with
       # copied outputs checked against their hashes. This includes pinned
@@ -347,6 +373,8 @@ jobs:
       - *free-disk
       - *install-nix
       - *checkout
+      - *serve-cache
+      - *serve-cache-start
 
       # Fixed-output inputs come from cache.nixos.org where it has them, with
       # copied outputs checked against their hashes. This includes pinned
