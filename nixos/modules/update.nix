@@ -67,7 +67,16 @@ in
   # the timer's updates failed before the check began. nixpkgs gives
   # sysupdated, which runs updatectl's and Settings' updates, this same
   # gnupg already, and only that unit.
-  systemd.services.systemd-sysupdate.path = [ pkgs.gnupgMinimal ];
+  systemd.services.systemd-sysupdate = {
+    path = [ pkgs.gnupgMinimal ];
+
+    # A download that breaks off leaves its slot marked partial, and every
+    # later `update` then refuses that version until something vacuums it:
+    # one dropped connection stopped updates for good. A bare vacuum removes
+    # only partial and pending slots and versions beyond InstancesMax, so the
+    # version to fall back to stays.
+    serviceConfig.ExecStartPre = "${config.systemd.package}/lib/systemd/systemd-sysupdate vacuum";
+  };
 
   services.losos-update-source.index = lib.mkIf local cfg.update.index;
 
