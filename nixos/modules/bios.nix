@@ -95,8 +95,14 @@ let
     exit 1
   '';
 
+  # Two lines, because udev sorts a line's keys by kind before it runs them:
+  # an ENV match and PROGRAM come before IMPORT{cmdline}, so on one line they
+  # saw losos.esp still unset, the link was never made, and every BIOS boot
+  # since the rule waited out root and stopped in emergency mode. $parent is
+  # the disk's name without /dev/, which partx cannot open from udev's /.
   loaderRootRule = ''
-    SUBSYSTEM=="block", ENV{DEVTYPE}=="partition", ENV{ID_PART_ENTRY_NAME}=="${arch.root}", IMPORT{cmdline}="losos.esp", ENV{losos.esp}=="?*", PROGRAM="${onLoaderDisk} $parent $env{losos.esp}", SYMLINK+="${lib.removePrefix "/dev/" loaderRoot}"
+    SUBSYSTEM=="block", ENV{DEVTYPE}=="partition", ENV{ID_PART_ENTRY_NAME}=="${arch.root}", IMPORT{cmdline}="losos.esp"
+    SUBSYSTEM=="block", ENV{DEVTYPE}=="partition", ENV{ID_PART_ENTRY_NAME}=="${arch.root}", ENV{losos.esp}=="?*", PROGRAM="${onLoaderDisk} /dev/$parent $env{losos.esp}", SYMLINK+="${lib.removePrefix "/dev/" loaderRoot}"
   '';
 
   # The UKI's kernel, initrd and command line, for GRUB to start what the
