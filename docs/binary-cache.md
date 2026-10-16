@@ -32,10 +32,21 @@ fetches. It serves these from this project's GHCR namespace:
 
 ![CI pushes store paths, releases and compiler caches to GHCR; the proxy redirects Nix, sysupdate and CI to GHCR's storage and streams the GSI's files to the web flasher; each nightly is also a GitHub release](images/binary-cache.svg)
 
+CI does not read the cache through the public deployment. Each build job
+runs the same handler with node on its own runner (`proxy/serve.ts`, at
+`http://127.0.0.1:8484`) and gives Nix that as its substituter, so a run
+substitutes what earlier runs pushed whether or not the deployment is up.
+The packages are public, so it needs no token. Any machine can do the same:
+
+```
+cd proxy && sh build.sh
+GHCR_REPOSITORY=losos-project/losos-desktop node --experimental-strip-types serve.ts 127.0.0.1:8484
+```
+
 To use it for a build:
 
 ```
-substituters = https://cache.nixos.org/ https://<proxy>/
+substituters = https://cache.nixos.org/ https://<proxy>/   # or http://127.0.0.1:8484/
 trusted-public-keys = cache.nixos.org-1:6NCHdD59X431o0gWypbMrAURkbJ16ZPMQFGspcDShjY= <the public half of NIX_CACHE_SIGNING_KEY>
 ```
 

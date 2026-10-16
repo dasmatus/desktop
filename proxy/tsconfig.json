@@ -12,5 +12,5 @@
     "verbatimModuleSyntax": true,
     "skipLibCheck": true
   },
-  "include": ["api", "lib", "test", "types"]
+  "include": ["api", "lib", "test", "types", "serve.ts"]
 }
