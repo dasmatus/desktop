@@ -20,6 +20,12 @@ pub struct Settings {
     /// can no longer have the browser write machine code for it, which is
     /// what most WebKit exploits rely on.
     pub jit: bool,
+    /// Downloads go through aria2 (downloads.rs); `false` leaves them to
+    /// WebKit's own downloader, one connection each.
+    pub aria2: bool,
+    /// How many connections aria2 splits a download over; one per
+    /// hardware thread when unset.
+    pub connections: Option<usize>,
 }
 
 impl Default for Settings {
@@ -27,6 +33,8 @@ impl Default for Settings {
         Self {
             home: "about:blank".into(),
             jit: false,
+            aria2: true,
+            connections: None,
         }
     }
 }
@@ -45,6 +53,10 @@ impl Settings {
             match key {
                 "home" if !value.is_empty() => self.home = value.into(),
                 "javascript.jit" => self.jit = value == "true",
+                "downloads.aria2" => self.aria2 = value != "false",
+                "downloads.connections" => {
+                    self.connections = value.parse().ok().filter(|&n: &usize| n > 0)
+                }
                 _ => {}
             }
         }
@@ -93,5 +105,17 @@ mod tests {
         assert_eq!(s.home, "about:blank");
         s.apply("home = https://start.example/\nsearch = google\n");
         assert_eq!(s.home, "https://start.example/");
+    }
+
+    #[test]
+    fn aria2_is_the_default_downloader() {
+        let mut s = Settings::default();
+        assert!(s.aria2);
+        assert_eq!(s.connections, None);
+        s.apply("downloads.connections = 8\ndownloads.aria2 = false\n");
+        assert!(!s.aria2);
+        assert_eq!(s.connections, Some(8));
+        s.apply("downloads.connections = 0\n");
+        assert_eq!(s.connections, None);
     }
 }

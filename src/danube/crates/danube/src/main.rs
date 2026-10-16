@@ -20,10 +20,12 @@ mod background;
 mod captive;
 mod config;
 mod derisk;
+mod downloads;
 mod engine;
 mod extensions;
 mod ffi;
 mod input;
+mod notify;
 mod permissions;
 mod shared;
 mod ui;
@@ -217,6 +219,7 @@ fn run(args: Args) -> Result<ExitCode, Error> {
             filter_cache: home.join(".cache/danube/content-filters"),
             permissions: None,
             downloads: home.join("Downloads"),
+            aria2: None,
             settings,
             open: vec![page.uri.clone()],
             extensions: None,
@@ -235,6 +238,16 @@ fn run(args: Args) -> Result<ExitCode, Error> {
     // permissions, no extensions. It opens the check URL, which the portal
     // intercepts, unless told what to open.
     let full = !args.captive;
+    // aria2's thread and its channel, unless the settings leave downloads
+    // to WebKit. The engine holds the only sender, so the thread ends,
+    // and aria2 with it, when WebKit stops.
+    let (aria2, aria2_requests) = if settings.aria2 {
+        let (tx, rx) = crossbeam_channel::bounded(64);
+        (Some(tx), Some(rx))
+    } else {
+        (None, None)
+    };
+    let split = downloads::connections(settings.connections);
     let open = if args.captive && args.uris.is_empty() {
         vec![captive::CHECK_URL.to_owned()]
     } else {
@@ -246,6 +259,7 @@ fn run(args: Args) -> Result<ExitCode, Error> {
         filter_cache: home.join(".cache/danube/content-filters"),
         permissions: full.then(|| home.join(".config/danube/permissions")),
         downloads: home.join("Downloads"),
+        aria2,
         settings,
         open,
         extensions: full.then(|| extensions::runtime::Options {
@@ -300,6 +314,13 @@ fn run(args: Args) -> Result<ExitCode, Error> {
         if !args.captive {
             let commands = &commands;
             s.spawn(move || derisk::run(commands, menus));
+        }
+        if let Some(requests) = aria2_requests {
+            let commands = &commands;
+            thread::Builder::new()
+                .name("aria2".into())
+                .spawn_scoped(s, move || downloads::run(requests, commands, split))
+                .expect("a thread can start");
         }
 
         engine::run(inbox, events, options);
