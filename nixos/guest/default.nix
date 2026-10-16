@@ -196,12 +196,16 @@ in
   # libvirt's NAT.
   losos.captivePortal.enable = false;
 
+  # Hack Nerd Font for derisk-terminal, as on the host (modules/desktop.nix).
   fonts.enableDefaultPackages = true;
+  fonts.packages = [ pkgs.nerd-fonts.hack ];
 
   environment.systemPackages = [
     guestRun
     calculator
-    pkgs.foot
+    # The host's terminal, without the rest of derisk. With no GPU in the
+    # machine it draws in software into the shared memory waypipe carries.
+    pkgs.derisk.terminal
     pkgs.adwaita-icon-theme
   ];
 }
