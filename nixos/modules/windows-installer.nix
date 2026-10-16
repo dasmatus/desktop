@@ -19,6 +19,10 @@
 
 let
   cfg = config.losos;
+  # The OS updating through losos-update-source on 127.0.0.1, which a
+  # Windows machine does not run: the program then reads the same index of
+  # GitHub Releases that service does.
+  local = config.services.losos-update-source.index != null;
   inherit (config.image.repart.verityStore) partitionIds;
   espContents = config.image.repart.partitions.${partitionIds.esp}.contents;
 in
@@ -26,7 +30,8 @@ lib.mkIf (cfg.arch.name == "x86_64") {
   system.build.windowsInstaller =
     pkgs.pkgsCross.mingwW64.callPackage ../pkgs/losos-windows-installer.nix
       {
-        updateUrl = cfg.update.baseUrl;
+        updateUrl = if local then null else cfg.update.baseUrl;
+        updateIndex = if local then config.services.losos-update-source.index else null;
         inherit (cfg.update) pubring;
         imageId = config.system.image.id;
         arch = cfg.arch.name;

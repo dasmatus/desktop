@@ -15,8 +15,7 @@ generated from [`docs/`](docs/index.md), which is where to edit it.
 
 ## Building
 
-Clone with `git clone --recurse-submodules`, then, with `LOSOS_PROXY_URL` set
-to the update deployment's base URL:
+Clone with `git clone --recurse-submodules`, then:
 
 ```sh
 nix build --impure              # the disk image; dd it to a disk and boot

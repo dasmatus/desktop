@@ -42,7 +42,7 @@ concurrency:
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 # The channel the images are built for, `losos.channel` (flake.nix reads it):
-# what an installed system updates from, at proxy/'s /updates/<channel>/.
+# what an installed system updates from (docs/releases.md).
 # Every run builds and publishes the nightly, but for a run started by hand
 # with a tag, which is a release of the stable channel. The images then
 # follow the stable channel, and `publish` moves its tags rather than the
@@ -80,11 +80,14 @@ jobs:
       contents: read
       packages: write
     env: &nix-env
-      # Release images need the public proxy URL. The project's Nix cache is
-      # read through proxy/serve.ts on the runner itself (the step after the
-      # checkout), not through the public deployment, so a build substitutes
-      # what earlier runs pushed even while that deployment is down. The
-      # optional key configures it alongside cache.nixos.org.
+      # With LOSOS_PROXY_URL set, the images update from that proxy and ping
+      # it; without it they update from GitHub Releases through the
+      # documentation site's index (nixos/modules/update-source.nix). The
+      # project's Nix cache is read through proxy/serve.ts on the runner
+      # itself (the step after the checkout), not through the public
+      # deployment, so a build substitutes what earlier runs pushed even
+      # while that deployment is down. The optional key configures it
+      # alongside cache.nixos.org.
       LOSOS_PROXY_URL: ${{ vars.LOSOS_PROXY_URL }}
       NIX_CACHE_URL: http://127.0.0.1:8484
       NIX_CACHE_PUBLIC_KEY: ${{ vars.NIX_CACHE_PUBLIC_KEY }}
@@ -110,10 +113,6 @@ jobs:
       - &install-nix
         name: Install Nix
         run: |
-          if [ -z "$LOSOS_PROXY_URL" ]; then
-            echo "::error::LOSOS_PROXY_URL must be set to publish update images through the proxy."
-            exit 1
-          fi
           curl -sSfL --proto '=https' \
             "https://releases.nixos.org/nix/nix-$NIX_VERSION/install" -o install-nix
           echo "$NIX_INSTALLER_SHA256  install-nix" | sha256sum -c -
@@ -898,11 +897,16 @@ jobs:
             fi
           done
           ls -l assets
+          if [ -n "$PROXY_URL" ]; then
+            fetched="fetch them from \`${PROXY_URL%/}/updates/$LOSOS_CHANNEL/<arch>/\`, which serves its newest release"
+          else
+            fetched="fetch them from its newest release, which the documentation site lists"
+          fi
           cat > notes.md <<NOTES
           Built from $GITHUB_SHA, version \`$VERSION\`, for x86_64 and aarch64.
 
           - **Install:** write \`*-installer.iso\` to a USB stick and boot it, or run the Windows installer on a PC that keeps Windows. The ISO installs this version from this release over the network; the Windows installer installs the newest release of the $LOSOS_CHANNEL channel.
-          - **Update images:** the UKI (\`.efi\`) and the two halves of \`/usr\` (\`_usr-*.raw.xz\`) are what systemd-sysupdate installs. Systems installed from this release follow the $LOSOS_CHANNEL channel and fetch them from \`${PROXY_URL%/}/updates/$LOSOS_CHANNEL/<arch>/\`, which serves its newest release; these are the same files, pinned to this version.
+          - **Update images:** the UKI (\`.efi\`) and the two halves of \`/usr\` (\`_usr-*.raw.xz\`) are what systemd-sysupdate installs. Systems installed from this release follow the $LOSOS_CHANNEL channel and $fetched; these are the same files, pinned to this version.
           - **Disk image:** \`<arch>.raw.xz\`. Unpack it and write it to a disk, or convert it for a VM with \`qemu-img convert -O qcow2\`.
           - **Files of 2 GiB or more** are split into \`.part-00\`, \`.part-01\` and on, because GitHub rejects larger assets. \`cat <file>.part-* > <file>\` joins one.
           - **Checking:** \`SHA256SUMS-<arch>\` lists that architecture's files and \`SHA256SUMS-<arch>.gpg\` signs it with the [update signing key]($GITHUB_SERVER_URL/$GITHUB_REPOSITORY/blob/$GITHUB_SHA/nixos/keys/update-signing.asc). \`gpg --verify SHA256SUMS-<arch>.gpg SHA256SUMS-<arch>\`, then \`sha256sum --check --ignore-missing SHA256SUMS-<arch>\`.

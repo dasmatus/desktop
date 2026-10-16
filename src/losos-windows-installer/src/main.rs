@@ -110,11 +110,17 @@ fn settings(o: &Options) -> Result<Settings> {
             .ok_or_else(|| miette!(help = USAGE, "this build carries no GRUB; pass --loader"))?,
     };
     let grubenv = config::GRUBENV.map_or_else(empty_grubenv, <[u8]>::to_vec);
-    let source = match (&o.release, &o.channel, config::UPDATE_URL) {
-        (Some(dir), _, _) => Source::Directory(dir.clone()),
-        (None, Some(url), _) => Source::Channel(url.clone()),
-        (None, None, Some(url)) => Source::Channel(url.into()),
-        (None, None, None) => bail!(
+    let source = match (
+        &o.release,
+        &o.channel,
+        config::UPDATE_URL,
+        config::UPDATE_INDEX,
+    ) {
+        (Some(dir), _, _, _) => Source::Directory(dir.clone()),
+        (None, Some(url), _, _) => Source::Channel(url.clone()),
+        (None, None, Some(url), _) => Source::Channel(url.into()),
+        (None, None, None, Some(url)) => Source::Index(url.into()),
+        (None, None, None, None) => bail!(
             help = USAGE,
             "this build has no channel; pass --channel or --release"
         ),

@@ -20,6 +20,7 @@
     ./disk.nix
     ./hibernate.nix
     ./update.nix
+    ./update-source.nix
     ./installer.nix
     ./windows-installer.nix
     # testing.nix is gone: its losos-selftest unit sat in every boot's

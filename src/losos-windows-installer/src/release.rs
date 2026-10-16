@@ -256,20 +256,64 @@ pub fn sha256_file(path: &Path, mut progress: impl FnMut(u64)) -> Result<String>
         .collect())
 }
 
-/// Where the release comes from: the channel, or a directory holding one,
-/// as the ISO's installer takes a LOSOS-RELEASE disk.
+/// Where the release comes from: the channel, the channel's index of its
+/// newest GitHub release, or a directory holding one, as the ISO's
+/// installer takes a LOSOS-RELEASE disk.
+///
+/// The index is what the documentation site publishes for each channel and
+/// architecture (website/release-index.js): one line per file, its size,
+/// and the release asset URLs that make it up, more than one for a file of
+/// 2 GiB or more, which GitHub only takes in parts.
 #[derive(Debug, Clone)]
 pub enum Source {
     Channel(String),
+    Index(String),
     Directory(PathBuf),
+}
+
+/// The asset URLs that make up `name`, from an index's text.
+pub fn index_urls<'a>(index: &'a str, name: &str) -> Option<Vec<&'a str>> {
+    index
+        .lines()
+        .find_map(|line| {
+            let mut words = line.split_whitespace();
+            (words.next() == Some(name)).then(|| words.skip(1).collect::<Vec<_>>())
+        })
+        .filter(|urls| !urls.is_empty())
+}
+
+/// Downloads `url` to `path`, resuming whatever an earlier attempt left
+/// there.
+fn download(url: &str, path: &Path) -> Result<()> {
+    // -C - resumes; --retry-all-errors covers a connection the redirect
+    // target drops halfway. curl's own progress meter is the progress shown.
+    let status = Command::new(curl())
+        .args(["-fL", "--retry", "5", "--retry-all-errors", "-C", "-", "-o"])
+        .arg(path)
+        .arg(url)
+        .status()
+        .into_diagnostic()
+        .wrap_err("could not run curl")?;
+    // A finished file makes curl's resume fail with "range not satisfiable"
+    // (exit 33) rather than succeed.
+    if !status.success() && !(status.code() == Some(33) && path.is_file()) {
+        bail!("downloading {url} failed ({status})");
+    }
+    Ok(())
 }
 
 impl Source {
     pub fn describe(&self) -> String {
         match self {
-            Source::Channel(url) => url.clone(),
+            Source::Channel(url) | Source::Index(url) => url.clone(),
             Source::Directory(dir) => dir.display().to_string(),
         }
+    }
+
+    /// Whether files come over the network into the cache, where a bad one
+    /// is deleted rather than kept to resume from.
+    pub fn downloads(&self) -> bool {
+        !matches!(self, Source::Directory(_))
     }
 
     /// `name` from the source, as a local file. A directory's files are used
@@ -289,24 +333,47 @@ impl Source {
                     .into_diagnostic()
                     .wrap_err_with(|| cache.display().to_string())?;
                 let path = cache.join(name);
-                let url = format!("{url}{name}");
-                // -C - resumes; --retry-all-errors covers a connection the
-                // proxy's redirect target drops halfway. curl's own progress
-                // meter is the progress shown.
-                let status = Command::new(curl())
-                    .args(["-fL", "--retry", "5", "--retry-all-errors", "-C", "-", "-o"])
-                    .arg(&path)
-                    .arg(&url)
-                    .status()
+                download(&format!("{url}{name}"), &path)?;
+                Ok(path)
+            }
+            Source::Index(url) => {
+                fs::create_dir_all(cache)
                     .into_diagnostic()
-                    .wrap_err("could not run curl")?;
-                if !status.success() {
-                    // A finished file makes curl's resume fail with "range
-                    // not satisfiable" (exit 33) rather than succeed.
-                    if status.code() == Some(33) && path.is_file() {
-                        return Ok(path);
-                    }
-                    bail!("downloading {url} failed ({status})");
+                    .wrap_err_with(|| cache.display().to_string())?;
+                let path = cache.join(name);
+                // Joined from its parts by an earlier run; the caller checks
+                // its hash, and deletes it if that is wrong.
+                if path.is_file() {
+                    return Ok(path);
+                }
+                let index_path = cache.join("index");
+                let _ = fs::remove_file(&index_path);
+                download(url, &index_path)?;
+                let index = fs::read_to_string(&index_path)
+                    .into_diagnostic()
+                    .wrap_err_with(|| index_path.display().to_string())?;
+                let urls = index_urls(&index, name)
+                    .ok_or_else(|| miette!("the channel's index at {url} has no {name}"))?;
+                // Each part resumes on its own, and they are joined only
+                // once all are there.
+                let mut parts = Vec::new();
+                for (n, part) in urls.iter().enumerate() {
+                    let part_path = cache.join(format!("{name}.part-{n:02}"));
+                    download(part, &part_path)?;
+                    parts.push(part_path);
+                }
+                let partial = cache.join(format!("{name}.joining"));
+                let mut out = fs::File::create(&partial)
+                    .into_diagnostic()
+                    .wrap_err_with(|| partial.display().to_string())?;
+                for part in &parts {
+                    let mut input = fs::File::open(part).into_diagnostic()?;
+                    std::io::copy(&mut input, &mut out).into_diagnostic()?;
+                }
+                drop(out);
+                fs::rename(&partial, &path).into_diagnostic()?;
+                for part in parts {
+                    let _ = fs::remove_file(part);
                 }
                 Ok(path)
             }
@@ -321,7 +388,7 @@ impl Source {
                 .into_diagnostic()
                 .wrap_err_with(|| path.display().to_string())
         };
-        if let Source::Channel(_) = self {
+        if self.downloads() {
             for name in ["SHA256SUMS", "SHA256SUMS.gpg"] {
                 let _ = fs::remove_file(cache.join(name));
             }
@@ -435,5 +502,28 @@ mod tests {
         let mut tampered = MANIFEST.to_vec();
         tampered[0] ^= 1;
         assert!(verify_signature(&tampered, SIGNATURE, KEYRING).is_err());
+    }
+
+    #[test]
+    fn index_names_a_file_by_its_parts() {
+        let index = "\
+SHA256SUMS 10 https://x/SHA256SUMS-x86_64
+os_1_usr.raw.xz 107 https://x/os_1_usr.raw.xz.part-00 https://x/os_1_usr.raw.xz.part-01
+os_1.efi 5 https://x/os_1.efi
+";
+        assert_eq!(
+            index_urls(index, "SHA256SUMS"),
+            Some(vec!["https://x/SHA256SUMS-x86_64"])
+        );
+        assert_eq!(
+            index_urls(index, "os_1_usr.raw.xz"),
+            Some(vec![
+                "https://x/os_1_usr.raw.xz.part-00",
+                "https://x/os_1_usr.raw.xz.part-01"
+            ])
+        );
+        // A prefix of a name is not the name.
+        assert_eq!(index_urls(index, "os_1"), None);
+        assert_eq!(index_urls(index, "missing"), None);
     }
 }

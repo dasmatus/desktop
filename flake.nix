@@ -78,6 +78,10 @@
         in
         "${lib.substring 0 8 d}.${lib.substring 8 6 d}";
 
+      # A hosted proxy (proxy/) to update from and ping, when there is one.
+      # Without it the images update from GitHub Releases through the
+      # documentation site's index (nixos/modules/update-source.nix) and
+      # send no ping.
       proxyUrl = builtins.getEnv "LOSOS_PROXY_URL";
 
       # The channel CI builds for (ci.yml): `nightly`, or `stable` for a
@@ -89,12 +93,10 @@
       # Empty outside Actions, where options.nix's default stands.
       releaseRepo = builtins.getEnv "GITHUB_REPOSITORY";
 
-      requireProxy =
-        value:
-        if proxyUrl == "" then
-          throw "Set LOSOS_PROXY_URL and pass --impure to build image artifacts."
-        else
-          value;
+      # requireProxy refused to build an image without LOSOS_PROXY_URL, back
+      # when the proxy was the only place an image could update from. It
+      # went when GitHub Releases became the default source, and is not
+      # coming back.
 
       # What the images built for release take from the proxy's URL, which
       # is a repository variable in CI rather than anything written here.
@@ -176,13 +178,13 @@
           build = (configOf system).system.build;
         in
         {
-          image = requireProxy build.disk;
-          installer = requireProxy build.installerIso;
-          qcow2 = requireProxy build.qcow2;
+          image = build.disk;
+          installer = build.installerIso;
+          qcow2 = build.qcow2;
           # On arm64 the release also carries the GSI's files, under the
           # same SHA256SUMS and signature, which is where the web flasher
           # (website/static/flasher/) downloads them from.
-          release = requireProxy (
+          release =
             if system == "aarch64-linux" then
               pkgs.runCommand "${build.releaseArtifacts.name}-with-gsi" { } ''
                 mkdir -p $out
@@ -197,24 +199,22 @@
                 sha256sum -- * > SHA256SUMS
               ''
             else
-              build.releaseArtifacts
-          );
-          uki = requireProxy build.uki;
+              build.releaseArtifacts;
+          uki = build.uki;
           toplevel = build.toplevel;
           # Packages of their own (derisk, pm, danube, ...) are reached
           # through legacyPackages below, which `nix build .#<name>` falls
           # back to.
-          default = requireProxy build.disk;
+          default = build.disk;
         }
         // lib.optionalAttrs (system == "aarch64-linux") {
           # init_boot.img, vbmeta.img and userdata.simg.gz, with SHA256SUMS:
-          # what the flasher writes. No update URL is baked into them, so
-          # this needs no LOSOS_PROXY_URL.
+          # what the flasher writes. No update URL is baked into them.
           gsi = gsiSystem.config.system.build.gsiImages;
         }
         // lib.optionalAttrs (build ? windowsInstaller) {
           # The channel URL is compiled in, as in the UKI.
-          windows-installer = requireProxy build.windowsInstaller;
+          windows-installer = build.windowsInstaller;
         }
       );
 
@@ -332,7 +332,7 @@
         {
           vm = {
             type = "app";
-            program = lib.getExe (requireProxy vm);
+            program = lib.getExe vm;
             meta.description = "Boot the LosOS Desktop image in QEMU with UEFI firmware";
           };
         }

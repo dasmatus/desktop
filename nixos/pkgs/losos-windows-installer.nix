@@ -17,6 +17,7 @@
   rustPlatform,
   # build.rs's inputs, each a value or a file; null leaves it out.
   updateUrl ? null,
+  updateIndex ? null,
   pubring ? null,
   imageId ? null,
   arch ? null,
@@ -55,6 +56,7 @@ rustPlatform.buildRustPackage (
     };
   }
   // set "LOSOS_UPDATE_URL" updateUrl
+  // set "LOSOS_UPDATE_INDEX" updateIndex
   // set "LOSOS_PUBRING" pubring
   // set "LOSOS_IMAGE_ID" imageId
   // set "LOSOS_ARCH" arch

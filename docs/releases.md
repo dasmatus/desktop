@@ -15,9 +15,9 @@ losos-desktop_<v>_x86_64-windows-installer.exe      the installer for Windows, x
 SHA256SUMS
 ```
 
-CI pushes it to GHCR as one OCI artifact per architecture with `oras`, and
-`proxy/` serves the newest one to sysupdate, which cannot fetch from an OCI
-registry itself (see [Binary cache](binary-cache.md)). The publish job then
+CI pushes it to GHCR as one OCI artifact per architecture with `oras`, which
+a deployment of `proxy/` can serve to sysupdate, which cannot fetch from an
+OCI registry itself (see [Binary cache](binary-cache.md)). The publish job then
 creates a GitHub release of its own for that run, tagged
 `nightly-<YYYYMMDD>T<HHMM>` from the version (`20261010.175322` is
 `nightly-20261010T1753`) and marked a prerelease. It carries both
@@ -28,8 +28,9 @@ goes beside them as `SHA256SUMS-<arch>` and `SHA256SUMS-<arch>.gpg`.
 GitHub rejects a release asset of 2 GiB or more, and `/usr` and the disk
 image are past that, so such a file is uploaded in 2000 MiB parts,
 `<file>.part-00` on; `cat <file>.part-* > <file>` gives back the file its line
-of `SHA256SUMS-<arch>` names. That is also why sysupdate keeps reading
-through the proxy rather than from the release.
+of `SHA256SUMS-<arch>` names. sysupdate cannot read that as a channel, so
+an image reads the release through a service of its own that joins the
+parts as it streams them (below).
 
 The installer ISO a release carries installs from that same release: its
 backend serves the release's files to sysupdate under the names a channel
@@ -48,8 +49,9 @@ Otherwise it builds the commit for the **stable channel**
 (`losos.channel = "stable"`, which `flake.nix` takes from `LOSOS_CHANNEL`
 in CI), mostly from the cache, and publishes the same kinds of files as a
 nightly would, as a full release rather than a prerelease. Its images
-update from `<proxy>/updates/stable/<arch>/`, and the run moves
-`images:stable-<arch>` in GHCR to it, so a system installed from a tagged
+update from the stable channel's newest release (or a proxy's
+`/updates/stable/<arch>/`), and the run moves `images:stable-<arch>` in
+GHCR to it, so a system installed from a tagged
 release, or from its installer ISO or Windows installer, follows the tagged
 releases, and one installed from a nightly keeps following the nightlies.
 Only what names the channel differs from the nightly of the same commit:
@@ -87,3 +89,32 @@ release has every file. Pages serves files and nothing else, which is why
 the index lists URLs rather than redirecting to them. Nothing in it is
 trusted: whatever reads it still checks `SHA256SUMS.gpg` and each file's
 hash.
+
+## Updating from GitHub Releases
+
+An image built without `LOSOS_PROXY_URL` updates from its channel's newest
+GitHub release. Its sysupdate transfers read `http://127.0.0.1:8485/`
+(`losos.update.baseUrl`), where a socket of its own,
+`losos-update-source.socket` (`nixos/modules/update-source.nix`), starts a
+short script for each request: it reads the channel's index above from
+`losos.update.index`, finds the name asked for, and streams the release
+assets it lists one after the other with curl. sysupdate gets `SHA256SUMS`,
+its signature and whole files under one URL, as from any channel, and checks
+the signature against the image's key and every file against its line. No
+service outside GitHub is involved.
+
+The installer ISO's live system runs the same socket, for an install from
+the channel when the backend finds no release of the ISO's own version
+([The installer](installer.md)). The [Windows installer](windows-installer.md)
+reads the same index itself, downloads each part with resume and joins them
+before it checks the file.
+
+The index is read again for each request, so a release published in the
+middle of an update can move it between `SHA256SUMS` and the files that name.
+Every file name carries its version, so the files of the older release are
+then not found, that attempt fails, and the next timer run starts over from
+the new manifest.
+
+Systems installed from an image that names a proxy keep reading that proxy:
+the URL is part of `/usr`, so only an update from it, or a reinstall, moves
+them to GitHub Releases.

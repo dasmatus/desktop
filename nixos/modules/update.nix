@@ -21,6 +21,11 @@ let
   inherit (cfg) arch;
   id = config.system.image.id;
 
+  # Whether sysupdate reads the channel from losos-update-source, which
+  # serves GitHub Releases on this machine, rather than from a proxy.
+  local = cfg.update.baseUrl == localUrl;
+  localUrl = "http://127.0.0.1:${toString config.services.losos-update-source.port}/";
+
   # The same partition-label contract image.nix writes: "<id>_<version>".
   #
   # The source name carries the partition's UUID (@u), and sysupdate gives the
@@ -48,6 +53,15 @@ in
   # sysupdate verifies SHA256SUMS.gpg against this keyring; Verify= is on by
   # default in every transfer below.
   environment.etc."systemd/import-pubring.gpg".source = cfg.update.pubring;
+
+  services.losos-update-source.index = lib.mkIf local cfg.update.index;
+
+  assertions = [
+    {
+      assertion = local -> cfg.update.index != null;
+      message = "losos.update.baseUrl is losos-update-source's, which needs losos.update.index (or losos.docs.url) to serve anything.";
+    }
+  ];
 
   systemd.sysupdate = {
     enable = true;

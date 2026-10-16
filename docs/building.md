@@ -4,14 +4,17 @@ Clone with `git clone --recurse-submodules`: derisk, mcsapi and pm are git
 submodules under `components/` ([What this trusts from
 outside](trust.md#the-components-submodules)).
 
-Image-producing outputs require `LOSOS_PROXY_URL` to point at the deployment
-that serves updates. Since the flake reads this environment variable, pass
-`--impure` when building an image, installer, QCOW2, release, UKI, or VM.
+The flake reads a few environment variables for what an image updates from,
+so pass `--impure` when building an image, installer, QCOW2, release, UKI,
+or VM. With none set, the image updates from the channel's newest GitHub
+release ([Updating from GitHub Releases](releases.md#updating-from-github-releases)). `LOSOS_PROXY_URL`, the base URL of a
+deployment of `proxy/` ([Binary cache](binary-cache.md)), makes it update
+from that deployment instead, and ping it.
 
 ```sh
 nix build --impure              # the disk image: dd it to a disk and boot
 nix build .#installer --impure  # the installer ISO
-nix build .#release --impure    # the files CI publishes through the proxy
+nix build .#release --impure    # the files CI publishes
 nix run .#vm --impure           # boot the image in QEMU with UEFI firmware
 nix flake check        # both architectures, losos-security's and
                        # losos-installer's tests, and
