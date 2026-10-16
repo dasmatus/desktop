@@ -21,6 +21,7 @@
     ./pm.nix
     ./ping.nix
     ./docs.nix
+    ./losos-boxes.nix
   ];
 
   nixpkgs.overlays = [ (import ../pkgs) ];

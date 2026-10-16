@@ -92,6 +92,9 @@ in
   # into a disk image; the .exe is windows-installer.nix's.
   losos-windows-installer = callWithMold ./losos-windows-installer.nix { };
   losos-swap = callWithMold ./losos-swap.nix { };
+  # losos, the terminal client for LosOS boxes (docs/losos-boxes.md),
+  # written in the LosOS repository.
+  losos = callWithMold ./losos.nix { };
   # WinApps, for a Windows machine's apps (libvirt.nix); a shell script,
   # nothing to link.
   winapps = final.callPackage ./winapps.nix { };
