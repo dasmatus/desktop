@@ -49,10 +49,14 @@
         enable = true;
         user = "alice";
         program = "${start}";
-        # QEMU's VGA has no 3D, so the compositor draws with pixman, as it
+        # The display has no 3D, so the compositor draws with pixman, as it
         # would on any machine without a GPU.
         environment.WLR_RENDERER = "pixman";
       };
+      # cage needs a KMS device, which QEMU's default VGA does not give
+      # the test kernel in time; virtio-gpu without virgl is a display
+      # with no 3D, like nixpkgs' own cage test uses.
+      virtualisation.qemu.options = [ "-vga none -device virtio-gpu-pci" ];
       hardware.graphics.enable = true;
       fonts.packages = [ pkgs.nerd-fonts.hack ];
       virtualisation.memorySize = 2048;
