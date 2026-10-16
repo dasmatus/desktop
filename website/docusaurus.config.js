@@ -80,6 +80,9 @@ module.exports = {
     // index, so a page added to sidebars.js shows up there with nothing else
     // to change.
     require('./landing-data.js'),
+    // Each channel's newest release, as the index losos-update-source reads
+    // (release-index.js says why it is here).
+    require('./release-index.js'),
     ...(process.env.DOCS_OFFLINE ? [require('./offline-sections.js')] : []),
   ],
 
