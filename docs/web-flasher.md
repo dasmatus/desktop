@@ -68,8 +68,19 @@ for LosOS. Every start shows the bootloader's unlocked warning.
 ## Where the files come from
 
 The aarch64 release carries the GSI's files (`flake.nix`, `release`), so they
-are pushed, signed and tagged with the rest of it. The flasher reads them from
-`<proxy>/flasher/<channel>/aarch64/<file>`.
+are pushed, signed and tagged with the rest of it. With a proxy, the flasher
+reads them from `<proxy>/flasher/<channel>/aarch64/<file>`.
+
+Without one, it cannot read them at all: GitHub serves release assets with
+no `Access-Control-Allow-Origin`, from `github.com` and from the storage it
+redirects to alike, and GitHub Pages, which serves the flasher, can only hold
+files of up to 100 MB, where `userdata` alone is over a gigabyte. So the
+Download button becomes **Open the release on GitHub**: it opens the
+channel's newest release page, which the site build looked up
+(`website/release-index.js` writes it into `flasher/config.json`), and the
+person downloads the three `_gsi-` files and `SHA256SUMS-aarch64` there and
+chooses them with **Use files on this computer**, which checks them against
+that manifest.
 
 The proxy serves `/updates/` to sysupdate as redirects to GHCR's storage, but
 a page can only read a response from another origin that says

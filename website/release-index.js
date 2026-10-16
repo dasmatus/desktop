@@ -76,8 +76,31 @@ function pick(releases) {
       const key = `${name}/${arch}`;
       if (out[key]) continue;
       const text = index(release, arch);
-      if (text) out[key] = { tag: release.tag_name, text };
+      if (text) out[key] = { tag: release.tag_name, url: release.html_url, text };
     }
+  }
+  return out;
+}
+
+// Each channel's pick, fetched once per build for both this plugin and the
+// flasher's config; empty without GITHUB_REPOSITORY.
+let once;
+function picked() {
+  const repository = process.env.GITHUB_REPOSITORY;
+  if (!repository || process.env.DOCS_OFFLINE) return Promise.resolve({});
+  once ??= releases(repository).then(pick);
+  return once;
+}
+
+// The newest release page of each channel that has the GSI's architecture,
+// for the web flasher. Without a proxy it sends the person there, since a
+// page cannot read release assets itself: GitHub serves them without CORS
+// headers.
+async function flasherReleases() {
+  const out = {};
+  for (const [key, { tag, url }] of Object.entries(await picked())) {
+    const [name, arch] = key.split('/');
+    if (arch === 'aarch64') out[name] = { tag, url };
   }
   return out;
 }
@@ -94,9 +117,7 @@ async function releases(repository) {
 module.exports = () => ({
   name: 'release-index',
   async postBuild({ outDir }) {
-    const repository = process.env.GITHUB_REPOSITORY;
-    if (!repository || process.env.DOCS_OFFLINE) return;
-    for (const [key, { tag, text }] of Object.entries(pick(await releases(repository)))) {
+    for (const [key, { tag, text }] of Object.entries(await picked())) {
       const dir = path.join(outDir, 'updates', key);
       await fs.mkdir(dir, { recursive: true });
       await fs.writeFile(path.join(dir, 'index'), text);
@@ -106,3 +127,4 @@ module.exports = () => ({
 });
 
 module.exports.pick = pick;
+module.exports.flasherReleases = flasherReleases;

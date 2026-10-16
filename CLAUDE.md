@@ -86,10 +86,14 @@ still takes time, so don't start one to check a module edit.
 - `plugins/` holds pm plugins, written in Rust and compiled to WebAssembly
   components. pm asks a plugin about a command only when no built-in
   fingerprint matched it.
-- `proxy/` is a Vercel edge function with its logic in Rust compiled to
+- `proxy/` is an edge function with its logic in Rust compiled to
   WebAssembly. It serves the Nix binary cache and sysupdate's files from GHCR,
   streams the GSI's files to the web flasher (`/flasher/`), and counts
-  active users (`/ping`, `docs/choice-screens.md`).
+  active users (`/ping`, `docs/choice-screens.md`). `proxy/serve.ts` runs it
+  with node, which is how CI reads the Nix cache. A hosted deployment is
+  optional (`LOSOS_PROXY_URL`): without it images update from GitHub
+  Releases through `website/release-index.js`'s index on Pages and
+  `modules/update-source.nix` on the machine (`docs/releases.md`).
 - `website/` is the Docusaurus site that publishes `docs/` on GitHub Pages,
   with the web flasher (`website/static/flasher/`, `docs/web-flasher.md`) beside it;
   `website/wiki.js` writes the same pages for the GitHub wiki, and
@@ -152,9 +156,10 @@ in a few minutes, so run `nix fmt` before pushing any `.nix` edit, including
 one made in GitHub's web editor. `push` uploads it to
 GHCR. It is the only job holding `packages: write` beside release files, and
 it checks out no code. `publish` moves the `images:nightly-<arch>` tag that
-`proxy/` serves updates from and creates that run's own prerelease,
-`nightly-<YYYYMMDD>T<HHMM>`, with both architectures' files; a run started
-by hand with a `tag` and `title` publishes a release under those instead
+`proxy/` serves updates from, creates that run's own prerelease,
+`nightly-<YYYYMMDD>T<HHMM>`, with both architectures' files, and starts
+`docs.yml` so the site's release index follows it; a run started by hand
+with a `tag` and `title` publishes a release under those instead
 (`docs/releases.md`).
 `proxy` tests the proxy and deploys nothing. `ci` is the check branch
 protection reads. `docs.yml` builds the site and the wiki pages on a pull

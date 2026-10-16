@@ -13,7 +13,9 @@
 // partitions, which is why one image fits every Treble phone with a kernel
 // systemd runs on (docs/web-flasher.md). The files come from the newest
 // release through the proxy's /flasher/ path, checked against that
-// release's SHA256SUMS, or from files the person already has.
+// release's SHA256SUMS, or from files the person already has. Without a
+// proxy, Download opens the newest release on GitHub, whose files a page
+// cannot read itself, for the person to download and choose.
 
 import { Fastboot, FastbootError } from "./fastboot.js";
 import { splitSparse } from "./sparse.js";
@@ -269,7 +271,17 @@ function parseSums(text) {
 }
 
 async function download() {
-  const { proxy, channel = "nightly" } = await config();
+  const { proxy, channel = "nightly", releases = {} } = await config();
+  if (!proxy && releases[channel]) {
+    const { tag, url } = releases[channel];
+    window.open(url, "_blank", "noopener");
+    step(
+      "download",
+      "",
+      `Download the three _gsi- files and SHA256SUMS-${ARCH} from ${tag} in the tab that opened, then choose all four with Use files on this computer.`,
+    );
+    return;
+  }
   if (!proxy) throw new Error("This copy of the flasher was built without the proxy's address; use files on this computer.");
   const base = `${proxy.replace(/\/$/, "")}/flasher/${channel}/${ARCH}`;
   step("download", "working", "Reading the newest release.");
@@ -317,7 +329,8 @@ async function pick(event) {
     files[partition] = chosen.find((file) => file.name.endsWith(suffix));
     if (!files[partition]) throw new Error(`Choose the ${suffix} file too.`);
   }
-  const sumsFile = chosen.find((file) => file.name === "SHA256SUMS");
+  // A release names each architecture's manifest SHA256SUMS-<arch>.
+  const sumsFile = chosen.find((file) => file.name === "SHA256SUMS" || file.name === `SHA256SUMS-${ARCH}`);
   if (sumsFile) {
     const sums = parseSums(await sumsFile.text());
     for (const file of Object.values(files)) {
@@ -396,6 +409,15 @@ function init() {
   $("connect").onclick = () => guard("connect", connect);
   $("unlock").onclick = () => guard("unlock", unlock);
   $("download").onclick = () => guard("download", download);
+  config().then(({ proxy, channel = "nightly", releases = {} }) => {
+    if (!proxy && releases[channel]) {
+      $("download").textContent = "Open the release on GitHub";
+      $("download-about").textContent =
+        `The newest release, ${releases[channel].tag}, opens on GitHub. Download its three _gsi- files and ` +
+        `SHA256SUMS-${ARCH}, then choose all four here: they are checked against the release's SHA-256 sums ` +
+        "before anything is written.";
+    }
+  });
   $("pick").onclick = () => $("pick-files").click();
   $("pick-files").onchange = (event) => guard("download", () => pick(event));
   $("read-boot").onclick = () => guard("boot", readBoot);

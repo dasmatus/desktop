@@ -9,8 +9,8 @@ The OS is a NixOS configuration, `flake.nix` plus the modules in `nixos/`.
 nixpkgs from the `nixos-unstable` channel, pinned by `flake.lock`, provides the
 stock glibc packages for `x86_64-linux` and `aarch64-linux`, and this
 repository decides how those packages fit together. Nix uses cache.nixos.org
-for those packages; this project's GHCR cache, served through `proxy/`, can
-also provide paths used by CI ([Binary cache](binary-cache.md)).
+for those packages; this project's GHCR cache, read through `proxy/`'s code,
+also provides paths CI built before ([Binary cache](binary-cache.md)).
 [pm](https://github.com/losos-project/pm) ships in the image as the system
 manager, the tool a user of the running system builds and runs software with
 ([pm on LosOS](pm.md)).
@@ -64,7 +64,8 @@ nixpkgs provides the packages. This repository provides the rest:
   ([The installer](installer.md)).
 - `plugins/`, pm plugins that let pm build files call `nix` and the image
   tools.
-- `proxy/`, the GHCR binary cache and update proxy.
+- `proxy/`, the GHCR binary cache and update proxy, which CI also runs on
+  its runners for the cache.
 - `tools/nix-cache-push`, which CI uses to fill that cache.
 
 ## Where to start
