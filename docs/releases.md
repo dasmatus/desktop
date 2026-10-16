@@ -65,3 +65,25 @@ bytes the image boots. Each name carries its partition's UUID, which sysupdate
 reads with `@u` and gives the partition it writes. The initrd finds `/usr` by
 the UUIDs repart derived from `usrhash=`, so a slot that kept the random UUID
 repart created it with would hold the right bytes and never be found.
+
+## The channel index on the site
+
+The documentation site on GitHub Pages carries each channel's newest release
+as a file, `updates/<channel>/<arch>/index`, written when the site is built
+(`website/release-index.js`). It has one line per file sysupdate would ask
+a channel for: the name, its size, and the release asset URLs it is made of,
+so `SHA256SUMS` is the line for `SHA256SUMS-<arch>`, and a split file lists
+its parts in order. The nightly channel's newest release is the newest
+`nightly-*` prerelease; the stable channel's is the newest full release.
+
+```
+SHA256SUMS 1096 https://github.com/<repo>/releases/download/nightly-20261016T1200/SHA256SUMS-x86_64
+losos-desktop_<v>_usr-x86-64_<uuid>.raw.xz 2621440000 https://...raw.xz.part-00 https://...raw.xz.part-01
+```
+
+`docs.yml` builds the site when the docs change, and the publish job starts
+it once a release is up, so the index moves to a release only after the
+release has every file. Pages serves files and nothing else, which is why
+the index lists URLs rather than redirecting to them. Nothing in it is
+trusted: whatever reads it still checks `SHA256SUMS.gpg` and each file's
+hash.

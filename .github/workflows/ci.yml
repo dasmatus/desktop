@@ -778,7 +778,9 @@ jobs:
     if: always() && needs.push.result == 'success' && needs.release-name.result != 'failure'
     runs-on: ubuntu-24.04
     timeout-minutes: 90
+    # actions: write starts docs.yml at the end, for the site's release index.
     permissions:
+      actions: write
       contents: write
       packages: write
     steps:
@@ -935,3 +937,15 @@ jobs:
           done
           echo "::error::Publishing $TAG failed three times."
           exit 1
+
+      # The documentation site carries each channel's newest release as the
+      # index installed systems update from (website/release-index.js), so
+      # it is built again once this one is up. A run started with the job's
+      # own token would start no workflow, but workflow_dispatch is the
+      # exception GitHub makes.
+      - name: Rebuild the site's release index
+        if: steps.pulled.outputs.any == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          BRANCH: ${{ github.event.repository.default_branch }}
+        run: gh workflow run docs.yml --repo "$GITHUB_REPOSITORY" --ref "$BRANCH"

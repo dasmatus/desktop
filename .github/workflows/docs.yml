@@ -67,6 +67,10 @@ jobs:
           # Where the flasher downloads releases from, the same variable the
           # image build reads.
           LOSOS_PROXY_URL: ${{ vars.LOSOS_PROXY_URL }}
+          # release-index.js lists the releases through the API with it, so
+          # the site carries each channel's newest one for installed systems
+          # to update from.
+          GITHUB_TOKEN: ${{ github.token }}
       # The wiki pages are generated here too, so a pull request finds a page
       # missing from the sidebar or a link to nothing before main does.
       - run: node website/wiki.js "$RUNNER_TEMP/wiki"
