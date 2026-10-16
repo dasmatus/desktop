@@ -95,6 +95,8 @@ in
   # losos, the terminal client for LosOS boxes (docs/losos-boxes.md),
   # written in the LosOS repository.
   losos = callWithMold ./losos.nix { };
+  # Finds those boxes over mDNS and offers each one as an application.
+  losos-boxes = callWithMold ./losos-boxes.nix { };
   # WinApps, for a Windows machine's apps (libvirt.nix); a shell script,
   # nothing to link.
   winapps = final.callPackage ./winapps.nix { };
