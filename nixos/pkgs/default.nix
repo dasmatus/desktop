@@ -97,7 +97,7 @@ in
   losos = callWithMold ./losos.nix { };
   # Finds those boxes over mDNS and offers each one as an application.
   losos-boxes = callWithMold ./losos-boxes.nix { };
-  # WinApps, for a Windows machine's apps (libvirt.nix); a shell script,
+  # WinApps, for a Windows machine's apps (quickemu.nix); a shell script,
   # nothing to link.
   winapps = final.callPackage ./winapps.nix { };
   # This repository's documentation, for reading offline; built by Node, so
@@ -130,11 +130,34 @@ in
   # QEMU from nixpkgs' own package set too, so it substitutes from
   # cache.nixos.org. From this one its GTK and VTE front end would link the
   # patched GTK, and CI would compile QEMU twice, once for the host's
-  # machines (qemu_kvm, docs/hypervisor.md) and once for the OVMF the VM
-  # tests boot, which ran a runner's disk out of space. Nothing shows that
-  # front end: virt-viewer draws a machine's screen, and the VM tests run
-  # headless.
+  # machines (docs/hypervisor.md) and once for the OVMF the VM tests boot,
+  # which ran a runner's disk out of space. Nothing shows that front end:
+  # remote-viewer draws a machine's screen, and the VM tests run headless.
   qemu = plain.qemu;
+  # quickemu, which starts the PC's machines (docs/hypervisor.md), from
+  # nixpkgs' set for the same reason: its QEMU and spice-gtk would otherwise
+  # link the patched GTK. It boots a machine without Secure Boot on plain
+  # OVMF, built without a TPM: the guest finds swtpm's device but the
+  # firmware never measures what it boots, and Windows 11 refuses a TPM like
+  # that. A .conf cannot pick another firmware, since quickemu sets it after
+  # reading the .conf, so the package gets one with TPM support
+  # (docs/quickemu.md).
+  #
+  # `-nic bridge` runs QEMU's bridge helper from the path QEMU was built
+  # with, where it is not setuid and cannot make a tap device; the setuid
+  # copy is under /run/wrappers (quickemu.nix). quickemu has no setting for
+  # the helper, so its one bridge line names it.
+  quickemu =
+    (plain.quickemu.override {
+      OVMF = plain.OVMF.override { tpmSupport = true; };
+    }).overrideAttrs
+      (old: {
+        postPatch = old.postPatch + ''
+          substituteInPlace quickemu \
+            --replace-fail 'args+=(-nic bridge,br=''${network},' \
+              'args+=(-nic bridge,br=''${network},helper=/run/wrappers/bin/qemu-bridge-helper,'
+        '';
+      });
   # libsecret too. Only its test suite reaches the patched GTK, through gjs,
   # so ours differed from nixpkgs' in a check input alone, compiled in CI,
   # and failed there in test-collection when the test's D-Bus service

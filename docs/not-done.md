@@ -25,21 +25,43 @@
   ([The Flatpak machine](hypervisor.md#the-flatpak-machine)). A
   `.flatpakref` or `.flatpakrepo` file opened on the host has nothing to
   open it, as Bazaar is in the machine; it has to be copied there first.
-  Moving Flatpak's files off the host happens only for administrators, as
-  anyone else would be asked for a password by a dialog they did not
-  start; they copy their `~/.var/app` into the machine by hand. The host's
-  copy of `~/.var/app` stays after it is copied, until its owner deletes
-  it. Flatpak apps inside the machine draw in software, like the rest of
-  its apps, so a game from Flathub is slower than it was on the host.
+  Every person has a Flatpak machine of their own, so the apps the host
+  installed for everyone, `/var/lib/flatpak`, are copied into each
+  person's at their next sign-in and stay on the host, where nothing
+  reads them any more and nothing removes them once everyone has signed
+  in. The host's copy of `~/.var/app` stays after it is copied, until its
+  owner deletes it. A PC that ran a release whose machines were libvirt's
+  had its Flatpak files moved into the one Flatpak machine libvirt kept,
+  and `/var/lib/flatpak` and administrators' `~/.local/share/flatpak`
+  deleted; those apps are in that machine's disk under `/var/lib/libvirt`
+  and do not move again. Flatpak apps inside the machine draw in software,
+  like the rest of its apps, so a game from Flathub is slower than it was
+  on the host.
 - **Windows and other distributions in machines**
   ([Machines from an installer CD](hypervisor.md#machines-from-an-installer-cd)).
   No Windows has been installed from the Windows tools CD yet, so its answer
   file, its drivers and its first sign-in have only been checked for what
   they say, not run; nor has the Linux tools CD's `setup.sh` run in any
-  distribution. The desktop does not yet show a machine's own screen by
-  itself (`virt-viewer --attach` does) or frame WinApps' windows in the
+  distribution. The desktop does not frame WinApps' windows in the
   machine's colour: FreeRDP's RemoteApp windows are X11's, drawn through
   the session's one xwayland-satellite, which belongs to no machine.
+  quickemu always gives a machine SPICE's agent channel and its WebDAV
+  channel, so a guest that runs `spice-vdagent` shares the clipboard with
+  the machine's screen window, and remote-viewer can share a host folder
+  with it when asked; libvirt's machines had neither.
+- **Machines are each person's, their network is everyone's**
+  ([Virtual machine desktop](hypervisor.md)). Every person's machines are
+  on `virbr0` and ask one dnsmasq, so they reach each other's addresses,
+  and one person's running LosOS boxes machine names the boxes for
+  everyone's machines ([LosOS boxes](losos-boxes.md#from-the-other-machines)).
+  A `.machines` name is whatever a machine asked the DHCP server for, so
+  one machine can ask for a name another uses, and WinApps would then
+  reach whichever machine dnsmasq answers with. Templates are copied into
+  each person's own machines, so every person who signs in holds a copy
+  of the Flatpak machine's template, and of each other template they
+  make a machine from, in their home. Machines made while libvirt ran
+  them are not carried over: nothing reads `/var/lib/libvirt` now, and
+  their disks stay on the root partition until someone deletes them.
 - **No hosted proxy.** GitHub Pages serves files only, so of what `proxy/`
   did ([Binary cache](binary-cache.md)), updates moved to GitHub Releases
   through an index on the documentation site and a service on each machine

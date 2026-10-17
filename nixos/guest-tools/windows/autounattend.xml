@@ -100,7 +100,7 @@
   <settings pass="specialize">
     <component name="Microsoft-Windows-Deployment" processorArchitecture="amd64" publicKeyToken="31bf3856ad364e35" language="neutral" versionScope="nonSxS">
       <!-- A local account is offered at the account step, as well as a
-           Microsoft one: the machine is behind libvirt's NAT, and a person may
+           Microsoft one: the machine is behind the host's NAT, and a person may
            want it to know nothing of them. -->
       <RunSynchronous>
         <RunSynchronousCommand wcm:action="add">

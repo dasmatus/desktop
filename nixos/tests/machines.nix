@@ -1,17 +1,16 @@
-# The virtual machine desktop's host and its template (libvirt.nix,
+# The virtual machine desktop's host and its template (quickemu.nix,
 # machines.nix, docs/hypervisor.md): pm makes a machine from the template
-# the image ships, the machine boots and takes an address on libvirt's
-# network, its user pings the host and past it and NetworkManager finds it
-# online, its guest agent lists its apps, and opening one sends its window
-# to the host over vsock from the address libvirt gave that machine, which
-# is how the desktop tells whose window it is. The machine looks .local
-# names up through the host, so it finds a box on the host's network that
-# its own multicast could never reach past libvirt's NAT. A LosOS boxes
-# machine finds that box through the host's resolved and offers it as an
-# app, and the first machine's connections to the box go through it. Then
-# a Windows machine, as
-# far as libvirt goes without Windows: defined with the image's drivers CD
-# and started with its TPM.
+# the image ships, quickemu boots it and it takes an address on the
+# machines' network, its user pings the host and past it and
+# NetworkManager finds it online, its guest agent lists its apps, and
+# opening one sends its window to the host over vsock from the address its
+# QEMU was given, which is how the desktop tells whose window it is. The
+# machine looks .local names up through the host, so it finds a box on the
+# host's network that its own multicast could never reach past the host's
+# NAT. A LosOS boxes machine finds that box through the host's resolved and
+# offers it as an app, and the first machine's connections to the box go
+# through it. Then a Windows machine, as far as quickemu goes without
+# Windows: made with the image's drivers CD and started with its TPM.
 #
 # The desktop's own half, the gate that hands that connection to the
 # machine's waypipe client and the compositor that labels the window, is
@@ -19,8 +18,10 @@
 # for it and records who connected.
 #
 # Only the host's modules, not the whole image. The machine runs under TCG:
-# the test VM's KVM modules are kept out, so pm defines it to emulate rather
-# than rely on nested virtualisation the runner may not give.
+# the test VM's KVM modules are kept out, so quickemu emulates rather than
+# relying on nested virtualisation the runner may not give. The driver runs
+# as root, so the machines are root's, under its own home, and run as
+# system services rather than a user's (pm's quickemu plugin).
 { lib, ... }:
 
 {
@@ -93,7 +94,7 @@
     { nodes, pkgs, ... }:
     {
       imports = [
-        ../modules/libvirt.nix
+        ../modules/quickemu.nix
         ../modules/machines.nix
         ../modules/pm.nix
         # The LosOS boxes machine is the only one that talks to boxes: the
@@ -104,13 +105,13 @@
 
       # network.nix's packet filter, which the guests' DHCP has to get past.
       networking.nftables.enable = true;
-      # libvirt's dnsmasq forwards the machines' questions to the host's
+      # The machines' dnsmasq forwards their questions to the host's
       # resolver, which asks the stand-in internet.
       networking.nameservers = [ nodes.internet.networking.primaryIPAddress ];
 
       # And its resolver: networkd and resolved, mDNS on the LAN's link and
-      # in resolved, 5353 open. libvirt's dnsmasq passes the machines'
-      # queries to it through /etc/resolv.conf, as on the image.
+      # in resolved, 5353 open. The machines' dnsmasq passes their queries
+      # to resolved's stub, as on the image.
       networking.useNetworkd = true;
       networking.useDHCP = false;
       systemd.network.networks."40-eth1".networkConfig.MulticastDNS = true;
@@ -129,8 +130,8 @@
         cores = 4;
         # The two machines it runs at once, and itself.
         memorySize = 6144;
-        # The template is uploaded into libvirt's pool and the machine's
-        # disk grows on top of it.
+        # The template is copied into the machines' folder and each
+        # machine's disk grows on top of it.
         diskSize = 12 * 1024;
       };
 
@@ -146,30 +147,59 @@
             peer.write(str(cid))
       '';
 
+      # The guest agent's protocol, as derisk speaks it on the socket in the
+      # machine's folder: a sync whose answer is read past anything an
+      # earlier connection left, then the command. Prints what it returned.
+      environment.etc."qga.py".text = ''
+        import json, random, socket, sys
+        path, command = sys.argv[1], sys.argv[2]
+        agent = socket.socket(socket.AF_UNIX)
+        agent.settimeout(10)
+        agent.connect(path)
+        sync = random.randrange(1, 2**31)
+        agent.sendall(b"\xff" + json.dumps({"execute": "guest-sync-delimited", "arguments": {"id": sync}}).encode() + b"\n")
+        replies = agent.makefile("rb")
+        while True:
+            line = replies.readline()
+            if not line:
+                sys.exit(1)
+            try:
+                if json.loads(line.split(b"\xff")[-1]).get("return") == sync:
+                    break
+            except ValueError:
+                pass
+        agent.sendall(command.encode() + b"\n")
+        reply = json.loads(replies.readline())
+        if "error" in reply:
+            sys.exit(f"{command}: {reply['error']}")
+        print(json.dumps(reply["return"]))
+      '';
+
       environment.systemPackages = [ pkgs.python3 ];
     };
 
   testScript = ''
     import base64
     import json
-    import re
     import time
 
-    virsh = "virsh -c qemu:///system"
+    machines = "/root/.local/share/pm/machines"
     guest_run = "/run/current-system/sw/bin/losos-guest-run"
 
-    def agent(command, domain="work"):
-        reply = machine.succeed(f"{virsh} qemu-agent-command {domain} '{json.dumps(command)}'")
-        return json.loads(reply)["return"]
+    def agent(command, name="work"):
+        reply = machine.succeed(
+            f"python3 /etc/qga.py {machines}/{name}/{name}-agent.sock '{json.dumps(command)}'"
+        )
+        return json.loads(reply)
 
-    def in_guest(path, *args, domain="work"):
+    def in_guest(path, *args, name="work"):
         """Runs a program in the machine through its agent, as the desktop does."""
         pid = agent({
             "execute": "guest-exec",
             "arguments": {"path": path, "arg": list(args), "capture-output": True},
-        }, domain)["pid"]
+        }, name)["pid"]
         for _ in range(120):
-            status = agent({"execute": "guest-exec-status", "arguments": {"pid": pid}}, domain)
+            status = agent({"execute": "guest-exec-status", "arguments": {"pid": pid}}, name)
             if status["exited"]:
                 out = base64.b64decode(status.get("out-data", "")).decode()
                 err = base64.b64decode(status.get("err-data", "")).decode()
@@ -178,16 +208,31 @@
             time.sleep(1)
         raise Exception(f"{path} {args} did not finish")
 
-    start_all()
-    machine.wait_for_unit("libvirt-defaults.service")
+    def record(name):
+        return json.loads(machine.succeed(f"cat {machines}/{name}/machine.json"))
 
-    with subtest("libvirt is the host's control plane"):
-        machine.succeed("systemctl is-active libvirtd.service")
-        machine.succeed(f"{virsh} pool-info default | grep -E '^State: +running'")
-        machine.succeed(f"{virsh} pool-info default | grep -E '^Autostart: +yes'")
-        machine.succeed(f"{virsh} net-info default | grep -E '^Active: +yes'")
-        machine.succeed(f"{virsh} net-info default | grep -E '^Autostart: +yes'")
-        machine.succeed("bash -lc 'test \"$LIBVIRT_DEFAULT_URI\" = qemu:///system'")
+    def address(name):
+        """The address the machines' DHCP gave the machine, by its MAC."""
+        mac = machine.succeed(
+            f"sed -n \"s/^macaddr='\\\\(.*\\\\)'$/\\\\1/p\" {machines}/{name}.conf"
+        ).strip()
+        assert mac, f"{name}.conf has no macaddr"
+        leases = "/var/lib/private/losos-machines-dns/leases"
+        machine.wait_until_succeeds(f"grep -qi ' {mac} 192.168.122.' {leases}", timeout=300)
+        return machine.succeed(f"grep -i ' {mac} ' {leases} | cut -d' ' -f3").strip()
+
+    def started(name):
+        machine.succeed(f"pm machine start {name}")
+        machine.succeed(f"systemctl is-active pm-machine-{name}.service")
+
+    start_all()
+    machine.wait_for_unit("losos-machines-dns.service")
+
+    with subtest("the host has the machines' network, vsock and quickemu"):
+        machine.succeed("ip -4 addr show virbr0 | grep -q 192.168.122.1/24")
+        machine.succeed("test -u /run/wrappers/bin/qemu-bridge-helper")
+        machine.succeed("grep -qx 'allow virbr0' /etc/qemu/bridge.conf")
+        machine.succeed("command -v quickemu remote-viewer waypipe")
         machine.succeed("test -c /dev/vhost-vsock")
         machine.succeed("test -f /run/current-system/sw/share/losos/machines/losos-guest.qcow2")
         machine.fail("test -e /dev/kvm")
@@ -195,31 +240,32 @@
     with subtest("pm makes a machine from the shipped template"):
         machine.succeed(
             "mkdir -p /root/.config/pm/plugins",
-            "cp /run/current-system/sw/share/pm/plugins/libvirt.wasm /root/.config/pm/plugins/",
-            "pm sign /root/.config/pm/plugins/libvirt.wasm",
+            "cp /run/current-system/sw/share/pm/plugins/quickemu.wasm /root/.config/pm/plugins/",
+            "pm sign /root/.config/pm/plugins/quickemu.wasm",
         )
         machine.succeed(
-            "LIBVIRT_DEFAULT_URI=qemu:///system pm machine create work"
+            "pm machine create work"
             " --image /run/current-system/sw/share/losos/machines/losos-guest.qcow2"
             " --label blue --memory 1536 --cpus 2 --disk 8"
         )
-        metadata = machine.succeed(
-            f"{virsh} metadata work https://losos-project.github.io/xmlns/pm-machine/1"
-        )
-        assert re.search(r"<\w*:?label>blue</", metadata), metadata
-        # The template as a volume of its own, which every machine made from
-        # it shares, and the machine's disk over it.
-        machine.succeed(f"{virsh} vol-list default | grep -q 'pm-template-losos-guest-'")
-        machine.succeed(f"{virsh} vol-info --pool default pm-machine-work.qcow2")
+        work = record("work")
+        assert work["label"] == "blue", work
+        assert work["template"]["name"] == "losos-guest", work
+        # The template copied in once, read-only, which every machine made
+        # from it shares, and the machine's disk over it.
+        machine.succeed(f"ls {machines}/templates | grep -q '^losos-guest-'")
+        machine.succeed(f"qemu-img info {machines}/work/disk.qcow2 | grep -q 'backing file: {machines}/templates/losos-guest-'")
+        machine.succeed(f"grep -qx \"network='virbr0'\" {machines}/work.conf")
 
     with subtest("the machine boots, grows its disk and takes an address"):
-        machine.succeed("LIBVIRT_DEFAULT_URI=qemu:///system pm machine start work")
+        started("work")
         machine.wait_until_succeeds(
-            f"{virsh} qemu-agent-command work '{{\"execute\":\"guest-ping\"}}'", timeout=900
+            f"python3 /etc/qga.py {machines}/work/work-agent.sock '{{\"execute\":\"guest-ping\"}}'",
+            timeout=900,
         )
         size = int(in_guest("/run/current-system/sw/bin/df", "--output=size", "-B1G", "/").split()[-1])
         assert size >= 7, f"the root is {size} GiB, so it did not grow into the 8 GiB disk"
-        machine.wait_until_succeeds(f"{virsh} domifaddr work | grep -q 192.168.122.", timeout=300)
+        address("work")
 
     with subtest("the machine pings the host and past it, and is online"):
         # As the machine's user, from the login shell its apps get, the way
@@ -242,8 +288,8 @@
 
     with subtest("the machine looks .local names up through the host"):
         lanbox.wait_for_unit("avahi-daemon.service")
-        address = lanbox.succeed("ip -4 -o addr show eth1 | awk '{print $4}' | cut -d/ -f1").strip()
-        machine.wait_until_succeeds(f"resolvectl query lanbox.local | grep -q {address}", timeout=120)
+        lan_address = lanbox.succeed("ip -4 -o addr show eth1 | awk '{print $4}' | cut -d/ -f1").strip()
+        machine.wait_until_succeeds(f"resolvectl query lanbox.local | grep -q {lan_address}", timeout=120)
         status = in_guest("/run/current-system/sw/bin/resolvectl", "status")
         print(status)
         assert "-mDNS" in status and "+mDNS" not in status, "the machine multicasts itself"
@@ -255,9 +301,13 @@
                 time.sleep(2)
         else:
             raise Exception("the machine cannot look up lanbox.local")
-        assert found.split()[0] == address, f"lanbox.local is {found}, not {address}"
+        assert found.split()[0] == lan_address, f"lanbox.local is {found}, not {lan_address}"
         # The address the host gave is one the machine reaches through NAT.
         in_guest("/run/current-system/sw/bin/ping", "-c", "1", "-W", "5", "lanbox.local")
+
+    with subtest("the host finds a machine by the name it gave DHCP"):
+        hostname = in_guest("/run/current-system/sw/bin/hostname").strip()
+        machine.wait_until_succeeds(f"resolvectl query {hostname}.machines | grep -q 192.168.122.", timeout=120)
 
     with subtest("its user has the folders apps expect"):
         # home-folders.nix, made by the user's tmpfiles when its manager
@@ -276,10 +326,8 @@
             assert app in apps, f"{app} is not in {sorted(apps)}"
 
     with subtest("an app's window reaches the host from the machine's own address"):
-        xml = machine.succeed(f"{virsh} dumpxml work")
-        found = re.search(r"<cid auto=.yes. address=.(\d+).", xml)
-        assert found, f"the running machine has no vsock address: {xml}"
-        cid = found.group(1)
+        cid = str(record("work")["cid"])
+        machine.succeed(f"grep -q 'guest-cid={cid}' /proc/$(cat {machines}/work/work.pid)/cmdline")
         machine.succeed("systemd-run --unit=vsock-listen python3 /etc/vsock-listen.py /tmp/peer")
         machine.wait_until_succeeds("ss -l --vsock | grep -q 7350")
         in_guest(guest_run, "org.derisk.terminal")
@@ -290,23 +338,20 @@
     with subtest("a LosOS boxes machine finds the box through the host and offers it"):
         machine.fail("command -v losos")
         machine.wait_for_unit("losos-boxes-relay.service")
-        machine.wait_for_unit("losos-boxes-dns.service")
-        machine.succeed(f"{virsh} net-dumpxml default | grep -q hostsdir=/run/losos-boxes/hosts")
+        machine.succeed("systemctl cat losos-machines-dns.service | grep -q -- --hostsdir=/run/losos-boxes/hosts")
         machine.succeed(
-            "LIBVIRT_DEFAULT_URI=qemu:///system pm machine create boxes"
+            "pm machine create boxes"
             " --image /run/current-system/sw/share/losos/machines/losos-boxes.qcow2"
             " --label green --memory 1536 --cpus 2 --disk 8",
-            "LIBVIRT_DEFAULT_URI=qemu:///system pm machine start boxes",
         )
+        started("boxes")
         machine.wait_until_succeeds(
-            f"{virsh} qemu-agent-command boxes '{{\"execute\":\"guest-ping\"}}'", timeout=900
+            f"python3 /etc/qga.py {machines}/boxes/boxes-agent.sock '{{\"execute\":\"guest-ping\"}}'",
+            timeout=900,
         )
-        machine.wait_until_succeeds(f"{virsh} domifaddr boxes | grep -q 192.168.122.", timeout=300)
-        found = re.search(r"(192\.168\.122\.\d+)", machine.succeed(f"{virsh} domifaddr boxes"))
-        assert found, "the LosOS boxes machine has no address"
-        boxes_address = found.group(1)
+        boxes_address = address("boxes")
         for _ in range(90):
-            apps = in_guest(guest_run, "--list", domain="boxes")
+            apps = in_guest(guest_run, "--list", name="boxes")
             if "losos-box-lanbox.local\tlanbox" in apps:
                 break
             time.sleep(2)
@@ -317,19 +362,20 @@
         entry = in_guest(
             "/run/current-system/sw/bin/cat",
             "/home/user/.local/share/applications/losos-box-lanbox.local.desktop",
-            domain="boxes",
+            name="boxes",
         )
         print(entry)
         assert "\nExec=derisk-terminal --app-id=org.losos.Boxes --title=lanbox losos-boxes terminal http://lanbox.local\n" in entry
         assert "\nComment=LosOS v0.4.0 box at lanbox.local\n" in entry
         # The machine's own resolved does no mDNS: what it found came
         # through the host's.
-        status = in_guest("/run/current-system/sw/bin/resolvectl", "status", domain="boxes")
+        status = in_guest("/run/current-system/sw/bin/resolvectl", "status", name="boxes")
         assert "+mDNS" not in status, status
 
     with subtest("the other machines reach the box through the LosOS boxes machine"):
+        # Its hosts file is under its owner's uid and its name: root's here.
         machine.wait_until_succeeds(
-            f"grep -qx '{boxes_address} lanbox.local' /run/losos-boxes/hosts/boxes", timeout=120
+            f"grep -qx '{boxes_address} lanbox.local' /run/losos-boxes/hosts/0-boxes", timeout=120
         )
         for _ in range(30):
             found = in_guest("/run/current-system/sw/bin/getent", "hosts", "lanbox.local")
@@ -349,7 +395,7 @@
         )
         assert answer.rstrip().endswith("admin pages"), answer
         # The box saw the connection come from the host's LAN address, which
-        # is where the LosOS boxes machine's traffic leaves libvirt's NAT.
+        # is where the LosOS boxes machine's traffic leaves the host's NAT.
         lanbox.succeed("grep -q 'GET / ' /var/log/nginx/access.log")
         # A name that is not a box gets nothing passed on.
         refused = in_guest(
@@ -359,14 +405,15 @@
         assert "admin pages" not in refused, refused
 
     with subtest("a stopped LosOS boxes machine routes nothing"):
-        machine.succeed("LIBVIRT_DEFAULT_URI=qemu:///system pm machine remove boxes")
-        machine.wait_until_fails("test -e /run/losos-boxes/hosts/boxes", timeout=60)
+        machine.succeed("pm machine remove boxes")
+        machine.fail("systemctl is-active pm-machine-boxes.service")
+        machine.wait_until_fails("test -e /run/losos-boxes/hosts/0-boxes", timeout=60)
 
     with subtest("pm removes it and keeps the template"):
-        machine.succeed("LIBVIRT_DEFAULT_URI=qemu:///system pm machine remove work")
-        machine.fail(f"{virsh} dominfo work")
-        machine.fail(f"{virsh} vol-info --pool default pm-machine-work.qcow2")
-        machine.succeed(f"{virsh} vol-list default | grep -q 'pm-template-losos-guest-'")
+        machine.succeed("pm machine remove work")
+        machine.fail(f"test -e {machines}/work")
+        machine.fail(f"test -e {machines}/work.conf")
+        machine.succeed(f"ls {machines}/templates | grep -q '^losos-guest-'")
 
     with subtest("the image carries the CDs of guest tools where pm looks"):
         tools = "/run/current-system/sw/share/pm/machines"
@@ -378,32 +425,35 @@
 
     with subtest("a Windows machine gets the drivers CD, a TPM and a screen, and starts"):
         # Windows itself cannot be installed here, so its CD is a stand-in:
-        # what is checked is that libvirt takes the machine pm defines for it
+        # what is checked is that quickemu takes the machine pm makes for it
         # and starts it, swtpm and all, with the host's drivers CD beside it.
         machine.succeed("head -c 1048576 /dev/zero > /tmp/win11.iso")
         machine.succeed(
             "bash -lc 'pm machine create win --installer /tmp/win11.iso"
             " --system windows --label red --memory 512 --disk 4'"
         )
-        xml = machine.succeed(f"{virsh} dumpxml --inactive win")
+        conf = machine.succeed(f"cat {machines}/win.conf")
         for expected in [
-            "<tpm model='tpm-crb'>",
-            "<graphics type='spice'>",
-            "<clock offset='localtime'>",
-            "pm-media-win11-",
-            "pm-media-windows-tools-",
+            "guest_os='windows'",
+            "tpm='on'",
+            "display='spice'",
+            "iso='" + machines + "/cds/win11-",
+            "fixed_iso='" + machines + "/cds/windows-tools-",
         ]:
-            assert expected in xml, f"{expected} is not in {xml}"
-        assert "<vsock" not in xml, xml
-        machine.succeed("LIBVIRT_DEFAULT_URI=qemu:///system pm machine start win")
-        machine.wait_until_succeeds(f"{virsh} domstate win | grep -qx running", timeout=60)
-        machine.succeed("pgrep -x swtpm")
+            assert expected in conf, f"{expected} is not in {conf}"
+        assert "vhost-vsock" not in conf, conf
+        assert record("win")["screen"], record("win")
+        started("win")
+        machine.wait_until_succeeds("pgrep -x swtpm", timeout=60)
+        # Its screen, on quickemu's SPICE socket, where derisk's
+        # remote-viewer finds it.
+        machine.wait_until_succeeds(f"test -S {machines}/win/win.sock", timeout=60)
 
     with subtest("removing it keeps the CDs another machine may share"):
-        machine.succeed("LIBVIRT_DEFAULT_URI=qemu:///system pm machine remove win")
-        machine.fail(f"{virsh} dominfo win")
-        machine.fail(f"{virsh} vol-info --pool default pm-machine-win.qcow2")
-        machine.succeed(f"{virsh} vol-list default | grep -q 'pm-media-windows-tools-'")
-        machine.succeed(f"{virsh} vol-list default | grep -q 'pm-media-win11-'")
+        machine.succeed("pm machine remove win")
+        machine.fail("systemctl is-active pm-machine-win.service")
+        machine.fail(f"test -e {machines}/win")
+        machine.succeed(f"ls {machines}/cds | grep -q '^windows-tools-'")
+        machine.succeed(f"ls {machines}/cds | grep -q '^win11-'")
   '';
 }

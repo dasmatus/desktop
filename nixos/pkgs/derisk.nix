@@ -25,7 +25,6 @@
   libdrm,
   linux-pam,
   libpwquality,
-  libvirt,
   # derisk-gpui's GPUI (Sonne's) links these, and finds the rest below at
   # run time.
   fontconfig,
@@ -216,11 +215,8 @@ rustPlatform.buildRustPackage {
     libdrm
     # The lock screen checks passwords through PAM.
     linux-pam
-    # derisk-machines (the Machines app, the window gate and the palette's
-    # machines) talks to libvirtd through libvirt's own C library, which the
-    # virt crate's bindings link and pkg-config finds. derisk-gpui does not
-    # build that crate, so it goes without.
-    libvirt
+    # derisk-machines linked libvirt's C library until quickemu took
+    # libvirt's place; it reads pm's machine folders and QEMU's sockets now.
   ]
   # Linked, and put on the RUNPATH, by the cc wrapper.
   ++ lib.optional withHardenedMalloc graphene-hardened-malloc;

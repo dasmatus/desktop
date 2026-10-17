@@ -7,8 +7,8 @@
 # On a PC both run in the LosOS boxes machine (nixos/guest/boxes.nix),
 # which this module adds to machines.nix's templates, and not on the host: the
 # machine is the one place that talks to boxes, and the host only lends it
-# its resolved, which does the mDNS a machine behind libvirt's NAT cannot.
-# A phone has no machines (the GSI does not import libvirt.nix), so there
+# its resolved, which does the mDNS a machine behind the host's NAT cannot.
+# A phone has no machines (the GSI does not import quickemu.nix), so there
 # the session runs them itself.
 {
   config,
@@ -19,7 +19,9 @@
 }:
 
 let
-  machines = config.virtualisation.libvirtd.enable;
+  # quickemu.nix declares the machines' network; a system without it has
+  # no machines.
+  machines = options.losos ? machines && options.losos.machines ? network;
 in
 {
   config = lib.mkMerge [
@@ -60,38 +62,38 @@ in
       losos.machines.guests.losos-boxes = ../guest/boxes.nix;
     })
 
-    (lib.mkIf machines {
+    # optionalAttrs rather than mkIf, as for the template: a system without
+    # quickemu.nix has no losos.machines.network to set.
+    (lib.optionalAttrs machines {
       # The LosOS boxes machine's way to this host's resolved, and to the
-      # other machines (`losos-boxes relay`), for a machine libvirt has as
-      # made from the losos-boxes template; any other machine is refused.
-      # On vsock port 7351 it is let through to resolved's Varlink socket:
-      # lookups only, which change nothing on the host. On port 7352 it
-      # names the boxes it found, and the relay writes those names at its
+      # other machines (`losos-boxes relay`), for a running machine pm
+      # recorded as made from the losos-boxes template; any other machine is
+      # refused. On vsock port 7351 it is let through to resolved's Varlink
+      # socket: lookups only, which change nothing on the host. On port 7352
+      # it names the boxes it found, and the relay writes those names at its
       # address into a hosts file of HOSTS_DIR, below, so the other machines'
       # connections to a box go to it.
       systemd.services.losos-boxes-relay = {
         description = "Lend the LosOS boxes machine this host's resolved";
         wantedBy = [ "multi-user.target" ];
-        after = [
-          "libvirtd.service"
-          "systemd-resolved.service"
-        ];
-        # `virsh -r` asks libvirt which machine is at a connection's address,
-        # and what address its network gave it.
-        path = [ config.virtualisation.libvirtd.package ];
-        environment.LIBVIRT_DEFAULT_URI = "qemu:///system";
+        after = [ "systemd-resolved.service" ];
         serviceConfig = {
           ExecStart = "${lib.getExe pkgs.losos-boxes} relay";
-          # libvirt's read-only socket and resolved's Varlink socket are both
-          # open to every account, and a vsock port above 1023 needs nothing.
-          # A user of its own rather than a dynamic one, as it owns the
-          # hosts files, which outlive a restart.
+          # A user of its own rather than a dynamic one, as it owns the hosts
+          # files, which outlive a restart. resolved's Varlink socket is open
+          # to every account, and a vsock port above 1023 needs nothing.
           User = "losos-boxes";
           Group = "losos-boxes";
+          # A machine is its owner's: its record (machine.json) is in their
+          # home, and its address in the lease file of the machines' DHCP,
+          # which is its dynamic user's. Reading both takes reading any file;
+          # writing stays limited to its own directory.
+          AmbientCapabilities = [ "CAP_DAC_READ_SEARCH" ];
+          CapabilityBoundingSet = [ "CAP_DAC_READ_SEARCH" ];
           Restart = "on-failure";
           ProtectSystem = "strict";
           ReadWritePaths = [ "/run/losos-boxes" ];
-          ProtectHome = true;
+          ProtectHome = "read-only";
           PrivateTmp = true;
           RestrictAddressFamilies = [
             "AF_UNIX"
@@ -104,59 +106,22 @@ in
         group = "losos-boxes";
       };
       users.groups.losos-boxes = { };
-      # Made at boot, before libvirt's dnsmasq starts and watches it, and
+      # Made at boot, before the machines' dnsmasq starts and watches it, and
       # kept while the relay restarts.
       systemd.tmpfiles.rules = [
         "d /run/losos-boxes 0755 losos-boxes losos-boxes -"
         "d /run/losos-boxes/hosts 0755 losos-boxes losos-boxes -"
       ];
 
-      # libvirt's dnsmasq answers the machines' DNS on virbr0. hostsdir has
-      # it read every hosts file in /run/losos-boxes/hosts and read each
-      # again whenever it changes, so a box's name answered with the LosOS
-      # boxes machine's address is answered before dnsmasq asks the host's
-      # resolved for it (docs/hypervisor.md, "Names on the network"). An
-      # option of libvirt's dnsmasq namespace on the default network,
-      # added once, before any machine starts at boot; the network restarts
-      # for it only while no machine runs on it.
-      systemd.services.losos-boxes-dns = {
-        description = "Have libvirt's DNS for machines read the LosOS boxes' names";
-        wantedBy = [ "multi-user.target" ];
-        requires = [ "libvirt-defaults.service" ];
-        after = [ "libvirt-defaults.service" ];
-        before = [ "libvirt-guests.service" ];
-        path = [
-          config.virtualisation.libvirtd.package
-          pkgs.gnused
-          pkgs.gnugrep
-        ];
-        environment.LIBVIRT_DEFAULT_URI = "qemu:///system";
-        serviceConfig = {
-          Type = "oneshot";
-          RemainAfterExit = true;
-        };
-        script = ''
-          xml=$(virsh net-dumpxml --inactive default)
-          if printf '%s' "$xml" | grep -q 'hostsdir=/run/losos-boxes/hosts'; then
-            exit 0
-          fi
-          ns=http://libvirt.org/schemas/network/dnsmasq/1.0
-          printf '%s\n' "$xml" |
-            sed -e "0,/<network/s|<network|<network xmlns:dnsmasq='$ns'|" \
-              -e "s|</network>|<dnsmasq:options><dnsmasq:option value='hostsdir=/run/losos-boxes/hosts'/></dnsmasq:options></network>|" \
-              >/run/losos-boxes/network.xml
-          virsh -q net-define /run/losos-boxes/network.xml
-          rm /run/losos-boxes/network.xml
-          if [ "$(virsh -q net-info default | sed -n 's/^Active: *//p')" = yes ]; then
-            if [ -z "$(virsh -q list --name)" ]; then
-              virsh -q net-destroy default
-              virsh -q net-start default
-            else
-              echo "Machines are running: the default network reads the names from its next start."
-            fi
-          fi
-        '';
-      };
+      # The machines' dnsmasq reads every hosts file there, and each again
+      # whenever it changes, so a box's name answered with the LosOS boxes
+      # machine's address is answered before dnsmasq asks the host's resolved
+      # for it (docs/hypervisor.md, "Names on the network").
+      #
+      # libvirt's dnsmasq took it as an option of its network's definition,
+      # which a service of this module's added once and restarted the network
+      # for; the machines' dnsmasq is the OS's own now, and takes it outright.
+      losos.machines.network.hostsDirs = [ "/run/losos-boxes/hosts" ];
     })
   ];
 }

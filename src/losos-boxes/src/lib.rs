@@ -28,7 +28,7 @@ pub const MACHINE_TEMPLATE: &str = "losos-boxes";
 /// the host's DNS for machines answers them with the machine's address.
 pub const NAMES_PORT: u32 = 7352;
 /// Where the host keeps those answers: a hosts file per LosOS boxes machine,
-/// which libvirt's dnsmasq reads as it changes (libvirt.nix).
+/// which the machines' dnsmasq reads as it changes (quickemu.nix).
 pub const HOSTS_DIR: &str = "/run/losos-boxes/hosts";
 /// The ports the LosOS boxes machine passes on to a box for the other
 /// machines: the front door's HTTP and HTTPS, where a box serves its admin
@@ -353,23 +353,63 @@ pub enum Opens {
     Terminal,
 }
 
-/// The vsock address and the template of a machine, from its libvirt
-/// definition: the `<cid>` libvirt gave it, and the template pm recorded in
-/// its `<metadata>` (`<pm:template name='losos-boxes' .../>`), under
-/// whatever prefix libvirt writes the namespace with.
-pub fn machine_cid_and_template(xml: &str) -> (Option<u32>, Option<&str>) {
-    let attribute = |element: &str, name: &str| -> Option<&str> {
-        let start = xml.find(element)? + element.len();
-        let rest = &xml[start..];
-        let rest = &rest[..rest.find('>')?];
-        let value = &rest[rest.find(&format!("{name}="))? + name.len() + 1..];
-        let quote = value.chars().next().filter(|q| *q == '\'' || *q == '"')?;
-        let value = &value[1..];
-        Some(&value[..value.find(quote)?])
-    };
-    let cid = attribute("<cid ", "address").and_then(|a| a.parse().ok());
-    let template = attribute(":template ", "name").or_else(|| attribute("<template ", "name"));
-    (cid, template)
+/// What the relay needs of a running QEMU, from its command line (one
+/// argument per item, as `/proc/<pid>/cmdline` has them): the vsock address
+/// its vhost-vsock device gives the machine, the pid file quickemu has it
+/// write into the machine's folder, and its network card's MAC address.
+#[derive(Debug, Default, PartialEq, Eq)]
+pub struct Qemu<'a> {
+    pub cid: Option<u32>,
+    pub pid_file: Option<&'a str>,
+    pub mac: Option<&'a str>,
+}
+
+impl<'a> Qemu<'a> {
+    pub fn from_args(args: &[&'a str]) -> Qemu<'a> {
+        // `-device vhost-vsock-pci,guest-cid=N` and `-nic bridge,...,mac=M`:
+        // a value of the comma-separated options in the argument after.
+        let option = |flag: &str, kind: &str, key: &str| -> Option<&'a str> {
+            args.windows(2)
+                .filter(|pair| pair[0] == flag)
+                .map(|pair| pair[1])
+                .filter(|value| value.split(',').next() == Some(kind))
+                .find_map(|value| {
+                    value
+                        .split(',')
+                        .find_map(|item| item.strip_prefix(key)?.strip_prefix('='))
+                })
+        };
+        Qemu {
+            cid: option("-device", "vhost-vsock-pci", "guest-cid").and_then(|c| c.parse().ok()),
+            pid_file: args
+                .windows(2)
+                .find(|pair| pair[0] == "-pidfile")
+                .map(|pair| pair[1]),
+            mac: option("-nic", "bridge", "mac")
+                .or_else(|| option("-nic", "user", "mac"))
+                .or_else(|| option("-device", "virtio-net-pci", "mac")),
+        }
+    }
+}
+
+/// The template pm recorded a machine as made from, in its `machine.json`.
+pub fn record_template(record: &str) -> Option<String> {
+    let record: Value = serde_json::from_str(record).ok()?;
+    Some(record.get("template")?.get("name")?.as_str()?.to_owned())
+}
+
+/// The address the machines' DHCP gave `mac`, from dnsmasq's lease file:
+/// a line per lease, `<expiry> <mac> <address> <hostname> <client id>`.
+pub fn lease_address(leases: &str, mac: &str) -> Option<IpAddr> {
+    leases
+        .lines()
+        .filter_map(|line| {
+            let mut fields = line.split_whitespace().skip(1);
+            let (at, address) = (fields.next()?, fields.next()?);
+            at.eq_ignore_ascii_case(mac)
+                .then(|| address.parse::<IpAddr>().ok())?
+        })
+        .min_by_key(IpAddr::is_ipv6)
 }
 
 /// The addresses in a `ResolveHostname` reply, IPv4 first.
@@ -477,7 +517,7 @@ pub fn tls_server_name(hello: &[u8]) -> Option<String> {
     None
 }
 
-/// A hosts file for libvirt's dnsmasq: each of `names` at `address`.
+/// A hosts file for the machines' dnsmasq: each of `names` at `address`.
 pub fn hosts_file<'a>(address: IpAddr, names: impl IntoIterator<Item = &'a str>) -> String {
     names
         .into_iter()
@@ -743,28 +783,52 @@ mod tests {
     }
 
     #[test]
-    fn reads_a_machines_address_and_template() {
-        // Abridged from `virsh dumpxml` of a running machine pm made.
-        let xml = "<domain type='qemu' id='1'>\n  <name>boxes</name>\n  <metadata>\n    \
-                   <pm:machine xmlns:pm=\"https://losos-project.github.io/xmlns/pm-machine/1\">\n      \
-                   <pm:label>green</pm:label>\n      \
-                   <pm:template name='losos-boxes' digest='0123abcd'/>\n    \
-                   </pm:machine>\n  </metadata>\n  <devices>\n    \
-                   <vsock model='virtio'>\n      <cid auto='yes' address='3'/>\n    </vsock>\n";
+    fn reads_what_the_relay_needs_of_a_running_qemu() {
+        // Abridged from the command line quickemu gives QEMU for a machine
+        // pm made.
+        let args = [
+            "qemu-system-x86_64",
+            "-name",
+            "boxes,process=boxes",
+            "-pidfile",
+            "/home/m/.local/share/pm/machines/boxes/boxes.pid",
+            "-device",
+            "virtio-vga",
+            "-nic",
+            "bridge,br=virbr0,helper=/run/wrappers/bin/qemu-bridge-helper,model=virtio-net,mac=52:54:00:aa:bb:cc",
+            "-device",
+            "vhost-vsock-pci,guest-cid=66054",
+        ];
         assert_eq!(
-            machine_cid_and_template(xml),
-            (Some(3), Some("losos-boxes"))
+            Qemu::from_args(&args),
+            Qemu {
+                cid: Some(66054),
+                pid_file: Some("/home/m/.local/share/pm/machines/boxes/boxes.pid"),
+                mac: Some("52:54:00:aa:bb:cc"),
+            }
         );
-        let other = xml.replace("pm:", "ns0:").replace("'3'", "'17'");
+        // Windows' machines have no vsock; anything else is not QEMU.
+        assert_eq!(Qemu::from_args(&["sleep", "1"]), Qemu::default());
+        assert_eq!(Qemu::from_args(&["-device", "guest-cid=3"]).cid, None);
+    }
+
+    #[test]
+    fn reads_a_records_template() {
+        let record = r#"{"name":"boxes","template":{"name":"losos-boxes","digest":"0123"}}"#;
+        assert_eq!(record_template(record).as_deref(), Some("losos-boxes"));
+        assert_eq!(record_template(r#"{"name":"win","template":null}"#), None);
+        assert_eq!(record_template("not json"), None);
+    }
+
+    #[test]
+    fn reads_a_lease() {
+        let leases = "1760719000 52:54:00:aa:bb:cc 192.168.122.40 boxes ff:00\n\
+                      1760719000 52:54:00:11:22:33 192.168.122.41 * *\n";
         assert_eq!(
-            machine_cid_and_template(&other),
-            (Some(17), Some("losos-boxes"))
+            lease_address(leases, "52:54:00:AA:BB:CC"),
+            Some("192.168.122.40".parse().unwrap())
         );
-        // Not running, so no address; made from a CD, so no template.
-        assert_eq!(
-            machine_cid_and_template("<domain><name>win</name></domain>"),
-            (None, None)
-        );
+        assert_eq!(lease_address(leases, "52:54:00:00:00:00"), None);
     }
 
     #[test]

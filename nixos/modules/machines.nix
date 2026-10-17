@@ -8,8 +8,9 @@
 # set, the way installer.nix evaluates the installer.
 #
 # Templates live under share/losos/machines, on XDG_DATA_DIRS, where derisk's
-# Machines app looks for them, and `pm machine create --image` takes them
-# from there into libvirt's default pool. They are in /usr, covered by its
+# Machines app looks for them, and `pm machine create --image` copies them
+# from there into the person's own machines folder once, read-only, as the
+# base each machine's disk is a layer over. They are in /usr, covered by its
 # verity hash like the rest of the OS, so a template is exactly what the
 # release built; an update brings a new one, which new machines are made
 # from while machines made earlier keep the template they were made from.
@@ -133,9 +134,8 @@ let
   );
 
   # qcow2, compressed: the raw image is as large as a machine's whole disk,
-  # and all but the store in it is empty. libvirt reads a compressed qcow2
-  # as a backing file like any other, and pm uploads it into the pool as it
-  # is.
+  # and all but the store in it is empty. QEMU reads a compressed qcow2 as a
+  # backing file like any other, and pm copies it as it is.
   #
   # Beside each, <name>.apps: the apps the guest has when it is new, as its
   # own `losos-guest-run --list` would print them, read from the system
@@ -249,11 +249,12 @@ in
     );
     default = { };
     description = ''
-      Machines the host makes by itself, by name, for a part of the OS that
-      runs in a machine of its own rather than on the host, such as
-      flatpak-machine.nix's Flatpak machine. Each is made once, at the first
-      boot that declares it, the way a person would make it with `pm
-      machine create`; one its owner has removed since is not made again.
+      Machines the OS makes for every person, by name, for a part of the OS
+      that runs in a machine of its own rather than on the host, such as
+      flatpak-machine.nix's Flatpak machine. Each is made once in a person's
+      own machines, at the first sign-in that declares it, the way they
+      would make it with `pm machine create`; one they removed since is not
+      made again.
     '';
   };
 
@@ -279,55 +280,69 @@ in
       message = "losos.machines.system.${name}: there is no template ${machine.template} in losos.machines.guests";
     }) config.losos.machines.system;
 
-    # Makes losos.machines.system's machines through pm, as root. pm runs a
-    # plugin only when it is signed by a key its user trusts, and root is a
-    # user like any other here: this unit keeps a key of its own under its
-    # state directory, made once on this computer and never in the image
-    # (a key the image carried would be one every LosOS computer trusted),
-    # and signs the image's libvirt plugin with it at every start, since an
-    # update may bring a new one. Which machines it made is kept there too,
-    # so one its owner removed in the Machines app stays removed.
+    # Makes losos.machines.system's machines through pm, in each person's
+    # own machines (~/.local/share/pm/machines), when they sign in: a
+    # machine is its owner's, as quickemu runs it, so the OS's are made per
+    # person like the ones they make themselves. pm runs a plugin only when
+    # it is signed by a key its user trusts, and the person may have no key
+    # or plugin set up: this unit keeps a key of its own under their state
+    # directory, made once on this computer and never in the image (a key
+    # the image carried would be one every LosOS computer trusted), with a
+    # pm configuration of its own beside it, and signs the image's quickemu
+    # plugin with it at every start, since an update may bring a new one.
+    # Which machines it made is kept there too, so one its owner removed in
+    # the Machines app stays removed.
+    #
+    # A system service made them once, as root, while libvirt kept the
+    # machines in its system daemon for everyone; quickemu has no such
+    # place, and a machine in root's home would be nobody's to open.
+    #
     # Without the templates in the image there is nothing to make them from.
-    systemd.services.losos-system-machines =
+    systemd.user.services.losos-system-machines =
       lib.mkIf (config.losos.machines.system != { } && config.losos.machines.templates)
         {
           description = "Make the machines the system runs parts of itself in";
-          wantedBy = [ "multi-user.target" ];
-          requires = [ "libvirt-defaults.service" ];
-          after = [ "libvirt-defaults.service" ];
+          # The login screen's own user, and any other system account that
+          # gets a user manager, is not a person.
+          unitConfig.ConditionUser = "!@system";
+          wantedBy = [ "default.target" ];
+          # pm and what the quickemu plugin's steps run.
           path = [
             pkgs.pm
-            config.virtualisation.libvirtd.package
+            pkgs.quickemu
+            pkgs.qemu-utils
             pkgs.coreutils
+            pkgs.findutils
+            config.systemd.package
           ];
-          environment = {
-            LIBVIRT_DEFAULT_URI = "qemu:///system";
-            NO_COLOR = "1";
-          };
+          environment.NO_COLOR = "1";
           serviceConfig = {
             Type = "oneshot";
             RemainAfterExit = true;
-            StateDirectory = "losos-machines";
-            StateDirectoryMode = "0700";
           };
           script = ''
-            export HOME="$STATE_DIRECTORY" XDG_CONFIG_HOME="$STATE_DIRECTORY/config"
+            state="''${XDG_STATE_HOME:-$HOME/.local/state}/losos/system-machines"
+            machines="''${XDG_DATA_HOME:-$HOME/.local/share}/pm/machines"
+            # Its own pm configuration, key and plugins; the machines still
+            # go where the person's own do, under XDG_DATA_HOME.
+            export XDG_CONFIG_HOME="$state/config"
             plugins="$XDG_CONFIG_HOME/pm/plugins"
+            mkdir -p -m 0700 "$state"
             [ -e "$XDG_CONFIG_HOME/pm/signing.key" ] || pm keygen
-            mkdir -p "$plugins" "$STATE_DIRECTORY/made"
-            install -m 0644 ${pkgs.pm-plugins}/share/pm/plugins/libvirt.wasm "$plugins/libvirt.wasm"
-            pm sign "$plugins/libvirt.wasm"
+            mkdir -p "$plugins" "$state/made"
+            install -m 0644 ${pkgs.pm-plugins}/share/pm/plugins/quickemu.wasm "$plugins/quickemu.wasm"
+            pm sign "$plugins/quickemu.wasm"
 
             make_machine() {
               name=$1
               shift
-              if virsh -q dominfo "$name" >/dev/null 2>&1 || [ -e "$STATE_DIRECTORY/made/$name" ]; then
+              if [ -e "$machines/$name/machine.json" ] || [ -e "$state/made/$name" ]; then
                 return 0
               fi
               image=$1
               shift
               pm machine create "$name" --image "$image" "$@"
-              touch "$STATE_DIRECTORY/made/$name"
+              touch "$state/made/$name"
             }
             ${lib.concatMapStrings (args: "make_machine ${args}\n") systemMachines}
           '';

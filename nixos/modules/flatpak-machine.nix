@@ -1,16 +1,16 @@
 # Flatpak on a PC: a machine of its own (docs/hypervisor.md, "The Flatpak
 # machine"), and nothing of Flatpak on the host. Flatpak, Flathub and
 # Bazaar run in the machine made from nixos/guest/flatpak.nix, which this
-# module adds to the templates as losos-flatpak and has the host make as
-# the machine `flatpak`, labelled purple. Its apps are on the desktop as
+# module adds to the templates as losos-flatpak and has made for every
+# person as their machine `flatpak`, labelled purple. Its apps are on the desktop as
 # that machine's, in the palette whether it runs or not; picking one
 # starts it. Settings' Privacy page changes their permissions there.
 #
 # Flatpak ran on the host before, so a host that updates into this may
-# have apps and their data where the host kept them. They move into the
-# machine once: the apps installed for everyone at the first boot that has
-# the machine, and each person's own apps and data at their next sign-in,
-# when their home is open.
+# have apps and their data where the host kept them. They move into each
+# person's Flatpak machine once, at their next sign-in, when their home is
+# open: the apps installed for everyone, their own apps, and every app's
+# data.
 #
 # A phone has no machines; the GSI imports flatpak.nix itself and keeps
 # Flatpak on the host.
@@ -27,7 +27,9 @@ let
   moveHost = pkgs.writeShellApplication {
     name = "losos-flatpak-move-host";
     runtimeInputs = [
-      config.virtualisation.libvirtd.package
+      pkgs.quickemu
+      pkgs.socat
+      config.systemd.package
       pkgs.coreutils
       pkgs.findutils
       pkgs.e2fsprogs
@@ -44,69 +46,55 @@ in
     label = "purple";
   };
 
-  # The apps the host had installed for everyone. /var/lib/flatpak is
-  # what flatpak.nix left there; once its contents are in the machine it
-  # goes, since nothing on the host reads it any more. A machine that is
-  # running is not moved into; the next boot tries again.
-  systemd.services.losos-flatpak-move = {
-    description = "Move the apps Flatpak installed on the host into the Flatpak machine";
-    wantedBy = [ "multi-user.target" ];
-    requires = [ "losos-system-machines.service" ];
-    after = [ "losos-system-machines.service" ];
-    unitConfig.ConditionDirectoryNotEmpty = "/var/lib/flatpak/app";
-    environment.LIBVIRT_DEFAULT_URI = "qemu:///system";
-    serviceConfig = {
-      Type = "oneshot";
-      SuccessExitStatus = [ 75 ];
-    };
-    script = ''
-      if ! ${config.virtualisation.libvirtd.package}/bin/virsh -q dominfo ${machine} >/dev/null 2>&1; then
-        exit 0
-      fi
-      ${lib.getExe moveHost} ${machine} system /var/lib/flatpak
-      rm -rf /var/lib/flatpak
-    '';
-  };
-
-  # Each person's: the apps they installed for themselves
-  # (~/.local/share/flatpak) and every app's data (~/.var/app), at sign-in,
-  # when a homed home is open. Administrators only, whom polkit lets manage
-  # machines without asking; anyone else would be asked for a password by a
-  # dialog they did not open, and moves theirs by hand (docs/hypervisor.md).
-  # The apps go from the host once moved; their data stays until its owner
-  # deletes it, and a mark says it was moved.
+  # What Flatpak kept on the host: the apps it installed for everyone
+  # (/var/lib/flatpak), the person's own (~/.local/share/flatpak) and every
+  # app's data (~/.var/app), each moved once into the person's own Flatpak
+  # machine, at sign-in, when a homed home is open and the machine is made
+  # (machines.nix). Their own apps go from the host once moved; their data
+  # stays until its owner deletes it, and a mark says each was moved. A
+  # machine that is running is not moved into; the next sign-in tries again.
+  #
+  # A system service moved /var/lib/flatpak once, into the one machine
+  # libvirt kept for everyone, and removed it, and only administrators'
+  # own files moved, since polkit asked anyone else for a password to
+  # manage a machine. Every person has their own machine now and manages
+  # it without asking, so everyone's move here, and /var/lib/flatpak stays
+  # for whoever has not signed in since (docs/not-done.md).
   systemd.user.services.losos-flatpak-move = {
-    description = "Move your Flatpak apps and their data into the Flatpak machine";
+    description = "Move your Flatpak apps and their data into your Flatpak machine";
     unitConfig.ConditionUser = "!@system";
-    wantedBy = [ "graphical-session.target" ];
-    after = [ "graphical-session.target" ];
-    path = [
-      config.virtualisation.libvirtd.package
-      pkgs.coreutils
-      pkgs.gnugrep
-    ];
-    environment.LIBVIRT_DEFAULT_URI = "qemu:///system";
+    wantedBy = [ "default.target" ];
+    wants = [ "losos-system-machines.service" ];
+    after = [ "losos-system-machines.service" ];
+    path = [ pkgs.coreutils ];
     serviceConfig = {
       Type = "oneshot";
       SuccessExitStatus = [ 75 ];
     };
     script = ''
-      moved="''${XDG_STATE_HOME:-$HOME/.local/state}/losos/flatpak-moved"
-      if [ -e "$moved" ] || ! id -nG | tr ' ' '\n' | grep -qx wheel; then
+      state="''${XDG_STATE_HOME:-$HOME/.local/state}/losos"
+      folder="''${XDG_DATA_HOME:-$HOME/.local/share}/pm/machines/${machine}"
+      if [ ! -e "$folder/machine.json" ]; then
         exit 0
       fi
-      if ! virsh -q dominfo ${machine} >/dev/null 2>&1; then
-        exit 0
-      fi
-      if [ -n "$(ls -A "$HOME/.local/share/flatpak/app" 2>/dev/null)" ]; then
-        ${lib.getExe moveHost} ${machine} user-flatpak "$HOME/.local/share/flatpak"
-        rm -rf "$HOME/.local/share/flatpak"
-      fi
-      if [ -n "$(ls -A "$HOME/.var/app" 2>/dev/null)" ]; then
-        ${lib.getExe moveHost} ${machine} var-app "$HOME/.var/app"
-      fi
-      mkdir -p "$(dirname "$moved")"
-      touch "$moved"
+      mkdir -p "$state"
+      # move <kind> <dir> <what of it> [remove]: once per kind, when there
+      # is something to move, and the person's own copy removed after.
+      move() {
+        if [ -e "$state/flatpak-moved-$1" ]; then
+          return 0
+        fi
+        if [ -n "$(ls -A "$2/$3" 2>/dev/null)" ]; then
+          ${lib.getExe moveHost} ${machine} "$1" "$2"
+          if [ "''${4:-}" = remove ]; then
+            rm -rf "$2"
+          fi
+        fi
+        touch "$state/flatpak-moved-$1"
+      }
+      move system /var/lib/flatpak app
+      move user-flatpak "$HOME/.local/share/flatpak" app remove
+      move var-app "$HOME/.var/app" .
     '';
   };
 }

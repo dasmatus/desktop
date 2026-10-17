@@ -3,7 +3,7 @@
 ## pm's plugins
 
 `nixos/pkgs/pm-plugins.nix` builds seven components, this repository's three
-and pm's own `libvirt`, `sysext`, `sysupdate` and `systemd`, and the image
+and pm's own `quickemu`, `sysext`, `sysupdate` and `systemd`, and the image
 carries them in
 `/run/current-system/sw/share/pm/plugins`. pm loads plugins only from a user's
 own `~/.config/pm/plugins`, and only signed by a key that user trusts, so the
@@ -115,50 +115,37 @@ one of each package compiles its whole static closure.
 
 ## Virtual machines
 
-The image runs libvirt from boot (`nixos/modules/libvirt.nix`, [Virtual
-machine desktop](hypervisor.md)): QEMU for the machine's own architecture,
-with KVM where the CPU has it. virt-manager and `virsh` use it as on any
-distribution. `LIBVIRT_DEFAULT_URI` is `qemu:///system` for every session.
-Administrators, the `wheel` members first-boot setup makes, may manage
-machines there without being asked; everyone else is asked for an
-administrator's password.
+The image runs no hypervisor daemon. `nixos/modules/quickemu.nix`
+([Virtual machine desktop](hypervisor.md)) installs quickemu and gives the
+machines a network, and each person runs their own machines as
+themselves, with KVM where the CPU has it, without asking anyone.
 
 pm boots a package that ships its own kernel (`kernel(...)` in its recipe, see
-pm's README) in a virtual machine. On its own it starts QEMU itself, as you.
-With pm's `libvirt` plugin installed and signed (as above; it is one of the
-seven), it asks libvirt instead:
+pm's README) in a virtual machine, starting QEMU itself, as you:
 
 ```
-pm run hello.cpkg          # through libvirt, when the plugin is installed
-pm run --qemu hello.cpkg   # QEMU directly, as you, asking no plugin
+pm run hello.cpkg
 ```
 
-The plugin is a WebAssembly component like the rest, and it can reach nothing
-itself: it writes a transient domain definition and names one program,
-`virsh`, which `pm plugins` lists under `launchers:`, and pm runs
-`virsh create --console --autodestroy` with it. virsh connects where it always
-does, `LIBVIRT_DEFAULT_URI`, which here is `qemu:///system`. There QEMU runs as
-libvirt's own user rather than as you, in its own cgroup and mount namespace
-with QEMU's seccomp sandbox on, and libvirt hands it the kernel, the
-initramfs and the two serial sockets for the life of the machine.
-`virsh list` and virt-manager show the machine as `pm-vm-<random>`, titled
-`pm run: <program>`, while it runs. It is destroyed when virsh's connection
-closes, and pm stops virsh when pm dies, so a killed pm takes its machine with
-it, and Ctrl-C stops it and gives the terminal back. The guest is what it is
-under QEMU: the package and the libraries its programs link, no network device
-and no disk. Only x86-64 boots a package's kernel.
+The guest is what it is under QEMU: the package and the libraries its
+programs link, no network device and no disk. Only x86-64 boots a
+package's kernel. pm's `quickemu` plugin declines such a boot, and pm's
+`libvirt` plugin, which handed it to libvirt through `virsh create`, is not
+in the image any more: there is no libvirt for it to drive.
 
-The real boot through the plugin (a distribution kernel running a probe
-through `qemu:///system`, QEMU as libvirt's own user, under TCG) passed on an
-Ubuntu host with libvirt 10.0, as did the same boot with pm's own QEMU. Neither
-the module nor the plugin has run on this image yet.
+pm's own QEMU boot of a distribution kernel running a probe, under TCG,
+ran on an Ubuntu host, as did the same boot through the libvirt plugin
+while the image still carried libvirt. Neither has run on this image yet.
 
 ### Machines that stay
 
 `pm machine` keeps virtual machines that outlive any one command, the
-machines of the [virtual machine desktop](hypervisor.md). As with `pm run`,
-pm leaves libvirt to its `libvirt` plugin, which turns each request into the
-`virsh` steps that carry it out:
+machines of the [virtual machine desktop](hypervisor.md). pm leaves them to
+its `quickemu` plugin, which turns each request into the steps that carry
+it out, held to the programs `pm plugins` lists under its `launchers:`
+(`cp`, `qemu-img`, `quickemu`, `systemd-run`, `systemctl` and a few
+more). Like every plugin it has to be installed and signed
+([above](#pms-plugins)); derisk's Machines app offers to do that for you.
 
 ```
 pm machine create work \
@@ -171,24 +158,36 @@ pm machine kill work        # pulls the plug
 pm machine remove work      # the machine and its disk; the template stays
 ```
 
-The template becomes a read-only volume in libvirt's `default` pool, named
-after it and its digest, so every machine made from one image shares it. A
-machine's disk is a qcow2 overlay on it (`pm-machine-<name>.qcow2`), as
-large as `--disk` says and never smaller than the template, and its
-definition is a persistent domain that carries its label and template in
-`<metadata>`, a vsock device and a channel for the QEMU guest agent. derisk's
-Machines app runs these same commands.
+A machine is yours, as your files are: everything of it is under
+`~/.local/share/pm/machines`, which pm keeps private to you, and it runs as
+you. The template is copied in read-only the first time, as
+`templates/<name>-<digest>.qcow2`, so every machine of yours made from one
+image shares it, and a changed image is a new template beside the old one.
+The machine is a folder, `<name>/`, holding its disk, `disk.qcow2`, a qcow2
+layer on the template as large as `--disk` says and never smaller than the
+template, and pm's record of it, `machine.json`, with its label, its
+template and its vsock address; beside the folder is `<name>.conf`, the
+settings quickemu reads. `start` runs `quickemu --vm <name>.conf` as a
+service of your own systemd user manager, `pm-machine-<name>`, through
+`systemd-run --user`; `stop` has quickemu say `system_powerdown` on QEMU's
+monitor; `kill` stops the service; `list` names the folders and the
+services that run. derisk's Machines app reads the same folders and starts
+a machine the same way.
 
 `--installer CD.iso` (more than once for more CDs) makes an empty machine
 that installs its system from them instead, and `--system windows` makes it
 a Windows PC; pm adds the image's CD of guest tools for that system, from
 `share/pm/machines` on `XDG_DATA_DIRS`, or the one `--tools` names
 ([Machines from an installer CD](hypervisor.md#machines-from-an-installer-cd)).
-Removing a machine deletes only its own disk (`virsh undefine --storage
-vda`), never a template or CD another machine may share.
+quickemu takes two CDs at most, the installer's and one of tools. Each is
+copied in read-only under `cds/` once and shared like a template. Removing
+a machine deletes its folder and its settings, never a template or CD
+another machine may share.
 
 `nixos/tests/machines.nix` makes a machine from the image's own template
-this way, under TCG, and checks that it boots, grows its root over its
-8 GiB disk, gets an address on libvirt's network, lists its apps through the
-agent, and that opening one reaches the host's vsock port 7350 from the
-address libvirt gave the machine. CI runs it with the other VM tests.
+this way, under TCG, and checks that quickemu boots it, that it grows its
+root over its 8 GiB disk, gets an address on the machines' network, lists
+its apps through the agent, and that opening one reaches the host's vsock
+port 7350 from the address in pm's record. The test runs as root, so its
+machines are root's and run as system services. CI runs it with the other
+VM tests.

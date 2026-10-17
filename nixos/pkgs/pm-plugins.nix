@@ -43,8 +43,11 @@ let
     "losos-nix"
     "losos-systemd"
   ];
+  # Not libvirt's, since quickemu took libvirt's place
+  # (modules/quickemu.nix): without libvirt in the image, it has nothing to
+  # drive, and pm boots a package's kernel with its own QEMU instead.
   fromPm = [
-    "libvirt"
+    "quickemu"
     "sysext"
     "sysupdate"
     "systemd"

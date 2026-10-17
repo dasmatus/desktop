@@ -30,7 +30,7 @@ in
   ];
 
   # The boxes are found by mDNS, which this machine cannot do itself: it
-  # does none (common.nix), and libvirt's NAT would keep its multicast off
+  # does none (common.nix), and the host's NAT would keep its multicast off
   # the host's LAN anyway. So it browses through the host's resolved,
   # which does mDNS on every network the host is on: this socket, which
   # any account here may use, is carried to the host's relay on vsock port

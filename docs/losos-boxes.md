@@ -61,17 +61,22 @@ seconds, one box per line, with its address and release.
 
 The resolved it browses through is the host's. The machine does no mDNS
 of its own ([names on the network](hypervisor.md#names-on-the-network)),
-and its multicast would not get past libvirt's NAT to the LAN anyway,
+and its multicast would not get past the host's NAT to the LAN anyway,
 while the host's resolved does mDNS on every network the host is on. So
 `LOSOS_BOXES_RESOLVE` points the machine's losos-boxes at
 `/run/losos-boxes/resolve`, a socket that `systemd-socket-proxyd` carries
 to the host over vsock, port 7351. There `losos-boxes relay`
-(`nixos/modules/losos-boxes.nix`) takes the connection, asks libvirt which
-machine has the vsock address the kernel stamped on it, and passes it to
-resolved's Varlink socket only if pm recorded that machine's template as
-`losos-boxes`; any other machine is refused. Varlink's resolve interface
-only looks things up, so the machine can browse and resolve through the
-host and change nothing there.
+(`nixos/modules/losos-boxes.nix`), a system service under an account of
+its own, takes the connection and finds the QEMU whose vsock device has
+the address the kernel stamped on it, by its command line in `/proc`. The
+pid file on that command line names the machine's folder, and the relay
+passes the connection to resolved's Varlink socket only if pm's record
+there, `machine.json`, belongs to the account QEMU runs as and says the
+machine was made from `losos-boxes`; any other machine is refused. A
+machine is its owner's, in their home, so the relay may read any file
+(`CAP_DAC_READ_SEARCH`) and write only its own. Varlink's resolve
+interface only looks things up, so the machine can browse and resolve
+through the host and change nothing there.
 
 ## From the other machines
 
@@ -81,12 +86,18 @@ the one machine that talks to boxes:
 1. `losos-boxes route`, a system service of the LosOS boxes machine,
    finds the boxes the same way and sends their names to the host's relay
    on vsock port 7352 whenever they change.
-2. The relay writes them, at the address libvirt's DHCP gave that machine,
-   into `/run/losos-boxes/hosts/<machine>`. libvirt's dnsmasq, the DNS
-   server of every machine, reads that directory whenever it changes
-   (`hostsdir`, an option `losos-boxes-dns` adds to the `default` network
-   once, at boot), so `mattbox.local` is answered with the LosOS boxes
-   machine's address before dnsmasq would ask the host's resolved.
+2. The relay writes them, at the address the machines' DHCP gave that
+   machine (dnsmasq's lease for the MAC address on its QEMU's command
+   line), into `/run/losos-boxes/hosts/<uid>-<machine>`, named after its
+   owner's account as well as the machine, since two people may each have
+   a machine called `boxes`. The machines' dnsmasq, `losos-machines-dns`,
+   the DNS server of every machine, reads that directory whenever it
+   changes (`--hostsdir`, from `losos.machines.network.hostsDirs`), so
+   `mattbox.local` is answered with the LosOS boxes machine's address
+   before dnsmasq would ask the host's resolved. `losos-boxes-dns`, which
+   added the directory to libvirt's network once at boot and restarted it,
+   went with libvirt: the machines' dnsmasq is the OS's own and takes it
+   as an argument.
 3. `route` takes each connection on ports 80 and 443, reads the name it is
    for from its `Host` header or its TLS ClientHello's server name, and
    passes it on to that box as it is, TLS included: the certificate the
@@ -95,9 +106,11 @@ the one machine that talks to boxes:
 
 When the LosOS boxes machine stops, its hosts file goes, and box names are
 answered as any other `.local` name again: by the host, with the box's
-own address. Only ports 80 and 443 go through it, which is where a box
-serves its admin pages, its cloud and its Git; an app's own port on a box
-is reached directly. And nothing stops a machine from dialling a box's
+own address. Every person's machines are on the one network and ask the
+one dnsmasq, so one person's LosOS boxes machine names the boxes for
+everyone's machines while it runs. Only ports 80 and 443 go through it,
+which is where a box serves its admin pages, its cloud and its Git; an
+app's own port on a box is reached directly. And nothing stops a machine from dialling a box's
 address it knows: what goes through the LosOS boxes machine is what is
 reached by name.
 

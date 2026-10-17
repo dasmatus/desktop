@@ -13,7 +13,7 @@
     ./boot-sound.nix
     ./hardware.nix
     ./nvidia.nix
-    ./libvirt.nix
+    ./quickemu.nix
     ./machines.nix
     ./flatpak-machine.nix
     ./allocator.nix

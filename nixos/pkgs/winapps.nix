@@ -17,7 +17,6 @@
   libnotify,
   netcat,
   iproute2,
-  libvirt,
 }:
 
 stdenv.mkDerivation (finalAttrs: {
@@ -44,8 +43,10 @@ stdenv.mkDerivation (finalAttrs: {
   '';
 
   # What upstream's package installs, less what only its docker and podman
-  # flavours use: on LosOS the machine is libvirt's, which is where pm made
-  # it, so `virsh` is on its PATH too.
+  # flavours use. On LosOS it takes its manual flavour, which reaches the
+  # machine by name over the machines' network (docs/hypervisor.md,
+  # "Windows"); its libvirt flavour, and the virsh it needed on its PATH,
+  # went with libvirt.
   installPhase = ''
     runHook preInstall
 
@@ -62,7 +63,6 @@ stdenv.mkDerivation (finalAttrs: {
             libnotify
             netcat
             iproute2
-            libvirt
           ]
         }
     done

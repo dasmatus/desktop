@@ -162,12 +162,12 @@ just plugins    # nix build .#pm-plugins -o plugins/dist
 ```
 
 That leaves seven components in `dist/share/pm/plugins`: this tree's three,
-and four of pm's own — `libvirt`, `sysext`, `sysupdate` and `systemd` — built
+and four of pm's own — `quickemu`, `sysext`, `sysupdate` and `systemd` — built
 from the `components/pm` submodule, the commit pm itself is built from, rather
 than copied here to drift. Three read the sysupdate transfers and sysext
-definitions `nixos/` ships and name the systemd tools a recipe calls; `libvirt` boots a
-package's own kernel through the libvirt the image runs (`docs/pm.md`, "Virtual
-machines"). pm's `zig` is left out: nothing here
+definitions `nixos/` ships and name the systemd tools a recipe calls; `quickemu`
+makes and runs `pm machine`'s machines (`docs/pm.md`, "Machines that stay"). pm's
+`libvirt` is left out with libvirt, which the image no longer runs. pm's `zig` is left out: nothing here
 builds with it. pm consults plugins in file-name order and takes the first
 verdict, so where `losos-image` and pm's `sysext` both name a tool
 (`systemd-repart`, `mkfs.erofs`), `losos-image` answers. The NixOS image carries all

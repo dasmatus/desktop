@@ -5,13 +5,13 @@
 # the image's own package set, sets `losos.guest.name` to its name there,
 # and turns `system.build.image` into share/losos/machines/<name>.qcow2, which
 # derisk's Machines app offers when a machine is made and `pm machine
-# create` installs into libvirt.
+# create` makes a machine's disk on.
 #
 # A guest has no screen and no session. Its apps' windows go to the host's
 # desktop through one waypipe server, which the guest's user runs from boot
 # and which carries each app's Wayland connection to the host over vsock; the
-# host knows which machine a window is from by the vsock address libvirt
-# gave it. The host starts apps here through the QEMU guest agent and
+# host knows which machine a window is from by the vsock address its
+# QEMU gave it. The host starts apps here through the QEMU guest agent and
 # `losos-guest-run`, and nothing else in the guest listens for the host.
 {
   config,
@@ -86,7 +86,7 @@ in
 
     # A machine's disk is larger than the template that is its base, and the
     # root partition takes the rest of it the first time the machine boots.
-    # The disk is always vda: pm's libvirt plugin gives a machine one virtio
+    # The disk is always vda: pm's quickemu plugin gives a machine one virtio
     # disk and nothing else. Partitions repart has no definition for, the
     # ESP, are left as they are.
     boot.initrd.systemd.repart = {
@@ -126,7 +126,7 @@ in
     services.qemuGuest.enable = true;
 
     # NetworkManager, unlike the host's networkd: it takes the address and the
-    # host's resolver from libvirt's default network by DHCP, and asks
+    # host's resolver from the machines' network by DHCP, and asks
     # GNOME's check, nmcheck.gnome.org, whether that reaches the internet, the
     # same check Danube makes on the host (captive.rs). Apps a person
     # installs here ask it whether they are online, through GLib or the
@@ -147,10 +147,10 @@ in
     networking.modemmanager.enable = false;
 
     # .local names are the host's to look up (docs/hypervisor.md, "Names on
-    # the network"). libvirt's NAT carries no multicast between the machine
+    # the network"). The host's NAT carries no multicast between the machine
     # and the host's own networks, so an mDNS query asked here would reach
     # only the other machines on virbr0 and never a box on the host's LAN.
-    # Asked of the host's resolver instead, libvirt's dnsmasq hands it to
+    # Asked of the host's resolver instead, the machines' dnsmasq hands it to
     # resolved on the host, which asks every network the host is on. resolved
     # sends .local to a unicast server only on a link that names it as a
     # routing domain, hence ~local in the card's NetworkManager profile; and
@@ -160,9 +160,11 @@ in
       MulticastDNS = false;
       LLMNR = false;
     };
-    networking.networkmanager.ensureProfiles.profiles.libvirt = {
+    # The profile was "libvirt" while libvirt ran the machines. It lives in
+    # /run, so a machine made before has the new one from its next boot.
+    networking.networkmanager.ensureProfiles.profiles.machines = {
       connection = {
-        id = "libvirt";
+        id = "machines";
         type = "ethernet";
         mdns = 0;
         llmnr = 0;
@@ -226,8 +228,8 @@ in
       config.common.default = "gtk";
     };
 
-    # A captive portal is the host's to deal with: the guest is behind
-    # libvirt's NAT.
+    # A captive portal is the host's to deal with: the guest is behind the
+    # host's NAT.
     losos.captivePortal.enable = false;
 
     # Hack Nerd Font for derisk-terminal, as on the host (modules/desktop.nix).

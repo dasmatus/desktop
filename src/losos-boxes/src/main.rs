@@ -41,9 +41,9 @@ use tracing::{debug, info, warn};
 use tracing_subscriber::EnvFilter;
 
 use losos_boxes::{
-    browse_events, frame, hostname_addresses, hosts_file, http_host, is_box_state,
-    machine_cid_and_template, ok_body, parse_reply, parse_resolved, resolve_parameters,
-    state_request, tls_record_len, tls_server_name, Boxes, Change, Instance, LososBox, Opens, Seen,
+    browse_events, frame, hostname_addresses, hosts_file, http_host, is_box_state, lease_address,
+    ok_body, parse_reply, parse_resolved, record_template, resolve_parameters, state_request,
+    tls_record_len, tls_server_name, Boxes, Change, Instance, LososBox, Opens, Qemu, Seen,
     BOX_TYPE, DOMAIN, ENTRY_PREFIX, HOSTS_DIR, MACHINE_TEMPLATE, NAMES_PORT, RELAY_PORT,
     RESOLVE_SOCKET, ROUTED_PORTS, WORKSTATION_TYPE,
 };
@@ -424,16 +424,17 @@ fn run_losos(args: &[&str]) -> Result<()> {
 
 /// Lets the LosOS boxes machine browse and resolve through this host's
 /// resolved, which does mDNS on every network the host is on, the LAN
-/// included: a machine behind libvirt's NAT can multicast only to the other
-/// machines. Each vsock connection is let through to resolved's Varlink
-/// socket if libvirt says the machine at its address was made from the
-/// LosOS boxes template, and refused otherwise; the address is the one the
-/// kernel stamps on the connection, so a machine cannot claim another's.
+/// included: a machine behind the host's NAT can multicast only to the
+/// other machines. Each vsock connection is let through to resolved's
+/// Varlink socket if the QEMU running at its address is a machine pm
+/// recorded as made from the LosOS boxes template, and refused otherwise;
+/// the address is the one the kernel stamps on the connection, so a machine
+/// cannot claim another's.
 /// What goes through is resolved's lookup API: names, addresses, services,
 /// records and browsing, nothing that changes the host.
 ///
 /// On a second port it takes the names of the boxes that machine found, and
-/// writes them into a hosts file for libvirt's dnsmasq at that machine's
+/// writes them into a hosts file for the machines' dnsmasq at that machine's
 /// address, so the other machines' connections to a box go to it. The file
 /// goes when the machine hangs up: a stopped machine routes nothing.
 fn relay() -> Result<()> {
@@ -478,11 +479,12 @@ fn relay() -> Result<()> {
 /// the names it sends: one per line, each list ended by an empty line.
 fn name_boxes(stream: vsock::VsockStream) -> Result<()> {
     let cid = stream.peer_addr().into_diagnostic()?.cid();
-    let Some(name) = machine_at(cid)? else {
+    let Some(machine) = machine_at(cid)? else {
         info!(cid, "refused: not a LosOS boxes machine");
         return Ok(());
     };
-    let address = machine_address(&name)?;
+    let address = machine.address()?;
+    let name = machine.file_name();
     let file = Path::new(HOSTS_DIR).join(&name);
     info!(%name, %address, "naming its boxes");
     let mut list = BTreeSet::new();
@@ -517,11 +519,11 @@ fn name_boxes(stream: vsock::VsockStream) -> Result<()> {
 
 fn relay_one(machine: vsock::VsockStream) -> Result<()> {
     let cid = machine.peer_addr().into_diagnostic()?.cid();
-    let Some(name) = machine_at(cid)? else {
+    let Some(found) = machine_at(cid)? else {
         info!(cid, "refused: not a LosOS boxes machine");
         return Ok(());
     };
-    debug!(%name, cid, "relaying");
+    debug!(name = found.name, uid = found.uid, cid, "relaying");
     let socket = UnixStream::connect(RESOLVE_SOCKET)
         .into_diagnostic()
         .wrap_err_with(|| format!("cannot reach systemd-resolved at {RESOLVE_SOCKET}"))?;
@@ -545,58 +547,97 @@ fn relay_one(machine: vsock::VsockStream) -> Result<()> {
     Ok(())
 }
 
-/// The address libvirt's DHCP gave the machine `name` on its network.
-fn machine_address(name: &str) -> Result<IpAddr> {
-    let output = virsh(&["domifaddr", name, "--source", "lease"])?;
-    output
-        .lines()
-        .filter_map(|line| line.split_whitespace().nth(3))
-        .filter_map(|cidr| cidr.split('/').next()?.parse::<IpAddr>().ok())
-        .min_by_key(IpAddr::is_ipv6)
-        .ok_or_else(|| miette!("libvirt has no address for the machine {name} yet"))
+/// Where the machines' dnsmasq keeps the addresses it gave them
+/// (quickemu.nix), under its dynamic user's state directory.
+const LEASES: &str = "/var/lib/private/losos-machines-dns/leases";
+
+/// A running LosOS boxes machine, as the relay found it.
+struct BoxesMachine {
+    /// Its name, which is only its owner's: two people may both have one
+    /// called `boxes`.
+    name: String,
+    /// Its owner.
+    uid: u32,
+    /// Its network card's address, which its lease is under.
+    mac: String,
 }
 
-/// The name of the running machine at vsock address `cid`, if libvirt has
-/// it as made from the LosOS boxes template. A read-only connection, which
-/// every account has, is enough to ask.
-fn machine_at(cid: u32) -> Result<Option<String>> {
-    for name in virsh(&["list", "--name"])?
-        .lines()
-        .filter(|n| !n.is_empty())
-    {
-        let xml = match virsh(&["dumpxml", name]) {
-            Ok(xml) => xml,
-            // It stopped between the two calls.
-            Err(e) => {
-                debug!(%name, error = ?e, "skipped");
-                continue;
-            }
-        };
-        if let (Some(at), template) = machine_cid_and_template(&xml) {
-            if at == cid {
-                return Ok((template == Some(MACHINE_TEMPLATE)).then(|| name.to_owned()));
-            }
-        }
+impl BoxesMachine {
+    /// Its hosts file's name: the owner's and the machine's, so two
+    /// people's machines of one name keep a file each.
+    fn file_name(&self) -> String {
+        format!("{}-{}", self.uid, self.name)
     }
-    Ok(None)
+
+    /// The address the machines' DHCP gave it.
+    fn address(&self) -> Result<IpAddr> {
+        let leases = std::fs::read_to_string(LEASES)
+            .into_diagnostic()
+            .wrap_err_with(|| format!("cannot read {LEASES}"))?;
+        lease_address(&leases, &self.mac)
+            .ok_or_else(|| miette!("the machine {} has no address yet", self.name))
+    }
 }
 
-/// virsh on a read-only connection, which every account has.
-fn virsh(args: &[&str]) -> Result<String> {
-    let output = Command::new("virsh")
-        .args(["-r", "-q"])
-        .args(args)
-        .output()
+/// The running LosOS boxes machine at vsock address `cid`, if that is what
+/// it is. The kernel lets no two running machines share an address, so the
+/// QEMU whose vhost-vsock device has it is the machine; quickemu names the
+/// machine's folder in its pid file's path, and pm's record of the machine
+/// there says what it was made from. Reading the record in its owner's home
+/// is why the relay may read any file (losos-boxes.nix).
+fn machine_at(cid: u32) -> Result<Option<BoxesMachine>> {
+    let processes = std::fs::read_dir("/proc")
         .into_diagnostic()
-        .wrap_err("cannot run virsh")?;
-    if !output.status.success() {
-        bail!(
-            "virsh {} failed: {}",
-            args.join(" "),
-            String::from_utf8_lossy(&output.stderr).trim()
+        .wrap_err("cannot list the processes")?;
+    for process in processes.flatten() {
+        if !process
+            .file_name()
+            .to_string_lossy()
+            .bytes()
+            .all(|b| b.is_ascii_digit())
+        {
+            continue;
+        }
+        // It may end between the listing and here.
+        let Ok(cmdline) = std::fs::read(process.path().join("cmdline")) else {
+            continue;
+        };
+        let cmdline = String::from_utf8_lossy(&cmdline);
+        let args: Vec<&str> = cmdline.split('\0').collect();
+        let qemu = Qemu::from_args(&args);
+        if qemu.cid != Some(cid) {
+            continue;
+        }
+        let (Some(pid_file), Some(mac)) = (qemu.pid_file, qemu.mac) else {
+            return Ok(None);
+        };
+        let pid_file = Path::new(pid_file);
+        let (Some(folder), Some(name)) = (pid_file.parent(), pid_file.file_stem()) else {
+            return Ok(None);
+        };
+        let uid = std::os::unix::fs::MetadataExt::uid(
+            &std::fs::metadata(process.path())
+                .into_diagnostic()
+                .wrap_err("the machine stopped")?,
+        );
+        // The record must be its owner's, not one another person left where
+        // the machine's command line could point.
+        let record = folder.join("machine.json");
+        let owned = std::fs::metadata(&record)
+            .is_ok_and(|m| std::os::unix::fs::MetadataExt::uid(&m) == uid);
+        let template = std::fs::read_to_string(&record)
+            .ok()
+            .filter(|_| owned)
+            .and_then(|text| record_template(&text));
+        return Ok(
+            (template.as_deref() == Some(MACHINE_TEMPLATE)).then(|| BoxesMachine {
+                name: name.to_string_lossy().into_owned(),
+                uid,
+                mac: mac.to_owned(),
+            }),
         );
     }
-    Ok(String::from_utf8_lossy(&output.stdout).into_owned())
+    Ok(None)
 }
 
 /// The LosOS boxes machine's half of the other machines' way to a box: it
@@ -607,7 +648,7 @@ fn route() -> Result<()> {
         .into_iter()
         .map(|port| {
             // One socket for both families: the other machines are on
-            // libvirt's IPv4 network, but nothing here depends on it.
+            // the host's IPv4 network, but nothing here depends on it.
             TcpListener::bind(SocketAddr::new(IpAddr::V6(Ipv6Addr::UNSPECIFIED), port))
                 .into_diagnostic()
                 .wrap_err_with(|| format!("cannot listen on port {port}"))

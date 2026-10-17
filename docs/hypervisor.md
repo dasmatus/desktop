@@ -6,102 +6,135 @@ the kernel schedules each guest straight onto the processor's
 virtualisation extensions, with no other operating system under it, which
 makes it a type-1 hypervisor the way Xen is under Qubes. The host keeps
 only what it takes to drive the hardware and the desktop: the kernel,
-systemd, libvirt, derisk and the host's own settings. The apps a person
+systemd, quickemu, derisk and the host's own settings. The apps a person
 works in are meant to run in machines, each one labelled with a colour that
 marks its windows on the desktop. This page describes what is built so far:
 the host, the machine template it ships, and how the desktop shows and runs
 machines.
 
-[libvirt](https://libvirt.org) is the one control plane. Nothing in the OS
-starts QEMU itself or keeps its own list of machines: pm, virsh and
-virt-manager all talk to the same daemon, `qemu:///system`, and see the same
-machines.
+A machine is its owner's files. [quickemu](https://github.com/quickemu-project/quickemu)
+starts each one from a short settings file and leaves, and nothing in the
+OS runs between a person and their machines or keeps a list of them
+elsewhere: pm and derisk read and write the same folder, and start a
+machine the same way.
+
+libvirt ran the machines until quickemu took its place. Its daemon was a
+second record of every machine beside the files that are the machine,
+shared by every account and reached through polkit, so anyone but an
+administrator was asked for an administrator's password to start a
+machine of their own.
 
 The GSI does not do any of this. Most phones' kernels have no KVM, so apps
 there keep running on the host ([Halium GSI](halium.md)).
 
 ## The host
 
-`nixos/modules/libvirt.nix` makes the PC the host:
+`nixos/modules/quickemu.nix` makes the PC the host. Nothing in it is per
+machine or per person:
 
-- **libvirtd runs from boot**, with QEMU for the PC's own architecture and
-  KVM where the processor has it. A PC without hardware virtualisation gets
-  the same image; libvirt reports that its QEMU emulates rather than runs on
-  KVM, and machines run, slowly.
-- **`LIBVIRT_DEFAULT_URI` is `qemu:///system`** for every session, so
-  `virsh`, pm and virt-manager reach the machines without being told where
-  they are. A per-user `qemu:///session` would have none of them, and could
-  not give a machine the vsock its windows travel over, because
-  `/dev/vhost-vsock` is root's.
-- **The `default` storage pool and network exist and start with the host.**
-  The pool is a directory, `/var/lib/libvirt/images`; the network is
-  libvirt's own NAT on `virbr0`, `192.168.122.0/24`. A oneshot unit,
-  `libvirt-defaults`, defines and starts them through libvirt's API at boot,
-  so a change made to them in virt-manager stays. The firewall accepts DHCP
-  and DNS from the machines on `virbr0` and nothing else; libvirt's own
-  nftables table masquerades their traffic out.
+- **quickemu is installed**, and runs QEMU with KVM where the processor has
+  it. A PC without hardware virtualisation gets the same image; quickemu
+  falls back to emulating, and machines run, slowly. Its OVMF firmware is
+  built with TPM support (`nixos/pkgs/default.nix`), since the one it would
+  otherwise boot without Secure Boot never measures what it boots, and
+  Windows 11 refuses a TPM like that ([Trying it in quickemu](quickemu.md)).
+  udev's default rules leave `/dev/kvm` and `/dev/vhost-vsock` open to
+  every account, so a person's own QEMU uses both.
+- **The machines' network is `virbr0`**, `192.168.122.0/24`, the bridge,
+  address and NAT libvirt used to make, now networkd's: the host is
+  `192.168.122.1` and masquerades what the machines send out. A dnsmasq of
+  the OS's own, `losos-machines-dns`, gives the machines addresses from
+  `.2` to `.254` and answers their DNS ([below](#names-on-the-network)).
+  The firewall accepts DHCP and DNS from the machines on `virbr0` and
+  nothing else.
+- **QEMU's bridge helper is setuid**, at
+  `/run/wrappers/bin/qemu-bridge-helper`, as NixOS made it for libvirt. It
+  makes a machine's tap device and adds it to `virbr0`, which takes a
+  privilege the person running the machine does not have, and
+  `/etc/qemu/bridge.conf` lets it add taps to `virbr0` and no other bridge.
+  quickemu's QEMU runs it from there (`nixos/pkgs/default.nix`). A
+  machine's settings fall back to QEMU's own user networking on a host
+  without `virbr0`.
 - **`vhost_vsock` is loaded at boot.** It is the host's end of each
   machine's virtio-vsock device, and the transport the desktop listens on
   for the machines' windows.
 - **waypipe is installed.** The desktop runs `waypipe client` for each
   running machine to turn what comes out of the guest back into Wayland.
-- **swtpm, virt-viewer and WinApps are installed** for machines that install
-  from a CD ([below](#machines-from-an-installer-cd)): swtpm is the TPM
-  libvirt gives a Windows machine, virt-viewer shows a machine's own screen,
-  and WinApps opens a Windows machine's apps as windows of their own.
-  WinApps only on x86-64, where Windows machines are.
-- **Administrators manage machines without being asked.** polkit lets the
-  `wheel` group, which first-boot setup puts the first account in, use
-  `org.libvirt.unix.manage` outright: handing a machine a host disk is an
-  administrator's power, and the desktop, pm and virt-manager connect many
-  times a session. Everyone else is asked for an administrator's password
-  by polkit's agent. A read-only connection (which machines exist and run,
-  their labels, which vsock address is whose) is open to every account, so
-  every session can frame machines' windows.
+- **remote-viewer and WinApps are installed** for machines that install
+  from a CD ([below](#machines-from-an-installer-cd)): remote-viewer shows
+  a machine's own screen, and WinApps opens a Windows machine's apps as
+  windows of their own. quickemu starts swtpm, the TPM a Windows machine
+  is given, itself. WinApps only on x86-64, where Windows machines are.
 
-All of it is state under `/var/lib/libvirt` and `/run/libvirt` on the root
-partition. The verity `/usr` and the [update model](systemd.md) are
-unchanged.
+Nobody is asked for a password to manage a machine: a person's own
+machines, run as them, need nobody's permission.
+
+A machine is state in its owner's home, and the machines' network keeps
+its leases under `/var/lib/losos-machines-dns` on the root partition. The
+verity `/usr` and the [update model](systemd.md) are unchanged.
 
 ## Machines
 
 pm makes them (`pm machine create`, [pm on LosOS](pm.md#machines-that-stay)),
-and its libvirt plugin is the only part of pm that knows libvirt exists.
-A machine is three things in libvirt:
+and its quickemu plugin is the only part of pm that knows quickemu exists.
+Every person's machines are their own, under `~/.local/share/pm/machines`
+(`pm/machines` under `$XDG_DATA_HOME`), which pm keeps private to them. A
+machine is:
 
-- its **template**, a read-only volume in the `default` pool that every
-  machine made from it shares;
-- its **disk**, a qcow2 overlay on the template in the same pool, holding
-  only what the machine has changed;
-- its **definition**, a persistent domain with UEFI, a virtio disk and
-  network card on `default`, a channel for the QEMU guest agent, a vsock
-  device whose address libvirt picks, no graphics card and no USB
-  controller, and in its `<metadata>` the machine's label and template.
+- its **template**, `templates/<name>-<digest>.qcow2`, a read-only copy of
+  the image it was made from, copied in the first time one of the person's
+  machines is made from it and shared by every one of theirs made from the
+  same bytes;
+- its **folder**, `<name>/`: its disk, `disk.qcow2`, a qcow2 layer on the
+  template holding only what the machine has changed; pm's record of it,
+  `machine.json`, with its name, UUID, label, template, memory, CPUs and
+  vsock address; and what quickemu keeps there itself, the firmware's
+  variables and, while it runs, QEMU's pid file and the sockets of its
+  monitor (`<name>-monitor.socket`), its guest agent (`<name>-agent.sock`)
+  and its screen (`<name>.sock`);
+- its **settings**, `<name>.conf` beside the folder, the shell variables
+  quickemu reads: UEFI without Secure Boot, a virtio disk, a network card
+  on `virbr0` with a MAC address pm drew at random, a vsock device at the
+  address pm drew for it, no sound card, no shared folder and no GL.
+  quickemu gives every machine a screen, on SPICE's Unix socket in its
+  folder and never on a port, and starts no viewer for it.
 
-derisk's Machines app lists them, makes new ones from the templates under
-`share/losos/machines` (through `pm machine create`), and starts, shuts down
-and removes them. For a running machine it also lists the apps the machine
-has and opens the one picked.
+A machine runs as a transient service of its owner's systemd user manager,
+`pm-machine-<name>`: `systemd-run --user` starts it around `quickemu --vm
+<name>.conf`, quickemu starts QEMU and leaves, and the service, which
+follows QEMU's pid file, lasts as long as QEMU does. Whether that service
+is active is whether the machine runs. Root's machines are under `/root`
+and run as services of the system's manager.
+
+derisk's Machines app lists them by reading the same folders, makes new
+ones from the templates under `share/losos/machines` (through `pm machine
+create`), and starts, shuts down, forces off and removes them. It starts a
+machine as pm does, the same service in the same way, so each sees what
+the other started; it shuts one down by saying `system_powerdown` on QEMU's
+monitor and forces it off with `quit`. For a running machine it also lists
+the apps the machine has and opens the one picked. Until the person has
+pm's quickemu plugin installed and signed, the app offers to do it, with
+their own key ([pm's plugins](pm.md#pms-plugins)).
 
 ## Names on the network
 
 A machine looks up `.local` names through the host instead of multicasting
-for them itself. libvirt's NAT carries no multicast between `virbr0` and
+for them itself. The host's NAT carries no multicast between `virbr0` and
 the host's own networks, so an mDNS query a machine sent would reach only
 the other machines on `virbr0`, never a LosOS box, printer or other PC on
 the host's LAN. The host is on both:
 
 1. The guest's resolved does no mDNS or LLMNR, and NetworkManager's
-   profile for its link on `default` gives that link `~local` as a routing
+   profile for its link, `machines`, gives that link `~local` as a routing
    domain (`ipv4.dns-search`), so a `.local` lookup goes to the DNS
    server DHCP gave it, which is the host (`192.168.122.1`). resolved never
    sends a `.local` name to a unicast server otherwise.
-2. libvirt's dnsmasq on `virbr0` answers it from the host's own resolver,
-   `/etc/resolv.conf`, which is resolved's stub.
+2. The machines' dnsmasq on `virbr0`, `losos-machines-dns`, answers it
+   from the host's own resolver, resolved's stub at `127.0.0.53`.
 3. resolved on the host asks every link it does mDNS on, the LAN and
    `virbr0` alike, and answers with the address it found.
 
-The machine then reaches that address through libvirt's NAT like any
+The machine then reaches that address through the host's NAT like any
 other. A LosOS box's name is the exception while a LosOS boxes machine
 runs: dnsmasq answers it with that machine's address, and the connection
 goes to the box through it ([from the other machines](losos-boxes.md#from-the-other-machines)). With nothing multicasting in the machine, it also neither answers
@@ -109,21 +142,34 @@ nor announces on `virbr0`: the host's answer is the only one. A machine
 installed from a CD keeps whatever its own system does, which for most
 distributions is Avahi multicasting on `virbr0` alone.
 
+The host finds the machines the other way round. Each machine names itself
+in its DHCP request, and dnsmasq answers that name under `.machines`
+(`fedora.machines`) for itself, never passing such a question on; the
+host's resolved sends `.machines` names to it and nothing else. That is
+how WinApps reaches a Windows machine ([Windows](#windows)).
+
 `nixos/tests/machines.nix` checks it: a machine made from the template
 finds `lanbox.local`, a test machine on the host's LAN that answers only
-over mDNS, at that machine's LAN address, and pings it.
+over mDNS, at that machine's LAN address, and pings it, and the host finds
+that machine by its own name under `.machines`.
 
 ## A machine's windows
 
-A machine has no screen. Its apps' windows come to the host's desktop over
-virtio-vsock instead, and the desktop knows which machine each one is from
-by where it came in, never by anything the guest says:
+A machine has no screen of its own that anyone looks at. Its apps' windows
+come to the host's desktop over virtio-vsock instead, and the desktop
+knows which machine each one is from by where it came in, never by
+anything the guest says:
 
 1. In the guest, an app runs under `waypipe --vsock -s 2:7350 server`, which
    carries its Wayland connection to the host (vsock address 2), port 7350.
 2. The desktop session listens on that port. The kernel stamps each
-   connection with the address libvirt gave the sending machine, and the
-   session asks libvirt which machine has that address now.
+   connection with the address the sending machine's QEMU was given, and
+   the session looks for the running machine whose record has that
+   address. pm draws a machine's address at random when it makes it; the
+   kernel lets no two running machines share one, and QEMU refuses to
+   start a machine whose address another has taken. A stopped machine
+   does not count, since its record may name an address another machine
+   has now.
 3. It hands the connection to that machine's `waypipe client`, which
    connects to a Wayland socket the compositor opened for that machine
    alone, under `$XDG_RUNTIME_DIR/derisk/machines`.
@@ -139,9 +185,10 @@ by where it came in, never by anything the guest says:
    machine's name before its title; the top bar also shows a dot in that
    colour for each running machine.
 
-Apps start in a machine through the QEMU guest agent: derisk asks libvirt to
-run the guest's `losos-guest-run` with the app's desktop file ID, and that
-starts it as the guest's user under waypipe.
+Apps start in a machine through the QEMU guest agent: derisk asks the agent,
+on its socket in the machine's folder, to run the guest's `losos-guest-run`
+with the app's desktop file ID, and that starts it as the guest's user
+under waypipe.
 
 ## On the desktop
 
@@ -168,9 +215,11 @@ starts things:
   opens nowhere; the session's log says why.
 - **A machine's own screen gets a window.** While a machine with a screen
   runs (one installing from a CD, or Windows), the session shows it in
-  virt-viewer on that machine's socket, so the window is framed in its
-  colour like its apps' windows. Closing it hides the screen until the
-  machine starts again or the palette's "Show win's screen" brings it back.
+  remote-viewer on that machine's SPICE socket,
+  `spice+unix://<folder>/<name>.sock`, as a client of the machine's own
+  Wayland socket, so the window is framed in its colour like its apps'
+  windows. Closing it hides the screen until the machine starts again or
+  the palette's "Show win's screen" brings it back.
 - **Keep on Top** is in a window's menu and the palette, for any window but
   an untrusted (red) machine's. Such a window cannot be kept on top, and one
   that asks to be raised gets attention instead of focus, so a machine
@@ -196,17 +245,24 @@ set and turns it into its template. They are the option
 `losos.machines.guests`, a NixOS module per template name, so a part of
 the OS that needs a machine of its own adds one there, as
 `nixos/modules/losos-boxes.nix` adds the LosOS boxes machine. An update
-brings new templates; machines made from the old ones keep them.
+brings new templates; machines made from the old ones keep them, since
+pm copied each into its owner's machines.
 
-A part of the OS that runs in a machine can also have the host make that
-machine, with `losos.machines.system.<name> = { template; label; }` (and
-`memory` and `disk` where pm's defaults do not do). `losos-system-machines`
-makes each one at boot, as `pm machine create` would, once: it keeps the
-names it made under `/var/lib/losos-machines`, so a machine its owner
-removed in the Machines app is not made again. pm runs its libvirt plugin
-only when a key its user trusts signed it, so the unit keeps a key of its
-own there, made on that computer at its first boot and never in the image,
-and signs the image's plugin with it at every start.
+A part of the OS that runs in a machine can also have every person given
+that machine, with `losos.machines.system.<name> = { template; label; }`
+(and `memory` and `disk` where pm's defaults do not do).
+`losos-system-machines`, a service of each person's own systemd user
+manager, makes each one in their machines when they sign in, as `pm
+machine create` would, once: it keeps the names it made under
+`~/.local/state/losos/system-machines`, so a machine its owner removed in
+the Machines app is not made again. pm runs its quickemu plugin only when
+a key its user trusts signed it, and the person may have set up no key or
+plugin, so the unit keeps a pm configuration of its own there, with a key
+made on that computer the first time and never in the image, and signs
+the image's plugin with it at every start, since an update may bring a
+new one. A system service made these machines once, at boot, while
+libvirt kept machines for everyone; a machine in root's home would be
+nobody's to open.
 
 What follows is the LosOS guest.
 
@@ -236,8 +292,8 @@ left out). It has:
   is a window of its own, `derisk-gpui`; the rest are drawn by the host's
   compositor). Flatpak is not in it but in [its own
   machine](#the-flatpak-machine);
-- **NetworkManager**, taking an address from libvirt's `default` network
-  and checking it reaches the internet against GNOME's
+- **NetworkManager**, taking an address from the machines' network and
+  checking it reaches the internet against GNOME's
   `nmcheck.gnome.org`, which apps in the machine ask through GLib or the
   portal before they go online. resolved answers DNS, and asks the host
   for `.local` names ([above](#names-on-the-network)). The host keeps
@@ -256,21 +312,23 @@ there through the agent:
   user's manager (`systemd-run --user --machine=user@.host`), and returns
   once it has started.
 
-Booted from the template under libvirt with TCG (no KVM, no network and no
-vsock device), a reduced build of the guest without Danube, Flatpak and
-the Calculator answered the agent within two minutes of start, its root
-grown from the template's 3.3 GiB to fill an 8 GiB disk. `--list` listed
-foot's three desktop entries, and `losos-guest-run foot` started foot in
-the user's manager, where it connected to the waypipe server; waypipe then
-failed to reach the host, because that machine had no vsock device.
+Booted from the template under libvirt with TCG, before quickemu took its
+place (no KVM, no network and no vsock device), a reduced build of the
+guest without Danube, Flatpak and the Calculator answered the agent within
+two minutes of start, its root grown from the template's 3.3 GiB to fill
+an 8 GiB disk. `--list` listed foot's three desktop entries, and
+`losos-guest-run foot` started foot in the user's manager, where it
+connected to the waypipe server; waypipe then failed to reach the host,
+because that machine had no vsock device.
 
 ## The Flatpak machine
 
 On a PC, Flatpak apps run in a machine of their own, `flatpak`, labelled
 purple, and nothing of Flatpak is on the host. `nixos/modules/flatpak-machine.nix`
-adds its template, `losos-flatpak` (`nixos/guest/flatpak.nix`), and has the
-host make the machine at its first boot (`losos.machines.system`, above).
-The template is the LosOS guest's machine with Flatpak, Flathub and
+adds its template, `losos-flatpak` (`nixos/guest/flatpak.nix`), and has
+each person's made in their machines when they sign in
+(`losos.machines.system`, above). The template is the LosOS guest's
+machine with Flatpak, Flathub and
 [Bazaar](https://github.com/bazaar-org/bazaar), the same `flatpak.nix` a
 phone runs on its host ([Halium GSI](halium.md)); its user may install
 Flatpaks for the whole machine without being asked. A Flatpak's own
@@ -292,18 +350,25 @@ host.
   and offers to start it; nothing is read from it until it runs.
 - **Apps that were on the host move in once.** A PC that updates from a
   release with Flatpak on the host has its apps where the host kept them.
-  At the first boot with the machine, `losos-flatpak-move` moves
-  `/var/lib/flatpak` (the apps installed for everyone) in and deletes it;
-  at each administrator's next sign-in, a user service moves their
-  `~/.local/share/flatpak` (apps installed for themselves) in and deletes
-  it, and copies `~/.var/app` (every app's data) to the machine's user,
-  leaving the host's copy for its owner to delete. Each move,
-  `losos-flatpak-move-host`, makes the files an ext4 disk in libvirt's
-  `default` pool, gives it to the machine read-only for one boot with the
-  serial `losos-flatpak-move`, has the guest's `losos-flatpak-move` copy it
-  where it belongs, shuts the machine down and deletes the disk. The
-  machine must be off for it, since the disk is added to its definition:
-  a move that finds it running waits for the next boot or sign-in.
+  At each person's next sign-in, once their Flatpak machine is made, a
+  service of their user manager, `losos-flatpak-move`, moves each of three
+  things into it once: `/var/lib/flatpak` (the apps installed for
+  everyone), copied into every person's machine in turn and so left on
+  the host ([What is not done](not-done.md)); their `~/.local/share/flatpak` (apps installed for themselves), deleted
+  from the host once moved; and `~/.var/app` (every app's data), copied to
+  the machine's user and left on the host for its owner to delete. A mark
+  under `~/.local/state/losos` says each was moved. Each move,
+  `losos-flatpak-move-host`, makes the files an ext4 disk under `/var/tmp`,
+  boots the machine once from a copy of its settings that adds the disk,
+  read-only, with the serial `losos-flatpak-move`, has the guest's
+  `losos-flatpak-move` copy it where it belongs through the guest agent,
+  shuts the machine down through QEMU's monitor and deletes the disk. The
+  machine must be off for it, since the disk is added to its boot: a move
+  that finds it running waits for the next sign-in. A system service moved
+  `/var/lib/flatpak` once, into the one Flatpak machine libvirt kept for
+  everyone, and only administrators' own files moved, since anyone else
+  would have been asked for a password; every person has a machine of
+  their own now and moves into it without asking.
 
 ## Machines from an installer CD
 
@@ -315,15 +380,20 @@ pm machine create win --installer Win11_24H2_English_x64.iso --system windows --
 pm machine create fedora --installer Fedora-Workstation-Live-43.iso --label green
 ```
 
-Each CD becomes a read-only volume in the `default` pool, shared by every
-machine given the same bytes, and the machine's disk starts empty. It boots
-its disk first and the first CD while the disk has nothing on it, so the
-installer runs once and the installed system starts after it. Such a
-machine has a screen (SPICE, attached through libvirt and never on a port,
-with no clipboard channel), a USB tablet, and its CDs on SATA, which every
-installer has a driver for. The desktop shows it in a window of its own
-(see "On the desktop"); outside a session,
-`virt-viewer --attach -c qemu:///system win` does.
+Each CD is copied read-only into the person's machines under `cds/`,
+named after it and its digest, and shared by every machine of theirs given
+the same bytes; the machine's disk starts empty. quickemu boots the first
+CD while the disk looks unused and leaves it out once something is
+installed, so the installer runs once and the installed system starts after
+it; the second CD stays in its drive. A machine takes two CDs at most, the
+installer's and one of tools. Such a machine has a screen, which pm
+records in `machine.json`: SPICE on its Unix socket, never on a port.
+quickemu gives it a USB tablet, puts its CDs on SATA on x86-64 and on
+virtio-scsi on aarch64, and always adds SPICE's agent channel, which
+carries the clipboard to a guest that runs `spice-vdagent`. The desktop
+shows the screen in a window of its own (see "On the desktop"); outside a
+session, `remote-viewer spice+unix://$HOME/.local/share/pm/machines/win/win.sock`
+does.
 
 pm also gives it the image's **CD of guest tools** for its system, which
 the image ships at `share/pm/machines/<system>-tools.iso` where pm looks
@@ -332,9 +402,12 @@ for it (`nixos/modules/machines.nix`, sources in `nixos/guest-tools/`).
 ### Windows
 
 A Windows machine is what Windows 11 asks of a PC: UEFI, a TPM 2.0 (swtpm,
-its state kept and deleted with the machine), Hyper-V's enlightenments when
-the host has KVM, its clock in local time, 4096 MiB and 64 GiB unless told
-otherwise. It has no vsock, which Windows has no use for. x86-64 only.
+which quickemu starts beside it, its state kept in the machine's folder
+and deleted with it), Hyper-V's enlightenments when the host has KVM, its
+clock in local time, 4096 MiB and 64 GiB unless told otherwise. Its
+settings say `guest_os='windows'` and `tpm='on'`, with the Windows CD as
+quickemu's `iso` and the drivers CD as its `fixed_iso`. It has no vsock,
+which Windows has no use for. x86-64 only.
 
 The Windows tools CD carries virtio's drivers and an answer file,
 `autounattend.xml`, which Windows Setup reads from the root of any drive it
@@ -355,18 +428,25 @@ starts with:
    every program, and its firewall rule.
 
 What Setup still asks: the language, the product key or edition, and the
-account. The firmware's "Press any key to boot from CD" is the person's to
-answer on the machine's screen; missed, the machine stops at the
-firmware's boot menu, and starting it again offers it again.
+account. quickemu answers the firmware's "Press any key to boot from CD"
+itself, pressing Enter for the first few seconds of a start while the
+Windows CD is in; if that misses it, the prompt is the person's to answer
+on the machine's screen, and a machine left at the firmware's boot menu
+offers it again when started again.
 
 **WinApps** ([winapps-org/winapps](https://github.com/winapps-org/winapps),
 `nixos/pkgs/winapps.nix`) then opens the machine's Windows apps as windows
 of their own on the desktop, each a FreeRDP RemoteApp session. It is set up
-as its own documentation says for libvirt, in
-`~/.config/winapps/winapps.conf`: `WAFLAVOR="libvirt"`, `VM_NAME` the
-machine's name, and `RDP_USER` and `RDP_PASS` the Windows account; then
-`winapps-setup --user` lists the machine's apps into the app grid. Remote
-Desktop needs Windows' Pro edition or above.
+as its own documentation says for its manual flavour, in
+`~/.config/winapps/winapps.conf`: `WAFLAVOR="manual"`, `RDP_IP` the
+machine's computer name followed by `.machines` (`DESKTOP-ABC123.machines`:
+the name Windows gave the machines' DHCP, which Settings > System > About
+shows; [Names on the network](#names-on-the-network)), and `RDP_USER` and
+`RDP_PASS` the Windows account; then `winapps-setup --user` lists the
+machine's apps into the app grid. The machine has to be running for them
+to open. Remote Desktop needs Windows' Pro edition or above. WinApps'
+libvirt flavour, which found the machine through `virsh`, went with
+libvirt.
 
 ### Other distributions
 
@@ -388,8 +468,8 @@ machine's apps like a LosOS guest's, framed in its colour. Its socket is
 `losos-wayland`, not `wayland-0`, so a desktop the distribution runs on the
 machine's own screen keeps its own.
 
-Under libvirt without KVM, in the machines VM test
-(`nixos/tests/machines.nix`), a Windows machine from a stand-in CD is
-defined with the drivers CD, a TPM and a screen, starts with its swtpm, and
-is removed leaving both CDs for other machines. No Windows or other
-distribution has been installed from them yet.
+The machines VM test (`nixos/tests/machines.nix`) makes, without KVM, a
+Windows machine from a stand-in CD, checks that its settings give it the
+drivers CD, a TPM and a screen, starts it and waits for its swtpm and its
+screen's socket, and removes it, leaving both CDs for other machines. No
+Windows or other distribution has been installed from them yet.
