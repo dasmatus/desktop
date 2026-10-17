@@ -23,6 +23,7 @@ module.exports = {
         'quickemu',
         'first-boot',
         'sign-in',
+        'users',
         'releases',
         'allocator',
         'security-report',
