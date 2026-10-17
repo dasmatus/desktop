@@ -71,6 +71,32 @@ fn landlock_rules(plan: &Plan) -> impl Iterator<Item = &(String, Access)> {
     })
 }
 
+/// Whether an earlier bind of the plan already shows `dest`: an ancestor
+/// bound from the same path with the same flags. WebKit binds the
+/// D-Bus proxy's own binary inside the /nix/store it also binds; bwrap
+/// takes that, but Hakoniwa creates every file bind's target first and
+/// fails on a file it cannot open for writing (exit 125), so the
+/// redundant bind is left out instead.
+fn shown_by_ancestor(plan: &Plan, src: &str, dest: &str, ro: bool, dev: bool) -> bool {
+    src == dest
+        && plan.ops.iter().any(|op| match op {
+            Op::Bind {
+                src: s,
+                dest: d,
+                ro: r,
+                dev: v,
+                ..
+            } => {
+                s == d
+                    && d != dest
+                    && Path::new(dest).starts_with(d)
+                    && (*r, *v) == (ro, dev)
+                    && Path::new(s).exists()
+            }
+            _ => false,
+        })
+}
+
 fn container(plan: &Plan) -> Container {
     let mut c = Container::new();
     // `new` also makes a PID namespace and mounts /proc; a plan that wants
@@ -105,6 +131,10 @@ fn container(plan: &Plan) -> Container {
                     if !optional {
                         warn!(%src, "missing; not bound");
                     }
+                    continue;
+                }
+                if shown_by_ancestor(plan, src, dest, *ro, *dev) {
+                    debug!(%dest, "already shown by an earlier bind");
                     continue;
                 }
                 let mut options = MountOptions::BIND | MountOptions::REC;
@@ -353,5 +383,36 @@ mod tests {
         };
         let kept: Vec<&str> = landlock_rules(&plan).map(|(p, _)| p.as_str()).collect();
         assert_eq!(kept, [here.as_str()]);
+    }
+
+    #[test]
+    fn a_bind_inside_the_same_bind_is_left_out() {
+        let bind = |path: &str, ro| Op::Bind {
+            src: path.into(),
+            dest: path.into(),
+            ro,
+            dev: false,
+            optional: false,
+        };
+        let plan = Plan {
+            ops: vec![bind("/", true), bind("/nix/store/x/bin/proxy", true)],
+            ..Plan::default()
+        };
+        assert!(shown_by_ancestor(
+            &plan,
+            "/nix/store/x/bin/proxy",
+            "/nix/store/x/bin/proxy",
+            true,
+            false
+        ));
+        // Not the bind itself, nor one with other flags.
+        assert!(!shown_by_ancestor(&plan, "/", "/", true, false));
+        assert!(!shown_by_ancestor(
+            &plan,
+            "/nix/store/x/bin/proxy",
+            "/nix/store/x/bin/proxy",
+            false,
+            false
+        ));
     }
 }
