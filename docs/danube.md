@@ -299,22 +299,28 @@ crate (`src/danube/crates/danube-sandbox`).
   empty runtime directory with only the Wayland, PipeWire and PulseAudio
   sockets and derisk's directory; and the session bus through
   xdg-dbus-proxy, which lets through only the desktop portals,
-  notifications and the accessibility bus. Landlock restricts the same
-  paths again, leaving out any that do not exist, since Hakoniwa refuses
-  to start over a rule for a missing path and a machine has no `/dev/dri`,
-  nor a new user an `~/.icons`. A seccomp filter denies the system calls
-  Flatpak denies (keyctl, ptrace's relatives, kexec, bpf and the rest),
-  except the namespace calls the next sandbox needs. The network is the
-  host's, since WebKit's network process needs it.
+  notifications and the accessibility bus. A seccomp filter denies the
+  system calls Flatpak denies (keyctl, ptrace's relatives, kexec, bpf and
+  the rest), except the namespace calls the next sandbox needs. There is
+  no Landlock ruleset here: a process under Landlock can neither mount
+  nor write its user namespace's uid map, and the next sandbox is built
+  inside this one with both. The network is the host's, since WebKit's
+  network process needs it.
 - **Each web process.** WebKit puts every web process in a sandbox of its
   own, built with bwrap upstream. One patch
   (`nixos/pkgs/patches/wpewebkit`) lets the embedder name a launcher that
   takes bwrap's arguments; Danube names `danube-sandbox`, which reads the
   arguments WebKit gives and builds the same sandbox with Hakoniwa:
   WebKit's own filesystem layout and its seccomp filter, loaded last, with
-  the descriptors WebKit hands over carried in. An argument it does not
-  know is an error, so a WebKit update that asks for more cannot run a web
-  process with less.
+  the descriptors WebKit hands over carried in. Landlock then lets the web
+  process read what that layout shows and write only where WebKit made it
+  writable, leaving out a path that does not exist, since Hakoniwa refuses
+  to start over a rule for one and a machine has no `/dev/dri`. A bind
+  that an earlier bind of the same path already shows, such as the D-Bus
+  proxy's binary inside the Nix store, is left out, because Hakoniwa
+  cannot place a file bind over a file it may not write. An argument it
+  does not know is an error, so a WebKit update that asks for more cannot
+  run a web process with less.
 
 WebKit is built with level-3 fortify checks, stack clash protection,
 automatic variables zeroed, eager binding (the whole GOT read-only), and
