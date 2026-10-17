@@ -18,7 +18,7 @@ manager, the tool a user of the running system builds and runs software with
 ![The derisk overview: the open windows as tiles, workspaces along the top, and the clock, suggested apps, services, calendar and notes beside them](images/overview.png)
 
 Apps the image does not carry come from [Flathub](https://flathub.org) as
-Flatpaks, through the [Bazaar](https://github.com/bazaar-org/bazaar) store,
+Flatpaks, through derisk's own [Store](store.md),
 and on a PC they run in [a machine of their own](hypervisor.md#the-flatpak-machine),
 whose GTK portal backend serves their dialogs. On a phone they run on the
 host, where derisk's own portal backend gives them its theme, screenshots
