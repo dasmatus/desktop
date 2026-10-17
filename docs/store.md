@@ -20,6 +20,15 @@ Bazaar, whose GTK 4 window took neither scrolling nor clicks under derisk.
   in their AppStream data. The front page leads with the updates waiting,
   then what changed in the apps you have installed, then the categories,
   then the newest release notes across Flathub, each linking to its app.
+- **An app's page** says what the app is, then what people think of it,
+  then what changed in its releases. The ratings and reviews come from
+  GNOME's [Open Desktop Ratings Service](https://odrs.gnome.org) (ODRS),
+  which GNOME Software reads too, since Flathub's catalogue has none: the
+  average, how many people gave each number of stars, and the five most
+  helpful reviews in the session's language. The Store asks only when a
+  page opens and sends no user hash of its own (it is all zeros, as nothing
+  here writes reviews), so ODRS learns which app was looked at and nothing
+  of who looked.
 - **Search** looks at names first, then keywords, then summaries and IDs;
   every word typed has to be found.
 - **Your language.** Names, summaries, descriptions and release notes are
