@@ -54,7 +54,10 @@ GNU tool's options, on the host and in the guest template alike
 
 The chameleon reads and writes GnuPG's own `~/.gnupg`, so git's commit
 signing and anything else that runs `gpg` keep working, and secret keys stay
-with GnuPG's `gpg-agent`. Only `chcon` and `runcon` still come from GNU
+with GnuPG's `gpg-agent`. The agent asks for a passphrase through
+`pinentry-gnome3`: gcr's dialog on the desktop, or curses in a terminal with
+no display. Unlike GnuPG, the chameleon will not create `~/.gnupg` itself, so
+each user manager makes it when it starts. Only `chcon` and `runcon` still come from GNU
 coreutils, as uutils leaves out the two that only mean something under
 SELinux.
 
@@ -70,4 +73,8 @@ signature, which passes gpg `--import-options=merge-only`, an option the
 chameleon refuses.
 
 The image's boot test checks which of these answers `ls`, `find`, `su` and
-`gpg` (`nixos/tests/boot.nix`).
+`gpg`, and makes a key with the chameleon, signs a file with it and verifies
+the signature (`nixos/tests/boot.nix`). It verifies after signing rather than
+piping one gpg into another: the chameleon's `--verify` reports a BAD
+signature when it reads one that a second gpg is still making, though the
+same bytes check out once written.

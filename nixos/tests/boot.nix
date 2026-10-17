@@ -144,6 +144,21 @@ in
           machine.succeed("/run/wrappers/bin/su --version | grep -q su-rs")
           machine.succeed("gpg --version | grep -q 'Sequoia Chameleon'")
           machine.succeed("command -v sq")
+          # A key, a signature and its check, through GnuPG's agent, as git
+          # signs and verifies a commit; loopback because the test has no one
+          # to answer pinentry. The check runs after the signing, not piped
+          # from it: the chameleon's --verify answers BAD to a signature
+          # still being made by a second gpg, though the same bytes check
+          # out from a file.
+          machine.succeed(
+              "install -d -m 700 /tmp/gnupg && export GNUPGHOME=/tmp/gnupg"
+              " && gpg --batch --pinentry-mode loopback --passphrase test"
+              " --quick-gen-key 'Test <test@example.org>' ed25519 sign never"
+              " && echo hello > /tmp/msg"
+              " && gpg --batch --pinentry-mode loopback --passphrase test"
+              " --armor --detach-sign -o /tmp/msg.asc /tmp/msg"
+              " && gpg --verify /tmp/msg.asc - < /tmp/msg"
+          )
 
       with subtest("the security report answers on the system bus"):
           machine.succeed(
