@@ -15,7 +15,9 @@
     ./desktop.nix
     ./danube.nix
     ./adblock.nix
-    ./flatpak.nix
+    # flatpak.nix is not here: a PC runs Flatpak in a machine of its own
+    # (flatpak-machine.nix), and the GSI, which has no machines, imports it
+    # itself.
     ./atl.nix
     ./services.nix
     ./pm.nix

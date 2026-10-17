@@ -1,8 +1,8 @@
 # The LosOS guest: the machine template for a person's own apps
 # (docs/hypervisor.md, "The guest template"). common.nix is the machine;
-# this adds what a person works with in it: Flatpak with Flathub and Bazaar,
-# as on the host, so apps installed in a machine come from where the host's
-# come from, and derisk's Calculator.
+# this adds derisk's Calculator. Flatpak is not here: Flatpak apps have a
+# machine of their own, flatpak.nix, so there is one place they are
+# installed, updated and given permissions.
 { pkgs, ... }:
 
 let
@@ -22,23 +22,7 @@ let
   };
 in
 {
-  imports = [
-    ./common.nix
-    ../modules/flatpak.nix
-  ];
-
-  # flatpak's own rule lets an active, local wheel member install for the
-  # whole system. The guest's user is never in an active session (nobody
-  # logs in; its apps run under its systemd manager), so it is given
-  # Flatpak's actions here instead. The machine is its owner's to fill.
-  security.polkit.extraConfig = ''
-    polkit.addRule(function (action, subject) {
-      if (action.id.indexOf("org.freedesktop.Flatpak.") === 0 && subject.user === "user") {
-        return polkit.Result.YES;
-      }
-      return polkit.Result.NOT_HANDLED;
-    });
-  '';
+  imports = [ ./common.nix ];
 
   environment.systemPackages = [ calculator ];
 }
