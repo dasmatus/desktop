@@ -4,6 +4,10 @@
 # updated on their own schedule, and kept in /var/lib/flatpak on the root
 # partition, so a sysupdate of /usr leaves them alone and a factory reset
 # removes them with the rest of the state.
+#
+# Where this runs: on a PC, in the Flatpak machine (nixos/guest/flatpak.nix,
+# modules/flatpak-machine.nix), and not on the host; on a phone, which has
+# no machines, on the host (nixos/halium/).
 {
   config,
   pkgs,
@@ -16,7 +20,8 @@ in
 {
   # Installs flatpak's D-Bus system helper, its polkit rules, the `flatpak`
   # system user and the /var/lib/flatpak/exports entries on XDG_DATA_DIRS. It
-  # needs xdg.portal, which desktop.nix enables with derisk's backend.
+  # needs xdg.portal, which desktop.nix enables with derisk's backend on a
+  # phone and the guest's common.nix with GTK's in the Flatpak machine.
   #
   # flatpak's own polkit rule lets an active, local wheel member install,
   # update and remove apps for the whole system without a password. That is
