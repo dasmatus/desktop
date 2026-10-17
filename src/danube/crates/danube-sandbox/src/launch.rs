@@ -97,6 +97,26 @@ fn shown_by_ancestor(plan: &Plan, src: &str, dest: &str, ro: bool, dev: bool) ->
         })
 }
 
+/// The folder a symlink goes in, when nothing else in the plan makes it.
+/// WebKit asks for `/var/run` with no `/var`; bwrap makes the folder, but
+/// Hakoniwa's symlink fails without it (exit 125). The root is an empty
+/// tmpfs, so making it there is all bwrap does too.
+fn unmade_parent(plan: &Plan, link: &str) -> Option<String> {
+    let parent = Path::new(link).parent()?;
+    if parent == Path::new("/") {
+        return None;
+    }
+    let made = plan.ops.iter().any(|op| {
+        let dest = match op {
+            Op::Bind { src, dest, .. } if Path::new(src).exists() => dest,
+            Op::Tmpfs(dest) | Op::Proc(dest) | Op::Dev(dest) | Op::Dir(dest) => dest,
+            _ => return false,
+        };
+        parent.starts_with(dest)
+    });
+    (!made).then(|| parent.to_string_lossy().into_owned())
+}
+
 fn container(plan: &Plan) -> Container {
     let mut c = Container::new();
     // `new` also makes a PID namespace and mounts /proc; a plan that wants
@@ -147,6 +167,9 @@ fn container(plan: &Plan) -> Container {
                 c.mount(src, dest, "", options, None);
             }
             Op::Symlink { target, link } => {
+                if let Some(parent) = unmade_parent(plan, link) {
+                    c.dir(&parent, 0o755);
+                }
                 c.symlink(target, link);
             }
             Op::Tmpfs(dest) => {
@@ -414,5 +437,20 @@ mod tests {
             false,
             false
         ));
+    }
+
+    #[test]
+    fn a_symlink_gets_its_folder_unless_the_plan_makes_it() {
+        let link = |link: &str| Op::Symlink {
+            target: "../run".into(),
+            link: link.into(),
+        };
+        let plan = Plan {
+            ops: vec![link("/var/run"), Op::Tmpfs("/tmp".into()), link("/tmp/x/y")],
+            ..Plan::default()
+        };
+        assert_eq!(unmade_parent(&plan, "/var/run").as_deref(), Some("/var"));
+        assert_eq!(unmade_parent(&plan, "/tmp/x/y"), None);
+        assert_eq!(unmade_parent(&plan, "/lib64"), None);
     }
 }
