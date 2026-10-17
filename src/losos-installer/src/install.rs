@@ -14,7 +14,9 @@
 //! built as, served to sysupdate from this machine by [`crate::github`], so
 //! what is installed is that tag's release. Where no such release can be
 //! found, such as an ISO built from a branch, they read the channel itself,
-//! whose newest release is then what is installed.
+//! whose newest release is then what is installed. Either way aria2 fetches
+//! the files onto the target disk first, over as many connections as the
+//! machine has hardware threads ([`crate::stage`]).
 //!
 //! With a release disk attached, the same transfers read from it instead: their sources become local files, and the files are checked
 //! against the release's signed SHA256SUMS here first, since sysupdate only
@@ -27,6 +29,7 @@
 //! rendered for the chosen disk here. The UKI's target is the ESP's mount
 //! point, which the OS does know, because it passes the same path to this
 //! program.
+use std::collections::BTreeMap;
 use std::fs;
 use std::io::{BufRead, BufReader, Read};
 use std::path::{Path, PathBuf};
@@ -36,6 +39,7 @@ use std::thread;
 use std::time::{Duration, Instant};
 
 use crate::github;
+use crate::stage::{self, Scratch};
 
 /// Stands for the target disk's device node in the transfer templates.
 pub const TARGET: &str = "@TARGET@";
@@ -49,6 +53,10 @@ pub struct Plan {
     pub work: PathBuf,
     /// The channel's URL, as the transfers' sources name it.
     pub source: Option<String>,
+    /// The channel's index on the documentation site, when the OS updates
+    /// from GitHub Releases through it (update-source.nix): which release
+    /// assets make up each file, so the installer can fetch them itself.
+    pub index: Option<String>,
     /// The GitHub release to install from, when the ISO knows its own.
     pub release: Option<GitHub>,
     /// A directory holding a release (its SHA256SUMS, SHA256SUMS.gpg and the
@@ -199,15 +207,6 @@ fn download(plan: &Plan, disk: &str, events: &Sender<Event>) -> Result<(), Strin
     let linux = plan.esp.join("EFI/Linux");
     fs::create_dir_all(&linux).map_err(|e| format!("{}: {e}", linux.display()))?;
     let transfers = plan.work.join("sysupdate.d");
-    let definitions = format!("--definitions={}", transfers.display());
-    let sysupdate = || {
-        command(
-            "systemd-sysupdate",
-            &[&definitions, "update"],
-            false,
-            events,
-        )
-    };
     match (&plan.source, &plan.local, &plan.release) {
         (Some(url), Some(dir), _) if has_release(dir) => {
             let _ = events.send(Event::Line(format!(
@@ -221,41 +220,30 @@ fn download(plan: &Plan, disk: &str, events: &Sender<Event>) -> Result<(), Strin
                 disk,
                 Source::Disk(Local { url, dir }),
             )?;
-            sysupdate()?;
+            sysupdate(plan, events)?;
         }
         (Some(url), _, Some(release)) => {
             match github::find(&release.repo, &release.version, &release.arch, events) {
                 Ok(found) => {
-                    let mirror = github::Mirror::new(github::files(&found, &release.arch))
-                        .map_err(|e| format!("serving the release to sysupdate: {e}"))?;
-                    let local = mirror.url().map_err(|e| format!("{e}"))?;
                     let _ = events.send(Event::Line(format!(
                         "Installing {} from the GitHub release {} of {}",
                         release.version, found.tag, release.repo
                     )));
-                    render_transfers(
-                        &plan.sysupdate_templates,
-                        &transfers,
-                        disk,
-                        Source::Mirror {
-                            url,
-                            mirror: &local,
-                        },
-                    )?;
-                    mirror.serve(events, sysupdate)?;
+                    let files = github::files(&found, &release.arch);
+                    online(plan, disk, url, &files, Some(&release.version), events)?;
                 }
                 Err(e) => {
                     let _ = events.send(Event::Line(format!(
                         "{e}, so the channel's newest release is installed from {url}"
                     )));
-                    render_transfers(&plan.sysupdate_templates, &transfers, disk, Source::Channel)?;
-                    sysupdate()?;
+                    channel(plan, disk, url, events)?;
                 }
             }
         }
+        (Some(url), _, None) => channel(plan, disk, url, events)?,
         _ => {
             render_transfers(&plan.sysupdate_templates, &transfers, disk, Source::Channel)?;
-            sysupdate()?;
+            sysupdate(plan, events)?;
         }
     }
     // sysupdate exits 0 saying "No update needed" when no version has a
@@ -275,6 +263,88 @@ fn download(plan: &Plan, disk: &str, events: &Sender<Event>) -> Result<(), Strin
         command(&program, &[disk], false, events)?;
     }
     Ok(())
+}
+
+/// `systemd-sysupdate update` with the transfers rendered under `plan.work`.
+fn sysupdate(plan: &Plan, events: &Sender<Event>) -> Result<(), String> {
+    let definitions = format!("--definitions={}", plan.work.join("sysupdate.d").display());
+    command(
+        "systemd-sysupdate",
+        &[&definitions, "update"],
+        false,
+        events,
+    )
+    .map(|_| ())
+}
+
+/// The channel's newest release: fetched with aria2 from the assets the
+/// index names when there is one, and otherwise read by sysupdate from the
+/// channel's URL itself, as an update reads it.
+fn channel(plan: &Plan, disk: &str, url: &str, events: &Sender<Event>) -> Result<(), String> {
+    let Some(index) = &plan.index else {
+        let transfers = plan.work.join("sysupdate.d");
+        render_transfers(&plan.sysupdate_templates, &transfers, disk, Source::Channel)?;
+        return sysupdate(plan, events);
+    };
+    let text = command(
+        "curl",
+        &[
+            "--silent",
+            "--show-error",
+            "--fail",
+            "--location",
+            "--proto",
+            "=https",
+            "--retry",
+            "3",
+            index,
+        ],
+        true,
+        events,
+    )?;
+    online(plan, disk, url, &stage::index_files(&text), None, events)
+}
+
+/// Installs `files` (the release or the channel's index, by the names
+/// sysupdate asks for), `version`'s or the newest: aria2 fetches what the
+/// transfers read into a scratch partition on `disk`, and sysupdate reads it
+/// from [`github::Mirror`] in place of the channel at `url`.
+fn online(
+    plan: &Plan,
+    disk: &str,
+    url: &str,
+    files: &BTreeMap<String, github::File>,
+    version: Option<&str>,
+    events: &Sender<Event>,
+) -> Result<(), String> {
+    let patterns = stage::source_patterns(&plan.sysupdate_templates)?;
+    let wanted = stage::wanted(files, &patterns, version)?;
+    let scratch = Scratch::create(disk, stage::scratch_size(&wanted), &plan.work, events)?;
+    let installed = (|| {
+        let staged = stage::fetch(&wanted, &scratch.mount, &plan.work, events)?;
+        let mirror = github::Mirror::new(staged)
+            .map_err(|e| format!("serving the release to sysupdate: {e}"))?;
+        let local = mirror.url().map_err(|e| format!("{e}"))?;
+        render_transfers(
+            &plan.sysupdate_templates,
+            &plan.work.join("sysupdate.d"),
+            disk,
+            Source::Mirror {
+                url,
+                mirror: &local,
+            },
+        )?;
+        mirror.serve(events, || sysupdate(plan, events))
+    })();
+    // Removed even when the install failed, though the next attempt erases
+    // the disk anyway, so a disk left as it is has no scratch partition in
+    // the space first boot gives root.
+    let removed = scratch.remove(disk, events);
+    match (installed, removed) {
+        (Ok(()), removed) => removed,
+        (Err(e), Ok(())) => Err(e),
+        (Err(e), Err(cleanup)) => Err(format!("{e}; cleanup also failed: {cleanup}")),
+    }
 }
 
 /// Whether `dir` holds a UKI, without which the installed disk has nothing

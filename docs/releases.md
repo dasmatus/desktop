@@ -33,8 +33,9 @@ an image reads the release through a service of its own that joins the
 parts as it streams them (below).
 
 The installer ISO a release carries installs from that same release: its
-backend serves the release's files to sysupdate under the names a channel
-has, joining split files as it streams them ([The installer](installer.md)).
+backend fetches the release's files with aria2 onto the disk being
+installed and serves them to sysupdate under the names a channel has,
+joining split files ([The installer](installer.md)).
 
 A release is created once and never edited, so the repository can make
 releases immutable. A re-run of the same commit finds its tag taken and
@@ -109,8 +110,9 @@ A download that fails anyway leaves its slot marked partial, which sysupdate
 will not install over. The update unit vacuums such slots before it starts,
 so the next timer run downloads that version again.
 
-The installer ISO's live system runs the same socket, for an install from
-the channel when the backend finds no release of the ISO's own version
+The installer ISO reads the same index itself, for an install from the
+channel when the backend finds no release of the ISO's own version, and
+fetches the parts it lists with aria2 as it does a release's
 ([The installer](installer.md)). The [Windows installer](windows-installer.md)
 reads the same index itself, downloads each part with resume and joins them
 before it checks the file.
