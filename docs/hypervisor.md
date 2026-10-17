@@ -148,8 +148,11 @@ Besides the Machines app, machines are a step away wherever the desktop
 starts things:
 
 - **The command palette** offers "Start work" for each machine that is off,
-  and, while it runs, "Terminal in work" for each app it has and "Shut down
-  work". A machine's label colour is among its search words, so typing
+  "Terminal in work" for each app it has, and "Shut down work" while it
+  runs. A stopped machine's apps are offered too, as the machine last
+  listed them or, for one never started, as its template's app list says
+  ([below](#the-guest-template)); picking one starts the machine and opens
+  the app once its guest agent answers. A machine's label colour is among its search words, so typing
   "blue" finds the machine whose windows are blue. The rows come from a
   palette plugin like the others, fed by the session itself; no other
   connection to derisk can speak for it.
@@ -174,20 +177,35 @@ starts things:
 
 ## The guest template
 
-The image ships two templates under `share/losos/machines` on
+The image ships three templates under `share/losos/machines` on
 `XDG_DATA_DIRS`, in `/usr` and covered by its verity hash like the rest of
-the OS: the LosOS guest, `losos-guest.qcow2`, for a person's own apps, and
-the [LosOS boxes machine](losos-boxes.md#the-losos-boxes-machine),
-`losos-boxes.qcow2`, the one machine that talks to LosOS boxes. Both are the
-same machine, `nixos/guest/common.nix`, with different apps:
-`nixos/guest/default.nix` adds Flatpak and the Calculator, and
-`nixos/guest/boxes.nix` adds `losos` and box discovery.
+the OS: the LosOS guest, `losos-guest.qcow2`, for a person's own apps; the
+[LosOS boxes machine](losos-boxes.md#the-losos-boxes-machine),
+`losos-boxes.qcow2`, the one machine that talks to LosOS boxes; and
+[the Flatpak machine](#the-flatpak-machine), `losos-flatpak.qcow2`, where
+Flatpak apps run. All three are the same machine, `nixos/guest/common.nix`,
+with different apps: `nixos/guest/default.nix` adds the Calculator,
+`nixos/guest/boxes.nix` adds `losos` and box discovery, and
+`nixos/guest/flatpak.nix` adds Flatpak, Flathub and Bazaar.
+Beside each template is `<name>.apps`, what `losos-guest-run --list`
+prints in it, written when the image is built, so the desktop can offer a
+machine's apps before it has ever started.
 `nixos/modules/machines.nix` evaluates each with the image's own package
 set and turns it into its template. They are the option
 `losos.machines.guests`, a NixOS module per template name, so a part of
 the OS that needs a machine of its own adds one there, as
 `nixos/modules/losos-boxes.nix` adds the LosOS boxes machine. An update
 brings new templates; machines made from the old ones keep them.
+
+A part of the OS that runs in a machine can also have the host make that
+machine, with `losos.machines.system.<name> = { template; label; }` (and
+`memory` and `disk` where pm's defaults do not do). `losos-system-machines`
+makes each one at boot, as `pm machine create` would, once: it keeps the
+names it made under `/var/lib/losos-machines`, so a machine its owner
+removed in the Machines app is not made again. pm runs its libvirt plugin
+only when a key its user trusts signed it, so the unit keeps a key of its
+own there, made on that computer at its first boot and never in the image,
+and signs the image's plugin with it at every start.
 
 What follows is the LosOS guest.
 
@@ -212,9 +230,8 @@ left out). It has:
 - **apps**: derisk's Terminal (`derisk-terminal`, drawing in software, as
   there is no GPU), Danube, derisk's Calculator (the one derisk core app that
   is a window of its own, `derisk-gpui`; the rest are drawn by the host's
-  compositor), and Flatpak with Flathub and Bazaar, as on the host. The
-  guest's user may install Flatpaks for the whole machine without being
-  asked;
+  compositor). Flatpak is not in it but in [its own
+  machine](#the-flatpak-machine);
 - **networkd**, taking an address from libvirt's `default` network, and
   resolved, which asks the host for `.local` names
   ([above](#names-on-the-network)).
@@ -239,6 +256,47 @@ grown from the template's 3.3 GiB to fill an 8 GiB disk. `--list` listed
 foot's three desktop entries, and `losos-guest-run foot` started foot in
 the user's manager, where it connected to the waypipe server; waypipe then
 failed to reach the host, because that machine had no vsock device.
+
+## The Flatpak machine
+
+On a PC, Flatpak apps run in a machine of their own, `flatpak`, labelled
+purple, and nothing of Flatpak is on the host. `nixos/modules/flatpak-machine.nix`
+adds its template, `losos-flatpak` (`nixos/guest/flatpak.nix`), and has the
+host make the machine at its first boot (`losos.machines.system`, above).
+The template is the LosOS guest's machine with Flatpak, Flathub and
+[Bazaar](https://github.com/bazaar-org/bazaar), the same `flatpak.nix` a
+phone runs on its host ([Halium GSI](halium.md)); its user may install
+Flatpaks for the whole machine without being asked. A Flatpak's own
+sandbox still runs inside it, so an app is kept apart from the machine's
+other apps as before, and the machine keeps all of them apart from the
+host.
+
+- **On the desktop** Bazaar and every installed app are that machine's
+  apps: "Bazaar in flatpak" in the palette and the app grid, framed in
+  purple. They are offered while the machine is off too (the template's
+  list has Bazaar), and opening one starts it.
+- **Settings' Privacy page** lists the Flatpak apps the machine has and
+  changes their permissions there. derisk asks the guest's
+  `losos-guest-flatpak` through the guest agent: `apps` reads each app's
+  metadata and the user's overrides, `overrides <app>` writes them from
+  standard input, and `flatpak permission-show`, `permission-set` and
+  `permission-remove` run as the guest's user, in whose session the
+  portals' permission store is. While the machine is off the page says so
+  and offers to start it; nothing is read from it until it runs.
+- **Apps that were on the host move in once.** A PC that updates from a
+  release with Flatpak on the host has its apps where the host kept them.
+  At the first boot with the machine, `losos-flatpak-move` moves
+  `/var/lib/flatpak` (the apps installed for everyone) in and deletes it;
+  at each administrator's next sign-in, a user service moves their
+  `~/.local/share/flatpak` (apps installed for themselves) in and deletes
+  it, and copies `~/.var/app` (every app's data) to the machine's user,
+  leaving the host's copy for its owner to delete. Each move,
+  `losos-flatpak-move-host`, makes the files an ext4 disk in libvirt's
+  `default` pool, gives it to the machine read-only for one boot with the
+  serial `losos-flatpak-move`, has the guest's `losos-flatpak-move` copy it
+  where it belongs, shuts the machine down and deletes the disk. The
+  machine must be off for it, since the disk is added to its definition:
+  a move that finds it running waits for the next boot or sign-in.
 
 ## Machines from an installer CD
 
