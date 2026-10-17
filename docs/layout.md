@@ -28,9 +28,9 @@ store has to fit in it; uncompressed, the store had reached 7.7G.
 On x86_64, GRUB's boot code is also in the MBR, so a PC without UEFI starts
 the same disk ([Boot loader](boot-loaders.md)).
 
-Swap's key is random on most machines and kept by nobody. A laptop with a TPM
-seals it to the TPM instead, so the partition can hold a hibernation image
-([Hibernation](hibernation.md)); either way it is new every boot.
+Swap's key is random and kept by nobody, so it is new every boot and nothing
+swapped out outlives a power cut. That is also why nothing hibernates
+([Hibernation](hibernation.md)).
 
 That buys two things the pm tree wrote down as limits:
 

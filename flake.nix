@@ -271,8 +271,8 @@
           hardware = pkgs.testers.runNixOSTest ./nixos/tests/hardware.nix;
           # The same image on a legacy BIOS, started by GRUB (bios.nix).
           boot-bios = pkgs.testers.runNixOSTest (import ./nixos/tests/boot-bios.nix { inherit self; });
-          # A laptop with a TPM hibernating and resuming (hibernate.nix).
-          hibernate = pkgs.testers.runNixOSTest (import ./nixos/tests/hibernate.nix { inherit self; });
+          # hibernate is gone with hibernate.nix: the locked-down kernel
+          # refuses to hibernate (kernel-hardening.nix).
           # The start-up sound reaches a sound card, and plays backwards at
           # shutdown (boot-sound.nix).
           boot-sound = pkgs.testers.runNixOSTest ./nixos/tests/boot-sound.nix;

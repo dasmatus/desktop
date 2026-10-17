@@ -24,7 +24,7 @@
 - **The Flatpak machine's loose ends**
   ([The Flatpak machine](hypervisor.md#the-flatpak-machine)). A
   `.flatpakref` or `.flatpakrepo` file opened on the host has nothing to
-  open it, as Bazaar is in the machine; it has to be copied there first.
+  open it, as Flatpak is in the machine; it has to be copied there first.
   Moving Flatpak's files off the host happens only for administrators, as
   anyone else would be asked for a password by a dialog they did not
   start; they copy their `~/.var/app` into the machine by hand. The host's
@@ -56,10 +56,9 @@
   serves them one more update.
 - **A complete image build.** CI builds release images within its runner time
   budget; local image builds may take longer.
-- **Hibernation needs UEFI and a TPM.** A BIOS PC, or a laptop without a
-  TPM, suspends and never hibernates, and a firmware update between
-  hibernating and resuming loses the hibernated session
-  ([Hibernation](hibernation.md)).
+- **Hibernation.** No machine hibernates: the locked-down kernel refuses
+  to, and nothing in mainline Linux authenticates a hibernation image that
+  would let it ([Hibernation](hibernation.md)).
 
 - **Signing.** There is no
   key rotation: a new key needs an update signed by the old one that carries
@@ -94,7 +93,7 @@
 - **NVIDIA on real hardware.** The driver choice was tested in a VM with a
   report that names an RTX 4090 ([Hardware and NVIDIA](drivers.md)); no
   NVIDIA card has run the image. Untested: the open module taking a card,
-  derisk's compositor on it, explicit sync, suspend and hibernation,
+  derisk's compositor on it, explicit sync, suspend,
   VA-API, hardened_malloc under NVIDIA's libraries, and laptops with two
   GPUs. A machine with an NVIDIA card and another GPU draws on whichever
   is the boot display; nothing offloads an app to the other.

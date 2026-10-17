@@ -79,6 +79,20 @@ in
           machine.succeed("modinfo -n nvidia")
           machine.fail("test -d /sys/module/nvidia")
 
+      with subtest("the kernel is locked down, takes only signed modules and hardens BPF"):
+          # kernel-hardening.nix. The mode is forced in the kernel's build,
+          # so the command line has nothing to say about it.
+          machine.succeed("grep -q '\\[integrity\\]' /sys/kernel/security/lockdown")
+          machine.succeed("grep -qx Y /sys/module/module/parameters/sig_enforce")
+          # NVIDIA's open module is signed inside the kernel's build
+          # (nvidia.nix), or it could never load.
+          machine.succeed("modinfo -F signer nvidia | grep -q .")
+          machine.succeed("test \"$(sysctl -n kernel.unprivileged_bpf_disabled)\" = 1")
+          machine.succeed("test \"$(sysctl -n net.core.bpf_jit_harden)\" = 2")
+          # QEMU emulates no IOMMU here, so only the asking can be checked.
+          machine.succeed("grep -qw intel_iommu=on /proc/cmdline")
+          machine.succeed("grep -qw iommu.strict=1 /proc/cmdline")
+
       with subtest("a user is a homed LUKS volume"):
           # homed's first-boot wizard runs only while no regular user exists,
           # so nothing the image ships -- derisk-greeter included -- may count
