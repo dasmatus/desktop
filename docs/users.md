@@ -29,6 +29,16 @@ the page and have an administrator type theirs. The page keeps one
 administrator: the last one cannot be made standard or removed, and nobody
 removes their own account from it.
 
+Each person's virtual machines live in their own home area and run as their
+own user services ([Virtual machine desktop](hypervisor.md)), so removing
+someone deletes their machines with the rest of their files, and the page
+says so. homed will not remove a home area that is open, which it is while
+its owner is signed in, behind Switch user for instance. The page reads the
+home area's state from the record homed hands userdb and, for someone signed
+in, offers to sign them out first (`loginctl terminate-user`, which polkit
+also asks an administrator for), warning that their apps and machines close
+and what they have not saved is lost.
+
 Someone else's home area is locked while they are logged out, and homed
 cannot write their record into it. Their change goes to homed's own copy of
 the record (`homectl update --offline`), which is signed by the machine and
@@ -57,7 +67,8 @@ and the screen goes straight to the password, as before.
 ## Switch user
 
 Switch user locks the desktop and shows the login screen on another VT,
-leaving the session running behind its lock screen. It is a button on the
+leaving the session running behind its lock screen, with its apps and
+virtual machines. It is a button on the
 lock screen, a row in the palette, `Super+X U`, and something the assistant
 understands ("switch user"). The session connects to
 `/run/derisk-dm/switch.sock`; connecting is the whole request. Anyone can
