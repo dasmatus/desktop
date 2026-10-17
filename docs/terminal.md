@@ -4,6 +4,9 @@ The desktop's terminal is derisk's own, `derisk-terminal`
 (`crates/derisk-terminal` in derisk), and the image ships no other: it
 replaced foot, which the image carried only because derisk had none. The
 virtual machine template's guest ships it too ([hypervisor.md](hypervisor.md)).
+Super+Enter opens one, as it does in i3 and sway; "Move to main pane",
+which had that key before, is Super+Shift+Enter. Settings files saved
+before the change are moved over to it when they still hold the old keys.
 
 ![derisk-terminal in a derisk session, showing Nerd Font icons, a powerline prompt, box drawing, the 256 colours and text styles](images/terminal.png)
 
