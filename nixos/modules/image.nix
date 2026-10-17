@@ -66,7 +66,17 @@ in
     # 512-byte blocks, so udev never learns /dev/mapper/usr holds a
     # filesystem, marks it SYSTEMD_READY=0, and the initrd waits out the
     # device with /usr unmounted. A later -b wins over repart's own.
-    mkfsOptions.erofs = [ "-b4096" ];
+    #
+    # Compressed with LZ4HC, because every release has to fit the fixed
+    # update slot an installed disk already has (losos.usrSize, 8G): the
+    # store had reached 7.7G uncompressed, and Sonne's 0.9G took it past.
+    # LZ4 decompresses faster than the disk reads, and the kernel's erofs
+    # carries it (CONFIG_EROFS_FS_ZIP); a sample of the store came out at
+    # 53% of its size.
+    mkfsOptions.erofs = [
+      "-b4096"
+      "-zlz4hc,level=12"
+    ];
 
     partitions = {
       # GRUB and grubenv go in from grub.nix, and the UKI from nixpkgs'
