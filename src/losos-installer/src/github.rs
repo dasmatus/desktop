@@ -9,19 +9,18 @@
 //!
 //! So the installer serves the release to it from 127.0.0.1 ([`Mirror`]).
 //! `SHA256SUMS` and its signature are this architecture's, and a file asked
-//! for by its own name is its parts streamed one after the other, straight
-//! from GitHub through `curl`, so nothing is staged in the live system's
-//! memory. sysupdate then checks the signature and every file's hash itself,
-//! exactly as it does for the channel, and downloads into the slots as an
-//! update would.
+//! for by its own name is its parts one after the other, which aria2 has
+//! fetched onto the disk being installed first ([`crate::stage`]). sysupdate
+//! then checks the signature and every file's hash itself, exactly as it
+//! does for the channel, and downloads into the slots as an update would.
 //!
 //! The release is found by version, which is in every file name: the named
 //! release a person tagged by hand first, then the nightly CI tagged from the
 //! version (`20261010.175322` is `nightly-20261010T1753`).
 use std::collections::BTreeMap;
+use std::fs;
 use std::io::{self, BufRead, BufReader, Write};
 use std::net::{Shutdown, TcpListener, TcpStream};
-use std::process::{Command, Stdio};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::mpsc::Sender;
 use std::thread;
@@ -29,6 +28,7 @@ use std::thread;
 use serde_json::Value;
 
 use crate::install::{Event, command};
+use crate::stage::Staged;
 
 /// Where GitHub's REST API answers.
 const API: &str = "https://api.github.com";
@@ -200,15 +200,15 @@ pub fn files(release: &Release, arch: &str) -> BTreeMap<String, File> {
         .collect()
 }
 
-/// A release served over HTTP on 127.0.0.1 for as long as [`Mirror::serve`]
-/// runs.
+/// Fetched files served over HTTP on 127.0.0.1 for as long as
+/// [`Mirror::serve`] runs.
 pub struct Mirror {
     listener: TcpListener,
-    files: BTreeMap<String, File>,
+    files: BTreeMap<String, Staged>,
 }
 
 impl Mirror {
-    pub fn new(files: BTreeMap<String, File>) -> io::Result<Self> {
+    pub fn new(files: BTreeMap<String, Staged>) -> io::Result<Self> {
         // Port 0: whichever is free. Only this machine can connect.
         let listener = TcpListener::bind("127.0.0.1:0")?;
         Ok(Mirror { listener, files })
@@ -234,7 +234,7 @@ impl Mirror {
                     let Ok(stream) = stream else { continue };
                     let events = events.clone();
                     scope.spawn(move || {
-                        if let Err(e) = self.answer(stream, &events) {
+                        if let Err(e) = self.answer(stream) {
                             let _ = events.send(Event::Line(format!("release mirror: {e}")));
                         }
                     });
@@ -250,7 +250,7 @@ impl Mirror {
         })
     }
 
-    fn answer(&self, mut stream: TcpStream, events: &Sender<Event>) -> io::Result<()> {
+    fn answer(&self, mut stream: TcpStream) -> io::Result<()> {
         let mut reader = BufReader::new(stream.try_clone()?);
         let mut request = String::new();
         reader.read_line(&mut request)?;
@@ -281,34 +281,12 @@ impl Mirror {
         if method == "HEAD" {
             return Ok(());
         }
-        let _ = events.send(Event::Line(format!(
-            "Fetching {} from the GitHub release",
-            path.trim_start_matches('/')
-        )));
-        // --fail-early: one part missing ends the whole file rather than
-        // skipping to the next, so the length comes up short and sysupdate
-        // refuses it.
-        let mut curl = Command::new("curl")
-            .args([
-                "--silent",
-                "--show-error",
-                "--fail",
-                "--fail-early",
-                "--location",
-                "--retry",
-                "3",
-            ])
-            .args(&file.urls)
-            .stdin(Stdio::null())
-            .stdout(Stdio::piped())
-            .spawn()?;
-        let copied = io::copy(curl.stdout.as_mut().expect("piped"), &mut stream);
-        let status = curl.wait()?;
+        // One part after the other: sysupdate reads a split file whole.
+        let copied = file
+            .paths
+            .iter()
+            .try_for_each(|path| io::copy(&mut fs::File::open(path)?, &mut stream).map(|_| ()));
         let _ = stream.shutdown(Shutdown::Both);
-        copied?;
-        if !status.success() {
-            return Err(io::Error::other(format!("curl failed ({status})")));
-        }
-        Ok(())
+        copied
     }
 }
