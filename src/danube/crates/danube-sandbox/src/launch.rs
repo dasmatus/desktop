@@ -47,20 +47,27 @@ fn open_fds(skip: &[RawFd]) -> Vec<RawFd> {
     fds.into_iter().collect()
 }
 
-/// The plan's Landlock rules for paths that exist. Hakoniwa resolves every
-/// rule's path inside the container and refuses to start ("landlock path
-/// must be exist") when one is missing, and the plan names paths a session
-/// often lacks: a guest has no /dev/dri, a system without 32-bit graphics
-/// no /run/opengl-driver-32, and a new user none of ~/.icons, ~/.fonts or
-/// derisk's folders. A path missing here was not bound either, so there is
-/// nothing behind it for a rule to allow.
+/// The plan's Landlock rules for paths the container will have: those that
+/// exist here, where the container's mounts come from, and those the plan
+/// mounts something at. Hakoniwa resolves every rule's path inside the
+/// container and refuses to start ("landlock path must be exist") when one
+/// is missing, and a plan can name a path a session lacks: a machine has no
+/// /dev/dri, a system without 32-bit graphics no /run/opengl-driver-32, a
+/// new user none of ~/.icons or derisk's folders. Such a path is not
+/// bound either, so there is nothing behind it for a rule to allow.
 fn landlock_rules(plan: &Plan) -> impl Iterator<Item = &(String, Access)> {
     plan.landlock.iter().filter(|(path, _)| {
-        let exists = Path::new(path).exists();
-        if !exists {
+        let mounted = plan.ops.iter().any(|op| match op {
+            Op::Bind { src, dest, .. } => dest == path && Path::new(src).exists(),
+            Op::Tmpfs(dest) | Op::Proc(dest) | Op::Dev(dest) | Op::Dir(dest) => dest == path,
+            Op::File { dest, .. } => dest == path,
+            Op::Symlink { .. } => false,
+        });
+        let kept = mounted || Path::new(path).exists();
+        if !kept {
             debug!(%path, "missing; no Landlock rule");
         }
-        exists
+        kept
     })
 }
 
