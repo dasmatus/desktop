@@ -1,4 +1,4 @@
-# What boot.nix, boot-bios.nix and hibernate.nix share: a node that boots
+# What boot.nix and boot-bios.nix share: a node that boots
 # the real image as firmware would, from its own disk, and the start of a
 # test script that gives it that disk.
 { self }:

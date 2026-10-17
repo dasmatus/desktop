@@ -21,6 +21,7 @@
     # itself.
     ./atl.nix
     ./services.nix
+    ./kernel-hardening.nix
     ./pm.nix
     ./ping.nix
     ./backup.nix

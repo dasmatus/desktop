@@ -26,6 +26,7 @@ module.exports = {
         'releases',
         'allocator',
         'security-report',
+        'kernel-hardening',
       ],
     },
     {
