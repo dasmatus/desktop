@@ -191,10 +191,13 @@ fn enter(targets_hint: usize, seccomp: Option<&[u8]>, program: &[CString]) -> i3
         .collect();
     // SAFETY (all below): plain descriptor-table calls on descriptors this
     // process now owns. First every received descriptor moves out of the
-    // way, above any target, so placing one cannot close another.
+    // way, above any target, so placing one cannot close another. Just
+    // above the highest target, not at a fixed number: the open-file soft
+    // limit a systemd unit starts with is 1024, and a number past it fails.
+    let above = targets.iter().max().map_or(0, |t| t + 1);
     let mut high = Vec::with_capacity(fds.len());
     for fd in &fds {
-        let moved = unsafe { libc::fcntl(*fd, libc::F_DUPFD_CLOEXEC, 4096) };
+        let moved = unsafe { libc::fcntl(*fd, libc::F_DUPFD_CLOEXEC, above) };
         unsafe { libc::close(*fd) };
         if moved < 0 {
             return 126;
