@@ -113,11 +113,11 @@ there.
 
 ## How it reaches the box
 
-On a PC the one machine that talks to LosOS boxes is the LosOS boxes
-machine, and every other machine reaches a box through it: its `losos-boxes
-route` passes each connection on ports 80 and 443 to the box its `Host`
-header or TLS server name asks for, as it is, so the box's own certificate
-answers. The host's `losos-boxes relay` writes the boxes each such machine
+On a PC the one machine that talks to LosOS boxes is the [LosOS
+boxes](losos-boxes.md) machine, and every other machine reaches a box
+through it: its `losos-boxes route` passes each connection on ports 80
+and 443 to the box its `Host` header or TLS server name asks for, as it
+is, so the box's own certificate answers. The host's `losos-boxes relay` writes the boxes each such machine
 sees into `/run/losos-boxes/hosts/<machine>`, one `<machine's address>
 <box>.local` line each. The backups read those files the way libvirt's DNS
 does for the [machines](hypervisor.md), and connect to that address with
