@@ -22,6 +22,9 @@ serde_json = "1"
 # The two browsers hand what they see to the thread that writes the
 # entries, as in losos-adblock.
 crossbeam-channel = "0.5"
+# The host's end of the LosOS boxes machine's way to its resolved (`relay`),
+# as derisk-machines listens for machines' windows.
+vsock = "0.5.4"
 
 [profile.release]
 opt-level = "z"

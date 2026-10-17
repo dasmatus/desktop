@@ -18,6 +18,22 @@ use serde_json::{json, Value};
 /// resolved's Varlink socket, which any user may call for lookups and
 /// browsing.
 pub const RESOLVE_SOCKET: &str = "/run/systemd/resolve/io.systemd.Resolve";
+/// Where the LosOS boxes machine reaches the host's resolved instead
+/// (`relay`): a vsock port on the host, address 2.
+pub const RELAY_PORT: u32 = 7351;
+/// The template a machine is made from to be let through to the host's
+/// resolved: the LosOS boxes machine's (nixos/guest/boxes.nix).
+pub const MACHINE_TEMPLATE: &str = "losos-boxes";
+/// Where that machine tells the host which names are boxes (`route`), so
+/// the host's DNS for machines answers them with the machine's address.
+pub const NAMES_PORT: u32 = 7352;
+/// Where the host keeps those answers: a hosts file per LosOS boxes machine,
+/// which libvirt's dnsmasq reads as it changes (libvirt.nix).
+pub const HOSTS_DIR: &str = "/run/losos-boxes/hosts";
+/// The ports the LosOS boxes machine passes on to a box for the other
+/// machines: the front door's HTTP and HTTPS, where a box serves its admin
+/// pages, its cloud and its Git.
+pub const ROUTED_PORTS: [u16; 2] = [80, 443];
 /// What a box announces.
 pub const BOX_TYPE: &str = "_losos._tcp";
 /// What a box from before `_losos._tcp` announces, among every other Avahi
@@ -289,13 +305,23 @@ impl LososBox {
     }
 
     /// The `.desktop` file that offers the box in the palette and the app
-    /// list: opening it opens its admin pages in the default browser, and its
-    /// one action opens it in `losos`, in a terminal.
-    pub fn desktop_entry(&self) -> String {
+    /// list. Opening it does what `opens` says, and its one action does the
+    /// other: the admin pages in the default browser, or the box in `losos`,
+    /// in a terminal.
+    pub fn desktop_entry(&self, opens: Opens) -> String {
         let url = self.url();
         let comment = match &self.version {
             Some(version) => format!("LosOS {version} box at {}", self.host),
             None => format!("LosOS box at {}", self.host),
+        };
+        let name = escape(self.name());
+        let pages = format!("xdg-open {url}/");
+        let terminal = format!(
+            "derisk-terminal --app-id=org.losos.Boxes --title={name} losos-boxes terminal {url}"
+        );
+        let (exec, action, action_name, action_exec) = match opens {
+            Opens::AdminPages => (pages, "terminal", "Manage in the terminal", terminal),
+            Opens::Terminal => (terminal, "pages", "Open the admin pages", pages),
         };
         format!(
             "[Desktop Entry]\n\
@@ -305,17 +331,158 @@ impl LososBox {
              Comment={comment}\n\
              Keywords=LosOS;box;server;home;{host};\n\
              Icon=network-server\n\
-             Exec=xdg-open {url}/\n\
-             Actions=terminal;\n\
+             Exec={exec}\n\
+             Actions={action};\n\
              \n\
-             [Desktop Action terminal]\n\
-             Name=Manage in the terminal\n\
-             Exec=derisk-terminal --app-id=org.losos.Boxes --title={name} losos-boxes terminal {url}\n",
-            name = escape(self.name()),
+             [Desktop Action {action}]\n\
+             Name={action_name}\n\
+             Exec={action_exec}\n",
             comment = escape(&comment),
             host = escape(&self.host),
         )
     }
+}
+
+/// What opening a box's entry does.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Opens {
+    /// Its admin pages, in the default browser. The action opens `losos`.
+    AdminPages,
+    /// `losos`, in a terminal, as the LosOS boxes machine's entries do: that
+    /// machine is where boxes are managed. The action opens the pages.
+    Terminal,
+}
+
+/// The vsock address and the template of a machine, from its libvirt
+/// definition: the `<cid>` libvirt gave it, and the template pm recorded in
+/// its `<metadata>` (`<pm:template name='losos-boxes' .../>`), under
+/// whatever prefix libvirt writes the namespace with.
+pub fn machine_cid_and_template(xml: &str) -> (Option<u32>, Option<&str>) {
+    let attribute = |element: &str, name: &str| -> Option<&str> {
+        let start = xml.find(element)? + element.len();
+        let rest = &xml[start..];
+        let rest = &rest[..rest.find('>')?];
+        let value = &rest[rest.find(&format!("{name}="))? + name.len() + 1..];
+        let quote = value.chars().next().filter(|q| *q == '\'' || *q == '"')?;
+        let value = &value[1..];
+        Some(&value[..value.find(quote)?])
+    };
+    let cid = attribute("<cid ", "address").and_then(|a| a.parse().ok());
+    let template = attribute(":template ", "name").or_else(|| attribute("<template ", "name"));
+    (cid, template)
+}
+
+/// The addresses in a `ResolveHostname` reply, IPv4 first.
+pub fn hostname_addresses(parameters: &Value) -> Vec<IpAddr> {
+    let mut addresses: Vec<IpAddr> = parameters
+        .get("addresses")
+        .and_then(Value::as_array)
+        .into_iter()
+        .flatten()
+        .filter_map(|a| {
+            let octets: Vec<u8> = a
+                .get("address")?
+                .as_array()?
+                .iter()
+                .map(|b| b.as_u64().and_then(|b| u8::try_from(b).ok()))
+                .collect::<Option<_>>()?;
+            match octets.len() {
+                4 => Some(IpAddr::V4(Ipv4Addr::from(
+                    <[u8; 4]>::try_from(octets).ok()?,
+                ))),
+                16 => Some(IpAddr::V6(Ipv6Addr::from(
+                    <[u8; 16]>::try_from(octets).ok()?,
+                ))),
+                _ => None,
+            }
+        })
+        .collect();
+    addresses.sort_by_key(IpAddr::is_ipv6);
+    addresses
+}
+
+/// The host an HTTP request is for, from its `Host` header, without a port
+/// and in lower case; `None` until `head` holds every header line.
+pub fn http_host(head: &[u8]) -> Option<String> {
+    let end = head.windows(4).position(|w| w == b"\r\n\r\n")?;
+    let head = std::str::from_utf8(&head[..end]).ok()?;
+    let value = head.split("\r\n").skip(1).find_map(|line| {
+        let (name, value) = line.split_once(':')?;
+        name.trim()
+            .eq_ignore_ascii_case("host")
+            .then(|| value.trim())
+    })?;
+    let host = match value.rsplit_once(':') {
+        Some((host, port)) if port.chars().all(|c| c.is_ascii_digit()) => host,
+        _ => value,
+    };
+    Some(host.trim_end_matches('.').to_ascii_lowercase())
+}
+
+/// How many bytes the TLS record that `start` begins holds, header and all,
+/// once its header is there: what has to be read before
+/// [`tls_server_name`] can look.
+pub fn tls_record_len(start: &[u8]) -> Option<usize> {
+    (start.len() >= 5).then(|| 5 + usize::from(u16::from_be_bytes([start[3], start[4]])))
+}
+
+/// The name a TLS client asked for in its ClientHello's server_name
+/// extension, in lower case. `hello` is the first record the client sent.
+pub fn tls_server_name(hello: &[u8]) -> Option<String> {
+    let take = |data: &mut &[u8], n: usize| -> Option<Vec<u8>> {
+        let (head, rest) = (data.get(..n)?, data.get(n..)?);
+        *data = rest;
+        Some(head.to_vec())
+    };
+    let len = |data: &mut &[u8], n: usize| -> Option<usize> {
+        Some(
+            take(data, n)?
+                .iter()
+                .fold(0, |sum, b| sum << 8 | usize::from(*b)),
+        )
+    };
+    let mut data = hello;
+    // A handshake record, holding a ClientHello.
+    if take(&mut data, 5)?.first() != Some(&0x16) || take(&mut data, 1)? != [1] {
+        return None;
+    }
+    let n = len(&mut data, 3)?;
+    let mut data = data.get(..n)?;
+    // Version and random, then the session, cipher suites and compression.
+    take(&mut data, 34)?;
+    for width in [1, 2, 1] {
+        let n = len(&mut data, width)?;
+        take(&mut data, n)?;
+    }
+    let n = len(&mut data, 2)?;
+    let mut extensions = data.get(..n)?;
+    while !extensions.is_empty() {
+        let kind = len(&mut extensions, 2)?;
+        let size = len(&mut extensions, 2)?;
+        let body = take(&mut extensions, size)?;
+        if kind != 0 {
+            continue;
+        }
+        let mut names = body.get(2..)?;
+        while !names.is_empty() {
+            let name_type = len(&mut names, 1)?;
+            let n = len(&mut names, 2)?;
+            let name = take(&mut names, n)?;
+            if name_type == 0 {
+                let name = String::from_utf8(name).ok()?;
+                return Some(name.trim_end_matches('.').to_ascii_lowercase());
+            }
+        }
+    }
+    None
+}
+
+/// A hosts file for libvirt's dnsmasq: each of `names` at `address`.
+pub fn hosts_file<'a>(address: IpAddr, names: impl IntoIterator<Item = &'a str>) -> String {
+    names
+        .into_iter()
+        .map(|name| format!("{address} {name}\n"))
+        .collect()
 }
 
 /// A string value for a `.desktop` file: its escapes, and `;` kept literal
@@ -543,11 +710,19 @@ mod tests {
 
     #[test]
     fn writes_an_entry() {
-        let entry = mattbox(Some("v0.4.0")).desktop_entry();
+        let entry = mattbox(Some("v0.4.0")).desktop_entry(Opens::AdminPages);
         assert!(entry.contains("\nName=mattbox\n"));
         assert!(entry.contains("\nComment=LosOS v0.4.0 box at mattbox.local\n"));
         assert!(entry.contains("\nExec=xdg-open http://mattbox.local/\n"));
+        assert!(entry.contains("\n[Desktop Action terminal]\nName=Manage in the terminal\n"));
         assert!(entry.contains("losos-boxes terminal http://mattbox.local\n"));
+        let entry = mattbox(None).desktop_entry(Opens::Terminal);
+        assert!(entry.contains(
+            "\nExec=derisk-terminal --app-id=org.losos.Boxes --title=mattbox \
+             losos-boxes terminal http://mattbox.local\n"
+        ));
+        assert!(entry.contains("\n[Desktop Action pages]\nName=Open the admin pages\n"));
+        assert!(entry.contains("\nExec=xdg-open http://mattbox.local/\n"));
         assert_eq!(mattbox(None).file_name(), "losos-box-mattbox.local.desktop");
         let other = LososBox::new("MattBox.local.", 8080, Some("v0.4.0 x")).unwrap();
         assert_eq!(other.host, "mattbox.local");
@@ -565,6 +740,100 @@ mod tests {
         ] {
             assert_eq!(LososBox::new(host, 80, None), None, "{host}");
         }
+    }
+
+    #[test]
+    fn reads_a_machines_address_and_template() {
+        // Abridged from `virsh dumpxml` of a running machine pm made.
+        let xml = "<domain type='qemu' id='1'>\n  <name>boxes</name>\n  <metadata>\n    \
+                   <pm:machine xmlns:pm=\"https://losos-project.github.io/xmlns/pm-machine/1\">\n      \
+                   <pm:label>green</pm:label>\n      \
+                   <pm:template name='losos-boxes' digest='0123abcd'/>\n    \
+                   </pm:machine>\n  </metadata>\n  <devices>\n    \
+                   <vsock model='virtio'>\n      <cid auto='yes' address='3'/>\n    </vsock>\n";
+        assert_eq!(
+            machine_cid_and_template(xml),
+            (Some(3), Some("losos-boxes"))
+        );
+        let other = xml.replace("pm:", "ns0:").replace("'3'", "'17'");
+        assert_eq!(
+            machine_cid_and_template(&other),
+            (Some(17), Some("losos-boxes"))
+        );
+        // Not running, so no address; made from a CD, so no template.
+        assert_eq!(
+            machine_cid_and_template("<domain><name>win</name></domain>"),
+            (None, None)
+        );
+    }
+
+    #[test]
+    fn reads_resolved_hostnames() {
+        let reply = json!({ "addresses": [
+            { "ifindex": 2, "family": 10, "address": [254, 128, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1] },
+            { "ifindex": 2, "family": 2, "address": [192, 168, 1, 20] },
+        ], "name": "mattbox.local" });
+        assert_eq!(
+            hostname_addresses(&reply),
+            [
+                "192.168.1.20".parse::<IpAddr>().unwrap(),
+                "fe80::1".parse().unwrap()
+            ]
+        );
+        assert_eq!(hostname_addresses(&json!({})), Vec::<IpAddr>::new());
+    }
+
+    #[test]
+    fn reads_the_host_a_request_is_for() {
+        let request = b"GET / HTTP/1.1\r\nUser-Agent: x\r\nHOST: MattBox.local:80\r\n\r\nbody";
+        assert_eq!(http_host(request).as_deref(), Some("mattbox.local"));
+        assert_eq!(
+            http_host(b"GET / HTTP/1.1\r\nHost: mattbox.local\r\n"),
+            None
+        );
+        assert_eq!(http_host(b"GET / HTTP/1.1\r\nAccept: */*\r\n\r\n"), None);
+    }
+
+    #[test]
+    fn reads_the_name_a_tls_client_asks_for() {
+        // A ClientHello for mattbox.local, as rustls sends one, cut to the
+        // fields the parser walks: one cipher suite, no session, and the
+        // server_name extension after another one.
+        let name = b"MattBox.local";
+        let mut sni = vec![0, 0];
+        let list_len = (3 + name.len()) as u16;
+        let mut list = list_len.to_be_bytes().to_vec();
+        list.push(0);
+        list.extend((name.len() as u16).to_be_bytes());
+        list.extend(name);
+        sni.extend((list.len() as u16).to_be_bytes());
+        sni.extend(&list);
+        let mut extensions = vec![0, 23, 0, 0];
+        extensions.extend(sni);
+        let mut body = vec![3, 3];
+        body.extend([7; 32]);
+        body.extend([0, 0, 2, 0x13, 1, 1, 0]);
+        body.extend((extensions.len() as u16).to_be_bytes());
+        body.extend(extensions);
+        let mut handshake = vec![1, 0];
+        handshake.extend((body.len() as u16).to_be_bytes());
+        handshake.extend(body);
+        let mut record = vec![0x16, 3, 1];
+        record.extend((handshake.len() as u16).to_be_bytes());
+        record.extend(handshake);
+        assert_eq!(tls_record_len(&record), Some(record.len()));
+        assert_eq!(tls_server_name(&record).as_deref(), Some("mattbox.local"));
+        assert_eq!(tls_server_name(&record[..record.len() - 3]), None);
+        assert_eq!(tls_server_name(b"GET / HTTP/1.1\r\n\r\n"), None);
+    }
+
+    #[test]
+    fn writes_a_hosts_file() {
+        let at = "192.168.122.40".parse().unwrap();
+        assert_eq!(
+            hosts_file(at, ["mattbox.local", "oldbox.local"]),
+            "192.168.122.40 mattbox.local\n192.168.122.40 oldbox.local\n"
+        );
     }
 
     #[test]

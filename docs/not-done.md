@@ -210,3 +210,12 @@
   element rules apply in Danube alone; other browsers and apps get only
   whole blocked domains ([System-wide ad blocking](adblock.md)), and a
   program with its own DNS over HTTPS skips it entirely.
+- **The LosOS boxes machine passes on names, not everything**
+  ([LosOS boxes](losos-boxes.md)). It routes the other machines'
+  connections to a box only on ports 80 and 443, by the name they ask for;
+  an app's own port on a box is dialled directly, and nothing stops a
+  machine that knows a box's address from reaching it without the LosOS
+  boxes machine. Its keyring has no sign-in to unlock it, so the first
+  `losos` that stores a key or token asks for a keyring password in a
+  window of the machine. Neither half has met a real box on a real LAN
+  yet, only a box that the machines test boots beside the host.

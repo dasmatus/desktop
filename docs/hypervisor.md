@@ -101,7 +101,9 @@ the host's LAN. The host is on both:
    `virbr0` alike, and answers with the address it found.
 
 The machine then reaches that address through libvirt's NAT like any
-other. With nothing multicasting in the machine, it also neither answers
+other. A LosOS box's name is the exception while a LosOS boxes machine
+runs: dnsmasq answers it with that machine's address, and the connection
+goes to the box through it ([from the other machines](losos-boxes.md#from-the-other-machines)). With nothing multicasting in the machine, it also neither answers
 nor announces on `virbr0`: the host's answer is the only one. A machine
 installed from a CD keeps whatever its own system does, which for most
 distributions is Avahi multicasting on `virbr0` alone.
@@ -169,12 +171,22 @@ starts things:
 
 ## The guest template
 
-The image ships one template, the LosOS guest:
-`share/losos/machines/losos-guest.qcow2` on `XDG_DATA_DIRS`, in `/usr` and
-covered by its verity hash like the rest of the OS. `nixos/guest/` is its
-NixOS configuration, and `nixos/modules/machines.nix` evaluates it with the
-image's own package set and turns it into the template. An update brings a
-new template; machines made from the old one keep it.
+The image ships two templates under `share/losos/machines` on
+`XDG_DATA_DIRS`, in `/usr` and covered by its verity hash like the rest of
+the OS: the LosOS guest, `losos-guest.qcow2`, for a person's own apps, and
+the [LosOS boxes machine](losos-boxes.md#the-losos-boxes-machine),
+`losos-boxes.qcow2`, the one machine that talks to LosOS boxes. Both are the
+same machine, `nixos/guest/common.nix`, with different apps:
+`nixos/guest/default.nix` adds Flatpak and the Calculator, and
+`nixos/guest/boxes.nix` adds `losos` and box discovery.
+`nixos/modules/machines.nix` evaluates each with the image's own package
+set and turns it into its template. They are the option
+`losos.machines.guests`, a NixOS module per template name, so a part of
+the OS that needs a machine of its own adds one there, as
+`nixos/modules/losos-boxes.nix` adds the LosOS boxes machine. An update
+brings new templates; machines made from the old ones keep them.
+
+What follows is the LosOS guest.
 
 The guest boots its UKI from the ESP's fallback path, with no boot loader,
 and its root is one ext4 partition holding the Nix store and its state,

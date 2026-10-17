@@ -1,9 +1,11 @@
 # The machine templates the image ships: disk images that a machine is made
 # from (docs/hypervisor.md, "The guest template"), and the CDs of guest tools
 # a machine that installs Windows or another distribution from its own CD is
-# given beside it. Today there is one, the
-# LosOS guest, nixos/guest/ evaluated here as a NixOS system of its own with
-# the image's package set, the way installer.nix evaluates the installer.
+# given beside it. The templates are losos.machines.guests: the LosOS guest
+# (nixos/guest/default.nix), for a person's own apps, and whatever other
+# modules add, such as losos-boxes.nix's LosOS boxes machine. Each is
+# evaluated here as a NixOS system of its own with the image's package
+# set, the way installer.nix evaluates the installer.
 #
 # Templates live under share/losos/machines, on XDG_DATA_DIRS, where derisk's
 # Machines app looks for them, and `pm machine create --image` takes them
@@ -20,17 +22,21 @@
 }:
 
 let
-  guest = import "${modulesPath}/../lib/eval-config.nix" {
-    system = null;
-    modules = [
-      ../guest
-      # The image's own package set, overlay and all, so a package the host
-      # and the guest share is one store path and one build.
-      { nixpkgs.pkgs = pkgs; }
-    ];
-  };
-
-  inherit (guest.config.system.build) image;
+  # Each template is its own NixOS system, named after its attribute in
+  # losos.machines.guests.
+  guests = lib.mapAttrs (
+    name: module:
+    import "${modulesPath}/../lib/eval-config.nix" {
+      system = null;
+      modules = [
+        module
+        { losos.guest.name = name; }
+        # The image's own package set, overlay and all, so a package the
+        # host and the guests share is one store path and one build.
+        { nixpkgs.pkgs = pkgs; }
+      ];
+    }
+  ) config.losos.machines.guests;
 
   # A CD of `dir`'s files, which Windows and Linux both read: Joliet for
   # Windows' long names, Rock Ridge for Linux's modes, so setup.sh stays
@@ -135,14 +141,29 @@ let
       {
         nativeBuildInputs = [ pkgs.buildPackages.qemu-utils ];
       }
-      ''
-        mkdir -p $out/share/losos/machines
-        qemu-img convert -f raw -O qcow2 -c \
-          ${image}/${guest.config.image.fileName} \
-          $out/share/losos/machines/losos-guest.qcow2
-      '';
+      (
+        ''
+          mkdir -p $out/share/losos/machines
+        ''
+        + lib.concatMapStrings (system: ''
+          qemu-img convert -f raw -O qcow2 -c \
+            ${system.config.system.build.image}/${system.config.image.fileName} \
+            $out/share/losos/machines/${system.config.losos.guest.name}.qcow2
+        '') (lib.attrValues guests)
+      );
 in
 {
+  options.losos.machines.guests = lib.mkOption {
+    type = lib.types.attrsOf lib.types.deferredModule;
+    description = ''
+      The machine templates built from nixos/guest/common.nix, by name: each
+      is a NixOS module that imports common.nix, and ships as
+      share/losos/machines/<name>.qcow2, the name pm records as a machine's
+      template. A module that needs a machine of its own for something adds
+      one here, as losos-boxes.nix's LosOS boxes machine does.
+    '';
+  };
+
   options.losos.machines.templates = lib.mkOption {
     type = lib.types.bool;
     default = true;
@@ -154,12 +175,15 @@ in
   };
 
   config = {
+    # The LosOS guest, for a person's own apps.
+    losos.machines.guests.losos-guest = ../guest;
+
     environment.systemPackages = [ tools ] ++ lib.optional config.losos.machines.templates templates;
     environment.pathsToLink = [ "/share/losos/machines" ];
 
     # Buildable on their own whether or not the image carries them.
     system.build = {
-      guestSystem = guest;
+      guestSystems = guests;
       machineTemplates = templates;
       machineTools = tools;
     };
