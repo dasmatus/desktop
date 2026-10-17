@@ -125,9 +125,26 @@ in
 
     services.qemuGuest.enable = true;
 
-    # DHCP on libvirt's default network, which hands out the address and the
-    # host's resolver.
-    networking.useNetworkd = true;
+    # NetworkManager, unlike the host's networkd: it takes the address and the
+    # host's resolver from libvirt's default network by DHCP, and asks
+    # GNOME's check, nmcheck.gnome.org, whether that reaches the internet, the
+    # same check Danube makes on the host (captive.rs). Apps a person
+    # installs here ask it whether they are online, through GLib or the
+    # portal. resolved still answers DNS, as on the host.
+    networking.networkmanager = {
+      enable = true;
+      dns = "systemd-resolved";
+      settings.connectivity = {
+        uri = "http://nmcheck.gnome.org/check_network_status.txt";
+        response = "NetworkManager is online";
+      };
+    };
+    services.resolved.enable = true;
+    # A machine has one virtio network card and no Wi-Fi or modem, which the
+    # NetworkManager module would otherwise bring wpa_supplicant and
+    # ModemManager for.
+    networking.wireless.enable = lib.mkForce false;
+    networking.modemmanager.enable = false;
 
     # .local names are the host's to look up (docs/hypervisor.md, "Names on
     # the network"). libvirt's NAT carries no multicast between the machine
@@ -136,22 +153,29 @@ in
     # Asked of the host's resolver instead, libvirt's dnsmasq hands it to
     # resolved on the host, which asks every network the host is on. resolved
     # sends .local to a unicast server only on a link that names it as a
-    # routing domain, hence ~local; and with nothing here multicasting, the
-    # machine neither answers nor announces on virbr0, so the host's answer
-    # is the only one.
+    # routing domain, hence ~local in the card's NetworkManager profile; and
+    # with mDNS and LLMNR off there and in resolved, the machine neither
+    # answers nor announces on virbr0, so the host's answer is the only one.
     services.resolved.settings.Resolve = {
       MulticastDNS = false;
       LLMNR = false;
     };
-    systemd.network.networks."10-libvirt" = {
-      matchConfig.Type = "ether";
-      networkConfig = {
-        DHCP = "yes";
-        Domains = "~local";
-        MulticastDNS = false;
-        LLMNR = false;
+    networking.networkmanager.ensureProfiles.profiles.libvirt = {
+      connection = {
+        id = "libvirt";
+        type = "ethernet";
+        mdns = 0;
+        llmnr = 0;
       };
+      ipv4 = {
+        method = "auto";
+        dns-search = "~local";
+      };
+      ipv6.method = "auto";
     };
+    # That profile is the card's, so NetworkManager makes no "Wired
+    # connection 1" of its own beside it.
+    networking.networkmanager.settings.main.no-auto-default = "*";
 
     users.users.${user} = {
       isNormalUser = true;
