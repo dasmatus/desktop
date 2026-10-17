@@ -91,8 +91,9 @@ the host's own networks, so an mDNS query a machine sent would reach only
 the other machines on `virbr0`, never a LosOS box, printer or other PC on
 the host's LAN. The host is on both:
 
-1. The guest's resolved does no mDNS or LLMNR, and its link on `default`
-   has `~local` as a routing domain, so a `.local` lookup goes to the DNS
+1. The guest's resolved does no mDNS or LLMNR, and NetworkManager's
+   profile for its link on `default` gives that link `~local` as a routing
+   domain (`ipv4.dns-search`), so a `.local` lookup goes to the DNS
    server DHCP gave it, which is the host (`192.168.122.1`). resolved never
    sends a `.local` name to a unicast server otherwise.
 2. libvirt's dnsmasq on `virbr0` answers it from the host's own resolver,
@@ -218,9 +219,12 @@ left out). It has:
   compositor), and Flatpak with Flathub and Bazaar, as on the host. The
   guest's user may install Flatpaks for the whole machine without being
   asked;
-- **networkd**, taking an address from libvirt's `default` network, and
-  resolved, which asks the host for `.local` names
-  ([above](#names-on-the-network)).
+- **NetworkManager**, taking an address from libvirt's `default` network
+  and checking it reaches the internet against GNOME's
+  `nmcheck.gnome.org`, which apps in the machine ask through GLib or the
+  portal before they go online. resolved answers DNS, and asks the host
+  for `.local` names ([above](#names-on-the-network)). The host keeps
+  networkd ([systemd](systemd.md)).
 
 `losos-guest-run`, in the guest's system profile, is what the host runs
 there through the agent:
