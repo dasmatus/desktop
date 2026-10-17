@@ -71,7 +71,8 @@ still takes time, so don't start one to check a module edit.
 - `nixos/home/pm.nix` is the flake's `homeModules.pm`: pm and its plugins
   installed and signed by a user's own Home Manager (`docs/pm.md`).
 - `nixos/pkgs/` is the overlay, and holds only what nixpkgs lacks: pm, its
-  plugins, `losos-installer`, `losos-security`, `losos-swap`, `losos-docs`
+  plugins, `losos-installer`, `losos-security`, `losos-swap`, `losos-backup`
+  (`docs/backup.md`), `losos-docs`
   (`website/` built for reading offline), `losos`, the LosOS boxes'
   terminal client (`docs/losos-boxes.md`), the Danube browser and the WPE
   WebKit it draws (`docs/danube.md`), `losos-adblock` (`docs/adblock.md`),

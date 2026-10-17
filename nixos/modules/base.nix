@@ -23,6 +23,7 @@
     ./services.nix
     ./pm.nix
     ./ping.nix
+    ./backup.nix
     ./docs.nix
     ./losos-boxes.nix
     ./userland.nix
