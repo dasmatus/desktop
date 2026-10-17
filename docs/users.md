@@ -34,18 +34,20 @@ own user services ([Virtual machine desktop](hypervisor.md)), so removing
 someone deletes their machines with the rest of their files, and the page
 says so. homed will not remove a home area that is open, which it is while
 its owner is signed in, behind Switch user for instance. The page reads the
-home area's state from the record homed hands userdb and, for someone signed
-in, offers to sign them out first (`loginctl terminate-user`, which polkit
-also asks an administrator for), warning that their apps and machines close
-and what they have not saved is lost.
+home area's state, and that homed keeps the account at all, from the status
+section of the record homed hands userdb. For someone signed in it offers to
+sign them out first (`loginctl terminate-user`, which polkit also asks an
+administrator for), warning that their apps and machines close and what they
+have not saved is lost.
 
 Someone else's home area is locked while they are logged out, and homed
 cannot write their record into it. Their change goes to homed's own copy of
 the record (`homectl update --offline`), which is signed by the machine and
 newer than the one in their home area, so homed writes it there at their
 next login. A new account joins the same device groups as setup's
-(`wpa_supplicant`, for Wi-Fi), and the display manager applies the password
-age policy at its first login ([Password age](sign-in.md#password-age)).
+(`wpa_supplicant`, for Wi-Fi) and is made under the same password age policy
+([Password age](sign-in.md#password-age)), so its first login has nothing to
+bring up to date.
 
 The new password is checked as setup checks it: Settings asks libpwquality
 while it is typed and keeps "Add" off until homed would take it. If homed
