@@ -9,18 +9,22 @@
   imports = [
     ./options.nix
     ./accounts.nix
+    ./home-folders.nix
     ./sign-in.nix
     ./setup.nix
     ./network.nix
     ./desktop.nix
     ./danube.nix
     ./adblock.nix
-    ./flatpak.nix
+    # flatpak.nix is not here: a PC runs Flatpak in a machine of its own
+    # (flatpak-machine.nix), and the GSI, which has no machines, imports it
+    # itself.
     ./atl.nix
     ./services.nix
     ./pm.nix
     ./ping.nix
     ./docs.nix
+    ./losos-boxes.nix
     ./userland.nix
   ];
 

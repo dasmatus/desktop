@@ -11,6 +11,18 @@ The keyboard layout switches live as it is picked, and the display manager
 hands localed's saved layout to the login screen and the session as
 xkbcommon's defaults.
 
+homed checks the password's quality and refuses a weak one, such as a short
+password or a dictionary word. The account page asks the same check while
+the password is typed: it loads libpwquality as systemd does, with the same
+configuration, says why a password would be refused under the field, and
+keeps "Set up" off until it would not be. Should homed refuse it anyway,
+homectl asks for another, and with no terminal to ask on it asks a password
+agent with no time limit, which nothing on the seat answers. Setup watches
+`/run/systemd/ask-password` for a question from the command it runs and
+answers it with cancel, so homectl exits with homed's reason, which the
+failure dialog shows before Back returns to the account page
+([Setup could not finish](troubleshooting.md#setup-could-not-finish)).
+
 ![First-boot setup's Time zone, Network and Your account pages](images/first-boot-pages.png)
 
 It runs on every boot and exits at once when `userdbctl` lists a regular

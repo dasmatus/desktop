@@ -92,6 +92,11 @@ in
   # into a disk image; the .exe is windows-installer.nix's.
   losos-windows-installer = callWithMold ./losos-windows-installer.nix { };
   losos-swap = callWithMold ./losos-swap.nix { };
+  # losos, the terminal client for LosOS boxes (docs/losos-boxes.md),
+  # written in the LosOS repository.
+  losos = callWithMold ./losos.nix { };
+  # Finds those boxes over mDNS and offers each one as an application.
+  losos-boxes = callWithMold ./losos-boxes.nix { };
   # WinApps, for a Windows machine's apps (libvirt.nix); a shell script,
   # nothing to link.
   winapps = final.callPackage ./winapps.nix { };
@@ -139,6 +144,11 @@ in
   # The system-wide ad blocker (docs/adblock.md).
   losos-adblock = callWithMold ./losos-adblock.nix { };
   x2mcsapi = callWithMold ./x2mcsapi.nix { };
+  # Sonne, the code editor (sonne.nix, docs/sonne.md), on the PC image. Its
+  # libwebrtc comes from nixpkgs' own package set, so it substitutes: from
+  # this one, its FFmpeg and SDL would reach the patched GTK through
+  # libdecor, and CI would compile WebRTC and FFmpeg.
+  sonne = callWithMold ./sonne.nix { inherit (plain) livekit-libwebrtc; };
   # Not a package: every package in nixpkgs, as a pm package's contents.
   pm-payloads = import ./pm-payloads.nix { inherit (final) lib pkgsStatic runCommand; };
 

@@ -32,7 +32,7 @@ module.exports = {
       type: 'category',
       label: 'Desktop and apps',
       collapsed: false,
-      items: ['gtk-qt-phone', 'icon-theme', 'danube', 'adblock', 'terminal', 'choice-screens'],
+      items: ['gtk-qt-phone', 'icon-theme', 'danube', 'adblock', 'terminal', 'sonne', 'choice-screens', 'losos-boxes'],
     },
     {
       type: 'category',

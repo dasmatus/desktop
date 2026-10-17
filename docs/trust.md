@@ -44,6 +44,11 @@ Everything the flake builds from, besides this repository:
   `Cargo.lock` and `cargoHash`. It is the desktop, the display manager and the
   portal backend. The `components/mcsapi` submodule is the same mcsapi commit,
   and builds `x2mcsapi`.
+- **The LosOS terminal client**, `losos`, built from the LosOS repository
+  (`github.com/dasmatus/losos`) at the commit `nixos/pkgs/losos.nix` names:
+  a sparse `fetchgit` of the directories it builds from, checked by hash,
+  with its crates pinned by its `Cargo.lock` and `cargoHash`
+  ([LosOS boxes](losos-boxes.md)).
 - **Home Manager**, `github.com/nix-community/home-manager`, pinned by
   revision and `narHash` in `flake.lock`. Only `nix flake check` reads it, to
   build `homeModules.pm` into a Home Manager generation
@@ -86,3 +91,8 @@ derisk's own `Cargo.lock` still fetches mcsapi by git revision, so move
 android_translation_layer stays a `fetchgit` pin: it is an upstream fork, off
 by default, and its tree is close to half a gigabyte, which the flake would
 otherwise copy on every evaluation.
+
+[Sonne](sonne.md), the code editor, is a `fetchgit` pin too, for the same
+reason: it is a fork of Zed, and its tree is the size of Zed's. The LosOS
+client is a sparse one, its repository being
+about 140 MB, of which the client needs 3.
