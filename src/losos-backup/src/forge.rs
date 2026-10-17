@@ -8,6 +8,12 @@
 //! not ignored ones, on top of `HEAD`. It is made with an index of its own,
 //! so the repository's index, branches and stash stay as they were.
 //!
+//! The configs (`~/.config` and the home's dotfiles, [`crate::walk::is_config`])
+//! go to a repository of their own, `<computer>-config`, as a history: a
+//! commit each run that finds them changed, on `main`, which the run
+//! continues from the box's copy so that the history survives this
+//! computer losing its own.
+//!
 //! git does the pushing, with everything it needs in its environment
 //! rather than its command line, which other accounts can read: the token,
 //! the box's certificate as the only CA, and the box's name pinned to the
@@ -16,6 +22,7 @@
 use std::{
     collections::{BTreeMap, BTreeSet},
     fs,
+    io::Write,
     path::Path,
     process::{Command, Stdio},
 };
@@ -145,18 +152,36 @@ pub struct Names {
     pub owner: String,
     /// Each repository's path relative to the home, and its name.
     pub names: BTreeMap<String, String>,
+    /// The configs' repository's name, or empty until it has one.
+    pub config: String,
 }
 
 impl Names {
+    fn taken(&self) -> BTreeSet<String> {
+        let mut taken: BTreeSet<String> = self.names.values().cloned().collect();
+        if !self.config.is_empty() {
+            taken.insert(self.config.clone());
+        }
+        taken
+    }
+
     /// The name for `rel`, given one if it has none yet.
     pub fn name(&mut self, rel: &str) -> String {
         if let Some(name) = self.names.get(rel) {
             return name.clone();
         }
-        let taken: BTreeSet<String> = self.names.values().cloned().collect();
-        let name = repo_name(rel, &taken);
+        let name = repo_name(rel, &self.taken());
         self.names.insert(rel.to_owned(), name.clone());
         name
+    }
+
+    /// The configs' repository's name, `<host>-config`, given it if it has
+    /// none yet.
+    pub fn config(&mut self, host: &str) -> String {
+        if self.config.is_empty() {
+            self.config = repo_name(&format!("{host}-config"), &self.taken());
+        }
+        self.config.clone()
     }
 }
 
@@ -312,6 +337,123 @@ impl<'a> Forge<'a> {
     }
 }
 
+impl Forge<'_> {
+    /// Commits `files`, paths relative to `home`, as `main` of the
+    /// repository `name`, made first if need be, on top of the box's `main`,
+    /// and pushes it. `git_dir` is this computer's copy, a bare repository
+    /// with an index of its own. Returns whether it pushed a commit: not
+    /// when nothing changed since the box's.
+    pub fn push_files(
+        &self,
+        home: &Path,
+        files: &[&str],
+        name: &str,
+        host: &str,
+        git_dir: &Path,
+    ) -> Result<bool, Error> {
+        if files.is_empty() {
+            return Ok(false);
+        }
+        if !git_dir.join("HEAD").is_file() {
+            fs::create_dir_all(git_dir)?;
+            git(
+                git_dir,
+                &["init", "--bare", "--quiet", "--initial-branch=main"],
+                &[],
+            )?;
+        }
+        self.ensure(
+            name,
+            &format!("The configs on {host}, backed up by LosOS Desktop"),
+        )?;
+        let url = self.url(name);
+        let mut env = self.env();
+        env.push(("GIT_DIR".to_owned(), git_dir.display().to_string()));
+        // The box's main, fetched every run: it is where the history goes
+        // on from, so this computer's copy can be lost, and an edit made on
+        // the box is a parent rather than a push refused.
+        let theirs = "refs/remotes/box/main";
+        let parent = if git(home, &["ls-remote", "--heads", &url, "main"], &env)?
+            .trim()
+            .is_empty()
+        {
+            None
+        } else {
+            git(
+                home,
+                &[
+                    "fetch",
+                    "--quiet",
+                    "--no-tags",
+                    &url,
+                    &format!("+main:{theirs}"),
+                ],
+                &env,
+            )?;
+            Some(git(home, &["rev-parse", theirs], &env)?.trim().to_owned())
+        };
+        // A new index each run holding exactly these files, read from the
+        // home: update-index takes the paths as they are, so nothing is
+        // left out by an ignore file or read as a pattern.
+        let index = git_dir.join("backup-index");
+        let _ = fs::remove_file(&index);
+        let mut tree_env = env.clone();
+        tree_env.push(("GIT_INDEX_FILE".to_owned(), index.display().to_string()));
+        tree_env.push(("GIT_WORK_TREE".to_owned(), home.display().to_string()));
+        let list = files.iter().fold(Vec::new(), |mut list, f| {
+            list.extend_from_slice(f.as_bytes());
+            list.push(0);
+            list
+        });
+        git_with(
+            home,
+            &["update-index", "--add", "-z", "--stdin"],
+            &tree_env,
+            Some(&list),
+        )?;
+        let tree = git(home, &["write-tree"], &tree_env)?.trim().to_owned();
+        let _ = fs::remove_file(&index);
+        if let Some(parent) = &parent {
+            let theirs = git(home, &["rev-parse", &format!("{parent}^{{tree}}")], &env)?;
+            if theirs.trim() == tree {
+                return Ok(false);
+            }
+        }
+        let mut commit_env = env.clone();
+        commit_env.extend(ident(host));
+        let message = format!("The configs on {host}");
+        let mut args = vec!["commit-tree", tree.as_str(), "-m", &message];
+        if let Some(parent) = &parent {
+            args.extend(["-p", parent.as_str()]);
+        }
+        let commit = git(home, &args, &commit_env)?.trim().to_owned();
+        // Not forced: the commit is on top of the box's main, so anything
+        // else there since is a refusal to report, not history to drop.
+        git(
+            home,
+            &[
+                "push",
+                "--porcelain",
+                "--quiet",
+                &url,
+                &format!("{commit}:refs/heads/main"),
+            ],
+            &env,
+        )?;
+        Ok(true)
+    }
+}
+
+/// Who the backups' own commits are by.
+fn ident(host: &str) -> [(String, String); 4] {
+    [
+        ("GIT_AUTHOR_NAME".to_owned(), "LosOS backup".to_owned()),
+        ("GIT_AUTHOR_EMAIL".to_owned(), format!("backup@{host}")),
+        ("GIT_COMMITTER_NAME".to_owned(), "LosOS backup".to_owned()),
+        ("GIT_COMMITTER_EMAIL".to_owned(), format!("backup@{host}")),
+    ]
+}
+
 /// A commit of the work tree as it is, on top of `HEAD`, when it differs
 /// from `HEAD`; made with a copy of the index in `scratch`, so nothing of
 /// the repository's own changes.
@@ -344,17 +486,11 @@ fn snapshot(repo: &Repo, host: &str, scratch: &Path) -> Result<Option<String>, E
     let result = (|| {
         git(&repo.path, &["add", "--all"], &index_env)?;
         let tree = git(&repo.path, &["write-tree"], &index_env)?;
-        let ident = [
-            ("GIT_AUTHOR_NAME".to_owned(), "LosOS backup".to_owned()),
-            ("GIT_AUTHOR_EMAIL".to_owned(), format!("backup@{host}")),
-            ("GIT_COMMITTER_NAME".to_owned(), "LosOS backup".to_owned()),
-            ("GIT_COMMITTER_EMAIL".to_owned(), format!("backup@{host}")),
-        ];
         let message = format!("Uncommitted changes in ~/{} on {host}", repo.rel);
         git(
             &repo.path,
             &["commit-tree", tree.trim(), "-p", "HEAD", "-m", &message],
-            &ident,
+            &ident(host),
         )
     })();
     let _ = fs::remove_file(&index);
@@ -363,7 +499,17 @@ fn snapshot(repo: &Repo, host: &str, scratch: &Path) -> Result<Option<String>, E
 
 /// Runs git in `dir` with `env` added, and returns what it printed.
 fn git(dir: &Path, args: &[&str], env: &[(String, String)]) -> Result<String, Error> {
-    let output = Command::new("git")
+    git_with(dir, args, env, None)
+}
+
+/// [`git`], with `input` on its standard input.
+fn git_with(
+    dir: &Path,
+    args: &[&str],
+    env: &[(String, String)],
+    input: Option<&[u8]>,
+) -> Result<String, Error> {
+    let mut child = Command::new("git")
         .arg("-C")
         .arg(dir)
         .args(args)
@@ -379,9 +525,21 @@ fn git(dir: &Path, args: &[&str], env: &[(String, String)]) -> Result<String, Er
         .env_remove("HTTPS_PROXY")
         .env_remove("all_proxy")
         .env_remove("ALL_PROXY")
-        .stdin(Stdio::null())
-        .output()
+        .stdin(if input.is_some() {
+            Stdio::piped()
+        } else {
+            Stdio::null()
+        })
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
         .map_err(|e| Error::new(format!("cannot run git: {e}")))?;
+    if let (Some(input), Some(mut stdin)) = (input, child.stdin.take()) {
+        // Written whole before reading: update-index reads all of its
+        // input before it prints anything.
+        stdin.write_all(input)?;
+    }
+    let output = child.wait_with_output()?;
     if output.status.success() {
         Ok(String::from_utf8_lossy(&output.stdout).into_owned())
     } else {

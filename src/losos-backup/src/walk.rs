@@ -4,7 +4,8 @@
 //! which Nextcloud cannot hold and which on this OS mostly point into the
 //! Nix store. A directory holding a `.git` directory, or a bare repository,
 //! is a repository: it goes to LosOS Git and the walk does not go into it.
-//! Every other regular file goes to LosOS cloud, apart from what can be
+//! The configs ([`is_config`]) go to LosOS Git as well, when there is an
+//! account there. Every other regular file goes to LosOS cloud, apart from what can be
 //! fetched or rebuilt again ([`EXCLUDED`], any `node_modules`, and any
 //! directory tagged with a `CACHEDIR.TAG`, which cargo's `target`, ccache
 //! and most other caches write), the backups' own settings and secrets,
@@ -113,6 +114,33 @@ fn excluded(rel: &str, options: &Options) -> bool {
         return true;
     }
     parts.last() == Some(&"node_modules")
+}
+
+/// Whether `rel` is a config, which goes to its own repository in LosOS
+/// Git when there is an account there: anything under `~/.config`, and
+/// the home's own dotfiles (`.bashrc`, `.gitconfig`), files whose names
+/// start with a dot directly in the home. A dot directory such as `~/.ssh`
+/// or `~/.local` is not one, and stays with the rest.
+pub fn is_config(rel: &str) -> bool {
+    in_config(rel) || (rel.starts_with('.') && !rel.contains('/'))
+}
+
+/// Whether `rel` is `~/.config` or under it.
+fn in_config(rel: &str) -> bool {
+    rel == ".config" || rel.starts_with(".config/")
+}
+
+impl Tree {
+    /// Takes the configs ([`is_config`]) out of the files for LosOS cloud,
+    /// with the folders under `~/.config`, and returns their files.
+    pub fn take_configs(&mut self) -> Vec<File> {
+        let (configs, files) = std::mem::take(&mut self.files)
+            .into_iter()
+            .partition(|f| is_config(&f.rel));
+        self.files = files;
+        self.dirs.retain(|d| !in_config(d));
+        configs
+    }
 }
 
 /// Whether `dir` is tagged as a cache.
@@ -305,6 +333,43 @@ mod tests {
         assert!(tree.files.iter().any(|f| f.rel == "src/project/README.md"));
         assert!(tree.files.iter().any(|f| f.rel == "src/worktree/.git"));
         fs::remove_dir_all(home).unwrap();
+    }
+
+    #[test]
+    fn takes_out_the_configs() {
+        let file = |rel: &str| File {
+            rel: rel.into(),
+            size: 0,
+            mtime: 0,
+        };
+        let mut tree = Tree {
+            files: vec![
+                file(".bashrc"),
+                file(".config/git/config"),
+                file(".configure-notes"),
+                file(".ssh/config"),
+                file("Documents/.hidden"),
+                file("Documents/notes.txt"),
+            ],
+            dirs: vec![
+                ".config".into(),
+                ".config/git".into(),
+                ".ssh".into(),
+                "Documents".into(),
+            ],
+            ..Tree::default()
+        };
+        let configs: Vec<String> = tree.take_configs().into_iter().map(|f| f.rel).collect();
+        assert_eq!(
+            configs,
+            [".bashrc", ".config/git/config", ".configure-notes"]
+        );
+        let files: Vec<&str> = tree.files.iter().map(|f| f.rel.as_str()).collect();
+        assert_eq!(
+            files,
+            [".ssh/config", "Documents/.hidden", "Documents/notes.txt"]
+        );
+        assert_eq!(tree.dirs, [".ssh", "Documents"]);
     }
 
     #[test]

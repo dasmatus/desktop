@@ -167,9 +167,10 @@ in
       desktop.succeed("loginctl enable-linger alice")
       desktop.wait_for_unit("user@1000.service")
 
-      with subtest("a home with files, a cache and a repository"):
+      with subtest("a home with files, configs, a cache and a repository"):
           alice(
-              "mkdir -p Documents .cache/thumbs src/notes && echo hello > Documents/letter.txt"
+              "mkdir -p Documents .cache/thumbs .config/git src/notes && echo hello > Documents/letter.txt"
+              " && echo 'alias ll=ls' > .bashrc && printf '[user]\\n\\tname = Alice\\n' > .config/git/config"
               " && head -c 150M /dev/urandom > Documents/big.bin && echo cache > .cache/thumbs/x"
               " && cd src/notes && git init -q -b main && echo one > a.txt && git add a.txt"
               " && git -c user.name=a -c user.email=a@a commit -qm first && echo draft > draft.txt"
@@ -200,6 +201,13 @@ in
           assert box.succeed(f"stat -c %s {files}/Documents/big.bin").strip() == str(150 << 20)
           box.fail(f"test -e {files}/.cache")
           box.fail(f"test -e {files}/src/notes")
+          # The configs to a repository of their own, not LosOS cloud.
+          assert report["configs"] >= 2 and report["configs_changed"], report
+          box.fail(f"test -e {files}/.bashrc")
+          box.fail(f"test -e {files}/.config")
+          assert forgejo("desktop-config")["private"]
+          assert forgejo("desktop-config/contents/.config/git/config")["type"] == "file"
+          assert len(forgejo("desktop-config/commits")) == 1
           repo = forgejo("notes")
           assert repo["private"], repo
           branches = {b["name"]: b["commit"]["message"].strip() for b in forgejo("notes/branches")}
@@ -210,7 +218,7 @@ in
 
       with subtest("a second backup sends what changed and removes what went"):
           alice(
-              "echo again >> Documents/letter.txt && rm Documents/big.bin"
+              "echo again >> Documents/letter.txt && rm Documents/big.bin && echo 'alias la=ls' >> .bashrc"
               " && cd src/notes && git add -A && git -c user.name=a -c user.email=a@a commit -qm second"
           )
           report = back_up()
@@ -219,6 +227,10 @@ in
           box.fail(f"test -e {files}/Documents/big.bin")
           branches = {b["name"]: b["commit"]["message"].strip() for b in forgejo("notes/branches")}
           assert branches == {"main": "second"}, branches
+          # One commit more for the changed config, on top of the first.
+          assert report["configs_changed"], report
+          commits = forgejo("desktop-config/commits")
+          assert len(commits) == 2 and commits[0]["parents"][0]["sha"] == commits[1]["sha"], commits
 
       with subtest("through a LosOS boxes machine, and skipped without one"):
           # The relay's file for a machine named boxes; this desktop has no
@@ -231,6 +243,7 @@ in
           assert status["routed"] and status["boxes"] == ["${boxName}"], status
           report = back_up()
           assert report["machine"] == "boxes" and report["unchanged"] == 1, report
+          assert not report["configs_changed"], report
           desktop.succeed("rm /run/losos-boxes/hosts/boxes")
           desktop.succeed("systemctl --user -M alice@ start losos-backup-now.service")
           report = last()

@@ -82,6 +82,11 @@ pub struct Report {
     pub failures: Vec<String>,
     /// Repositories pushed to LosOS Git.
     pub repos: u64,
+    /// Config files in LosOS Git's configs repository after the run, or 0
+    /// when they went to LosOS cloud with the rest.
+    pub configs: u64,
+    /// Whether the run committed a change to them.
+    pub configs_changed: bool,
     /// Repositories that could not be, each with why.
     pub repo_failures: Vec<String>,
 }
@@ -231,28 +236,63 @@ fn back_up(
             "~/{path}: cannot be read, or its name is not UTF-8"
         ));
     }
-    // Files first, then repositories, each going as far as it can: a
-    // refused sign-in to one says nothing about the other.
+    let mut tree = tree;
+    let cert_file = paths.cert_file();
+    let mut forge = None;
     let mut stopped = None;
-    if let Some((account, password)) = cloud {
-        if let Err(e) = upload(
-            paths, &agent, route, account, password, &host, &tree, report,
+    // The configs first, to their repository in LosOS Git: only once they
+    // are there do they leave LosOS cloud's share, so a failed push leaves
+    // them with the rest rather than nowhere.
+    if let Some((account, token)) = git {
+        let f = Forge::new(&agent, route, &account.user, token, &cert_file);
+        let owner = format!("{}/{}", route.name, account.user);
+        let mut names: Names = config::load(&paths.repos_file())?;
+        if names.owner != owner {
+            names = Names {
+                owner,
+                ..Names::default()
+            };
+        }
+        let configs: Vec<&str> = tree
+            .files
+            .iter()
+            .map(|f| f.rel.as_str())
+            .filter(|rel| walk::is_config(rel))
+            .collect();
+        let name = names.config(&host);
+        match f.push_files(
+            &paths.home,
+            &configs,
+            &name,
+            &host,
+            &paths.state.join("config.git"),
         ) {
-            stopped = Some(e);
+            Ok(changed) => {
+                report.configs = tree.take_configs().len() as u64;
+                report.configs_changed = changed;
+            }
+            Err(e) => {
+                report.repo_failures.push(format!("the configs: {e}"));
+                if e.unreachable {
+                    stopped = Some(e);
+                }
+            }
+        }
+        forge = Some((f, names));
+    }
+    // Files next, then repositories, each going as far as it can: a
+    // refused sign-in to one says nothing about the other.
+    if let Some((account, password)) = cloud {
+        if stopped.is_none() {
+            if let Err(e) = upload(
+                paths, &agent, route, account, password, &host, &tree, report,
+            ) {
+                stopped = Some(e);
+            }
         }
     }
-    if let Some((account, token)) = git {
+    if let Some((forge, mut names)) = forge {
         if stopped.as_ref().is_none_or(|e| !e.unreachable) {
-            let cert_file = paths.cert_file();
-            let forge = Forge::new(&agent, route, &account.user, token, &cert_file);
-            let owner = format!("{}/{}", route.name, account.user);
-            let mut names: Names = config::load(&paths.repos_file())?;
-            if names.owner != owner {
-                names = Names {
-                    owner,
-                    ..Names::default()
-                };
-            }
             for repo in &tree.repos {
                 let name = names.name(&repo.rel);
                 match forge.push(repo, &name, &host, &paths.state.join("git")) {
@@ -266,8 +306,8 @@ fn back_up(
                     }
                 }
             }
-            config::save(&paths.repos_file(), &names, false)?;
         }
+        config::save(&paths.repos_file(), &names, false)?;
     }
     stopped.map_or(Ok(()), Err)
 }
