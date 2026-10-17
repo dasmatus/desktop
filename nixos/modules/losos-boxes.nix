@@ -21,7 +21,7 @@
 let
   # quickemu.nix declares the machines' network; a system without it has
   # no machines.
-  machines = options.losos ? machines && options.losos.machines ? network;
+  machines = lib.hasAttrByPath [ "losos" "machines" "network" ] options;
 in
 {
   config = lib.mkMerge [

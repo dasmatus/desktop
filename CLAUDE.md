@@ -67,7 +67,9 @@ still takes time, so don't start one to check a module edit.
   Flatpak machine, where a PC's Flatpak apps run (`modules/flatpak-machine.nix`).
   `modules/machines.nix` evaluates each and installs it as
   `share/losos/machines/<name>.qcow2` with its app list, `<name>.apps`, and
-  makes `losos.machines.system`'s machines on the host.
+  makes `losos.machines.system`'s machines for each person at sign-in.
+  quickemu runs every machine as its owner's (`modules/quickemu.nix`), in
+  the folder pm's quickemu plugin keeps under `~/.local/share/pm/machines`.
 - `nixos/home/pm.nix` is the flake's `homeModules.pm`: pm and its plugins
   installed and signed by a user's own Home Manager (`docs/pm.md`).
 - `nixos/pkgs/` is the overlay, and holds only what nixpkgs lacks: pm, its

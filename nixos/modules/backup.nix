@@ -18,7 +18,7 @@
 let
   # quickemu.nix declares the machines' network; a system without it has
   # no machines.
-  machines = options.losos ? machines && options.losos.machines ? network;
+  machines = lib.hasAttrByPath [ "losos" "machines" "network" ] options;
   unit = {
     # The login screen's own user, and any other system account that gets
     # a user manager, has no home to back up.
