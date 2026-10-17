@@ -4,6 +4,7 @@
 # it: the same core apps as GPUI windows, and the portal's consent dialog
 # (`derisk-gpui ask`), which xdg-desktop-portal-derisk runs instead of GTK's
 # access dialog when it finds the binary next to `derisk` (docs/index.md).
+# `derisk.terminal` is the desktop's terminal, a package of its own.
 #
 # Pinned by the components/derisk submodule and moved by hand, like pm, because both derisk and the
 # mcsapi it builds against are moving fast. mcsapi comes in through
@@ -50,7 +51,7 @@ let
     src = lib.cleanSource ../../components/derisk;
   };
 
-  cargoHash = "sha256-jjLk/hwl/p9j0PSTJsKnetxQpGrHZt/lvM53540Db6I=";
+  cargoHash = "sha256-xFeOglwSEYtUqyJS2JU63p8h0TMSQZnqytEn1F120cg=";
 
   # derisk-gpui, as a cargo build of its own. It cannot share derisk's: the
   # portal talks to xdg-desktop-portal through ashpd on tokio, and Sonne's
@@ -117,6 +118,56 @@ let
       license = lib.licenses.gpl3Only;
       platforms = lib.platforms.linux;
       mainProgram = "derisk-gpui";
+    };
+  };
+
+  # derisk-terminal, the desktop's terminal, as a build of its own like
+  # derisk-gpui: the machine template ships it without the rest of derisk
+  # (nixos/guest), and it links none of derisk's compositor.
+  terminal = rustPlatform.buildRustPackage {
+    pname = "derisk-terminal";
+    inherit version src cargoHash;
+    cargoDepsName = "derisk-${version}";
+
+    cargoBuildFlags = [
+      "-p"
+      "derisk-terminal"
+    ];
+    # Its tests open ptys and read the system's fonts, which the build
+    # sandbox has neither of; derisk's own CI runs them.
+    doCheck = false;
+
+    postInstall = ''
+      install -Dm644 -t $out/share/applications crates/derisk-terminal/data/org.derisk.terminal.desktop
+      substituteInPlace $out/share/applications/org.derisk.terminal.desktop \
+        --replace-fail "Exec=derisk-terminal" "Exec=$out/bin/derisk-terminal"
+    '';
+
+    # winit, glutin and softbuffer dlopen everything they draw with:
+    # libwayland-client and libxkbcommon, libEGL (whose vendor library,
+    # Mesa's, comes from hardware.graphics), and under X11 the libraries
+    # winit and softbuffer look up by name.
+    postFixup = ''
+      patchelf --add-rpath ${
+        lib.makeLibraryPath [
+          wayland
+          libxkbcommon
+          libGL
+          libxcb
+          libx11
+          libxcursor
+          libxi
+          libxrandr
+        ]
+      } $out/bin/derisk-terminal
+    '';
+
+    meta = {
+      description = "derisk's terminal, with Nerd Font glyphs, drawn on the GPU or in software";
+      homepage = "https://github.com/dasmatus/derisk";
+      license = lib.licenses.gpl3Only;
+      platforms = lib.platforms.linux;
+      mainProgram = "derisk-terminal";
     };
   };
 in
@@ -208,7 +259,7 @@ rustPlatform.buildRustPackage {
       --replace-fail "ExecStart=xdg-desktop-portal-derisk" "ExecStart=$out/bin/xdg-desktop-portal-derisk"
   '';
 
-  passthru.gpui = gpui;
+  passthru = { inherit gpui terminal; };
 
   meta = {
     description = "Adaptive, agent-first Wayland desktop environment built on mcsapi";
