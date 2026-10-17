@@ -176,7 +176,11 @@ left out). It has:
   compositor), and Flatpak with Flathub and Bazaar, as on the host. The
   guest's user may install Flatpaks for the whole machine without being
   asked;
-- **networkd**, taking an address from libvirt's `default` network.
+- **NetworkManager**, taking an address from libvirt's `default` network
+  and checking it reaches the internet against GNOME's
+  `nmcheck.gnome.org`, which apps in the machine ask through GLib or the
+  portal before they go online. resolved answers DNS. The host keeps
+  networkd ([systemd](systemd.md)).
 
 `losos-guest-run`, in the guest's system profile, is what the host runs
 there through the agent:
