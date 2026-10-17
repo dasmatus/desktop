@@ -23,7 +23,9 @@ pm machine start boxes
 
 Its template is `nixos/guest/boxes.nix`: the LosOS guest's machine
 (`nixos/guest/common.nix`, [the guest template](hypervisor.md#the-guest-template))
-with `losos`, `losos-boxes`, Danube and GNOME Keyring, and without Flatpak.
+with `losos`, `losos-boxes`, Danube, GNOME Keyring and the GitHub CLI,
+`gh`, which `losos ci setup` uses to give a repository's Actions a key for
+a box, and without Flatpak.
 Each box it finds is an app of that machine on the desktop, named after
 the box, `mattbox`, and described as "LosOS v0.4.0 box at mattbox.local";
 the desktop shows it as "mattbox in boxes", framed in the machine's
