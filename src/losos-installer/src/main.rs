@@ -19,7 +19,7 @@ use tracing_subscriber::EnvFilter;
 // (nixos/installer/default.nix), always passes them, so a default here could
 // only drift from it.
 const USAGE: &str = "usage: losos-installer serve --name NAME --repart-definitions DIR --sysupdate-definitions DIR \
---esp DIR --medium DIR --work DIR [--source URL] [--local-source DIR] [--release-repo OWNER/NAME --release-version VERSION] \
+--esp DIR --medium DIR --work DIR [--source URL] [--index URL] [--local-source DIR] [--release-repo OWNER/NAME --release-version VERSION] \
 [--bios-boot PROGRAM]";
 
 fn parse(mut args: impl Iterator<Item = String>) -> miette::Result<Config> {
@@ -40,6 +40,7 @@ fn parse(mut args: impl Iterator<Item = String>) -> miette::Result<Config> {
         medium: String::new(),
         work: PathBuf::new(),
         source: None,
+        index: None,
         local_source: None,
         bios_boot: None,
         release_repo: None,
@@ -56,6 +57,7 @@ fn parse(mut args: impl Iterator<Item = String>) -> miette::Result<Config> {
             "--medium" => medium = Some(value),
             "--work" => work = Some(value),
             "--source" => config.source = Some(value),
+            "--index" => config.index = Some(value),
             "--local-source" => config.local_source = Some(PathBuf::from(value)),
             "--bios-boot" => config.bios_boot = Some(PathBuf::from(value)),
             "--release-repo" => config.release_repo = Some(value),

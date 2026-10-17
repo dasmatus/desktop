@@ -102,9 +102,12 @@ by where it came in, never by anything the guest says:
    so the machine's windows get none of the privileged protocols a host app
    may use (reading other windows, placing itself over them, synthetic
    input).
-5. derisk paints the window's title bar and focus ring in the machine's
-   label colour and puts the machine's name before its title, and the top
-   bar shows a dot in that colour for each running machine.
+5. Windows have no title bars of their own: the top bar shows the focused
+   window's title and buttons. derisk fills the top bar with the machine's
+   label colour while one of its windows has the focus, draws a border in
+   that colour round each of its windows, focused or not, and puts the
+   machine's name before its title; the top bar also shows a dot in that
+   colour for each running machine.
 
 Apps start in a machine through the QEMU guest agent: derisk asks libvirt to
 run the guest's `losos-guest-run` with the app's desktop file ID, and that
@@ -160,7 +163,10 @@ left out). It has:
 
 - **the QEMU guest agent**, through which the host starts apps;
 - **one account, `user`**, with no password, whose systemd manager runs from
-  boot (lingering). Nobody logs in: its apps run under that manager;
+  boot (lingering). Nobody logs in: its apps run under that manager, which
+  makes the folders apps expect in its home as the host's users' do
+  (`nixos/modules/home-folders.nix`: the XDG base and user directories with
+  `user-dirs.dirs`, and the fonts, icons and derisk folders Danube shows);
 - **a waypipe server** in that manager, `waypipe --vsock --socket 2:7350
   --no-gpu --display wayland-0 server`. Every app the user runs finds it as
   `WAYLAND_DISPLAY=wayland-0`, and each app's connection becomes a vsock
