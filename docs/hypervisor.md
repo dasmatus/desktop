@@ -164,6 +164,13 @@ left out). It has:
 - **the QEMU guest agent**, through which the host starts apps;
 - **one account, `user`**, with no password, whose systemd manager runs from
   boot (lingering). Nobody logs in: its apps run under that manager;
+- **its home, from Home Manager** (`nixos/guest/home.nix`, added by the
+  flake): activated at every boot before that manager starts, it makes the
+  folders apps expect to find in a home (`nixos/modules/home-folders.nix`:
+  the XDG base directories, fonts, icons and derisk's), which the OS's own
+  users get from per-user tmpfiles instead, as their names are not known
+  when the image is built. Home Manager's activation needs a working Nix,
+  so the guest has the Nix daemon, which the user may use too;
 - **a waypipe server** in that manager, `waypipe --vsock --socket 2:7350
   --no-gpu --display wayland-0 server`. Every app the user runs finds it as
   `WAYLAND_DISPLAY=wayland-0`, and each app's connection becomes a vsock
