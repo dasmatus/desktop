@@ -246,6 +246,7 @@
           "pm"
           "pm-plugins"
           "losos-adblock"
+          "losos-backup"
           "losos-boxes"
           "danube"
         ] (name: self.legacyPackages.${system}.${name})
@@ -270,8 +271,8 @@
           hardware = pkgs.testers.runNixOSTest ./nixos/tests/hardware.nix;
           # The same image on a legacy BIOS, started by GRUB (bios.nix).
           boot-bios = pkgs.testers.runNixOSTest (import ./nixos/tests/boot-bios.nix { inherit self; });
-          # A laptop with a TPM hibernating and resuming (hibernate.nix).
-          hibernate = pkgs.testers.runNixOSTest (import ./nixos/tests/hibernate.nix { inherit self; });
+          # hibernate is gone with hibernate.nix: the locked-down kernel
+          # refuses to hibernate (kernel-hardening.nix).
           # The start-up sound reaches a sound card, and plays backwards at
           # shutdown (boot-sound.nix).
           boot-sound = pkgs.testers.runNixOSTest ./nixos/tests/boot-sound.nix;
@@ -285,6 +286,10 @@
           # derisk-terminal draws in software with no GPU and through GL when
           # asked, and both show its text and Nerd Font icons (terminal.nix).
           terminal = pkgs.testers.runNixOSTest ./nixos/tests/terminal.nix;
+          # A person's backups reach a Nextcloud and a Forgejo laid out as a
+          # LosOS box lays them out, files to one and a repository to the
+          # other, then again after changes (backup.nix).
+          backup = pkgs.testers.runNixOSTest ./nixos/tests/backup.nix;
           installer-boot = pkgs.testers.runNixOSTest (
             import ./nixos/tests/installer-boot.nix { inherit self; }
           );

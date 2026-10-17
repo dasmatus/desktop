@@ -25,6 +25,23 @@
 let
   base = config.boot.kernelPackages.nvidiaPackages.production;
 
+  # nixpkgs' open module for that driver, for its source and patches only:
+  # from the stock kernel's package set, since the kernel below is built
+  # from them and cannot depend on its own package set.
+  open = pkgs.linuxPackages.nvidiaPackages.production.open;
+
+  # What nixpkgs' nvidia-open passes NVIDIA's makefile, with the kernel's
+  # build tree in place of its dev output, which has no signing key.
+  # O= comes from the kernel's own makeFlags.
+  nvidiaFlags = lib.concatStringsSep " " [
+    "\"\${makeFlags[@]}\""
+    "IGNORE_PREEMPT_RT_PRESENCE=1"
+    "SYSSRC=\"$buildRoot/..\""
+    "SYSOUT=\"$buildRoot\""
+    "DATE="
+    "TARGET_ARCH=${pkgs.stdenv.hostPlatform.parsed.cpu.name}"
+  ];
+
   vramDir = "/run/nvidia-suspend";
 
   # The userspace half, less what nothing in a desktop session loads. Every
@@ -89,6 +106,11 @@ let
   };
 in
 {
+  # The module is built inside a kernel that signs it, and that kernel is
+  # kernel-hardening.nix's. base.nix imports it too; a module imported twice
+  # by path counts once.
+  imports = [ ./kernel-hardening.nix ];
+
   # The only unfree package in the image. NVIDIA's licence lets it be
   # redistributed unmodified, which is what the image and the binary cache do
   # (docs/trust.md); the open kernel module is MIT/GPL and not covered.
@@ -98,13 +120,48 @@ in
       "nvidia-x11"
     ];
 
-  boot.extraModulePackages = [ base.open ];
+  # NVIDIA's open module is built inside the kernel's own build rather than
+  # as nixpkgs' nvidia-open package. The kernel refuses unsigned modules
+  # (kernel-hardening.nix), and the key that signs them exists only while
+  # the kernel builds, so a module built anywhere else could never load.
+  # There it is compiled against the kernel's build tree and installed with
+  # the kernel's own modules_install, which signs and compresses it like
+  # every other module. The source and patches are nixpkgs' nvidia-open's,
+  # for the same driver version as the userspace below.
+  boot.kernelPackages = pkgs.linuxPackages.extend (
+    final: prev: {
+      kernel = prev.kernel.overrideAttrs (old: {
+        postBuild = (old.postBuild or "") + ''
+          cp -r ${open.src} "$NIX_BUILD_TOP/nvidia-open"
+          chmod -R u+w "$NIX_BUILD_TOP/nvidia-open"
+          for p in ${lib.escapeShellArgs open.patches}; do
+            patch -d "$NIX_BUILD_TOP/nvidia-open" -p1 < "$p"
+          done
+          make -C "$NIX_BUILD_TOP/nvidia-open" -j"$NIX_BUILD_CORES" modules ${nvidiaFlags}
+        '';
+        postInstall = (old.postInstall or "") + ''
+          make -C "$NIX_BUILD_TOP/nvidia-open" modules_install ${nvidiaFlags} \
+            MODLIB="$modules/lib/modules/${prev.kernel.modDirVersion}" \
+            INSTALL_MOD_STRIP=1
+          # modules_install signs an out-of-tree module with `|| true`, so a
+          # failed signature would pass unnoticed until the module failed to
+          # load. Every one must carry the marker sign-file appends.
+          kos=$(find "$modules" -name 'nvidia*.ko*')
+          test -n "$kos"
+          for ko in $kos; do
+            xz -dc "$ko" | tail -c 28 | grep -q '~Module signature appended~' \
+              || { echo "$ko is not signed" >&2; exit 1; }
+          done
+        '';
+      });
+    }
+  );
 
   boot.extraModprobeConfig = ''
     # KMS, and a framebuffer console on it, which the compositor's GBM scanout
     # needs. The driver defaults to both since 570; set for clarity.
     options nvidia_drm modeset=1 fbdev=1
-    # Suspend and hibernate through the kernel's own notifiers (open module,
+    # Suspend through the kernel's own notifiers (open module,
     # 595 and later) instead of nvidia-sleep.sh units around
     # systemd-suspend.service, keeping video memory across them in a file in
     # the tmpfs below.
@@ -114,8 +171,7 @@ in
   # Where the driver saves video memory over a suspend: the session's
   # framebuffers and textures. Not /tmp or /var/tmp, which are on the root
   # partition, unencrypted ext4 (docs/layout.md): this tmpfs keeps them in
-  # RAM, which suspend keeps powered, and hibernation writes into its image
-  # in the TPM-sealed swap with the rest of memory. Its size is a ceiling,
+  # RAM, which suspend keeps powered. Its size is a ceiling,
   # not a reservation, and as large as memory, since the copy has to fit
   # all of the card's used memory; tmpfs pages can go to that swap too.
   # Mounted only on machines the NVIDIA rule matched.

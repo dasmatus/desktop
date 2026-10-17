@@ -18,7 +18,7 @@ manager, the tool a user of the running system builds and runs software with
 ![The derisk overview: the open windows as tiles, workspaces along the top, and the clock, suggested apps, services, calendar and notes beside them](images/overview.png)
 
 Apps the image does not carry come from [Flathub](https://flathub.org) as
-Flatpaks, through the [Bazaar](https://github.com/bazaar-org/bazaar) store,
+Flatpaks, through derisk's own [Store](store.md),
 and on a PC they run in [a machine of their own](hypervisor.md#the-flatpak-machine),
 whose GTK portal backend serves their dialogs. On a phone they run on the
 host, where derisk's own portal backend gives them its theme, screenshots
@@ -32,6 +32,15 @@ Nerd Font build, so the icons prompts and TUIs print show, drawn on the GPU
 or, where there is none, in software. The code editor is
 [Sonne](sonne.md), the project's fork of Zed, which opens text and source
 files on the PC image.
+
+derisk moves the way the launch film does, and quickens as each person gets
+used to it. It counts the time they spend at the desktop, unlocked and not
+dimmed, in `~/.local/state/derisk/familiarity`. For the first two hours
+every animation plays at full length. After that they speed up, settling at
+four times as fast after a few days of use. Animations get shorter but
+never disappear, so a familiar desktop still shows where things went.
+Settings › Appearance › Familiar motion turns this off or starts the count
+over, and Reduce motion still replaces the motion with cross-fades.
 
 The same OS also builds as one generic system image for Treble phones and
 tablets that take GSIs and run Linux 5.10 or newer, over

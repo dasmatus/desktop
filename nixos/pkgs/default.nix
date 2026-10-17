@@ -143,6 +143,8 @@ in
   danube = callWithMold ./danube.nix { };
   # The system-wide ad blocker (docs/adblock.md).
   losos-adblock = callWithMold ./losos-adblock.nix { };
+  # Backups to a LosOS box (docs/backup.md).
+  losos-backup = callWithMold ./losos-backup.nix { };
   x2mcsapi = callWithMold ./x2mcsapi.nix { };
   # Sonne, the code editor (sonne.nix, docs/sonne.md), on the PC image. Its
   # libwebrtc comes from nixpkgs' own package set, so it substitutes: from

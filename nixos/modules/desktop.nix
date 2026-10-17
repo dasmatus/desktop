@@ -178,6 +178,10 @@ in
   };
   services.udisks2.enable = true;
   services.upower.enable = true;
+  # A battery that reaches critical powers the machine off. NixOS's default
+  # asks for hybrid sleep, which needs hibernation, and nothing running this
+  # OS hibernates (docs/hibernation.md).
+  services.upower.criticalPowerAction = "PowerOff";
   # GSettings' dconf backend. GTK takes the icon theme from GSettings before
   # derisk's settings.ini, and the GTK portal backend serves it to Flatpak
   # apps, so derisk writes the theme's icon theme there; without dconf every
