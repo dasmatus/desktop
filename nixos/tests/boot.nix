@@ -136,6 +136,15 @@ in
           machine.succeed("fc-list : family | grep -q 'Hack Nerd Font'")
           machine.succeed("fc-list : family | grep -q 'Symbols Nerd Font'")
 
+      # Every command above ran through the system profile, so they already
+      # ran uutils; this names which tool answers.
+      with subtest("the shell's tools are uutils, sudo-rs's su and Sequoia's gpg"):
+          machine.succeed("ls --version | grep -q uutils")
+          machine.succeed("find --version | grep -q Rust")
+          machine.succeed("/run/wrappers/bin/su --version | grep -q su-rs")
+          machine.succeed("gpg --version | grep -q 'Sequoia Chameleon'")
+          machine.succeed("command -v sq")
+
       with subtest("the security report answers on the system bus"):
           machine.succeed(
               "busctl call io.losos.Security1 /io/losos/Security1 "

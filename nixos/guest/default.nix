@@ -63,6 +63,8 @@ in
     # host's come from.
     ../modules/danube.nix
     ../modules/flatpak.nix
+    # uutils, sudo-rs's su and Sequoia's gpg, as on the host.
+    ../modules/userland.nix
   ];
 
   system.stateVersion = "26.05";

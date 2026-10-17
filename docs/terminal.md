@@ -37,3 +37,37 @@ cage in a VM with no GPU, where it has to choose software, and again with
 `--renderer gpu`, where it has to draw through llvmpipe, and reads its text
 off the screen both times. The image's own boot test checks it, Hack Nerd
 Font and the symbols font are installed and foot is not.
+
+## The tools in the shell
+
+The commands a person types are the Rust versions wherever one takes the
+GNU tool's options, on the host and in the guest template alike
+(`nixos/modules/userland.nix`):
+
+| Command | From |
+|---|---|
+| `ls`, `cp`, `cat` and the rest of coreutils | [uutils coreutils](https://github.com/uutils/coreutils) |
+| `find`, `xargs`, `locate`, `updatedb` | [uutils findutils](https://github.com/uutils/findutils) |
+| `su` | [sudo-rs](https://github.com/trifectatechfoundation/sudo-rs) |
+| `sudo` | run0's sudo shim, in Rust, over `run0` ([systemd.md](systemd.md)) |
+| `gpg`, `gpgv`, `gpgconf` | [Sequoia's GnuPG chameleon](https://gitlab.com/sequoia-pgp/sequoia-chameleon-gnupg), with `sq` beside it |
+
+The chameleon reads and writes GnuPG's own `~/.gnupg`, so git's commit
+signing and anything else that runs `gpg` keep working, and secret keys stay
+with GnuPG's `gpg-agent`. Only `chcon` and `runcon` still come from GNU
+coreutils, as uutils leaves out the two that only mean something under
+SELinux.
+
+Still GNU, because the Rust version does not yet take the same options:
+`diff` (uutils' has no `-r`, `diff3` or `sdiff`), `sed` (uutils' ignores
+`-z`, `\U` and `\b`, and gets `sed 'n;d'` wrong), `ps` and the rest of procps
+(uutils' rejects `ps aux`), util-linux and tar (uutils has only work in
+progress), and grep, awk, less and gzip, which have no Rust version that
+takes their options. Services and NixOS's own scripts run
+GNU throughout: their `PATH` is set by NixOS, not the profile, and they
+were written against GNU. So does `systemd-pull`'s check of an update's
+signature, which passes gpg `--import-options=merge-only`, an option the
+chameleon refuses.
+
+The image's boot test checks which of these answers `ls`, `find`, `su` and
+`gpg` (`nixos/tests/boot.nix`).
