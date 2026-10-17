@@ -145,7 +145,9 @@
   `homectl update --member-of=wheel,wpa_supplicant <user>` adds it. The
   Bluetooth page pairs without asking anything, so a device that wants a
   passkey typed or compared does not pair. None of the three pages has run
-  against a real adapter or `power-profiles-daemon` on hardware, and the
+  against a real adapter or `power-profiles-daemon` on hardware (the command
+  palette's Power Mode rows ran against the daemon's placeholder driver on
+  a private bus, which offers no Performance profile), and the
   Halium GSI has no Bluetooth: the phone's controller is behind its vendor
   HAL, which nothing here bridges to BlueZ.
 - **Two LosOS disks in one PC.** Root comes from the disk the boot loader
