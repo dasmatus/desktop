@@ -23,6 +23,10 @@ in
     # `losos-boxes list` prints what the machine sees, and the entries run
     # `losos-boxes terminal`.
     pkgs.losos-boxes
+    # `losos ci setup` puts a CI key and the box's address into a GitHub
+    # repository's Actions secrets with gh, so a workflow can reach the box;
+    # it signs in with `gh auth login` here, where the keys are.
+    pkgs.gh
   ];
 
   # The boxes are found by mDNS, which this machine cannot do itself: it
