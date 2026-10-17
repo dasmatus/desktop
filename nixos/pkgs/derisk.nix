@@ -24,6 +24,7 @@
   seatd,
   libdrm,
   linux-pam,
+  libpwquality,
   libvirt,
   # derisk-gpui's GPUI (Sonne's) links these, and finds the rest below at
   # run time.
@@ -41,7 +42,7 @@
 }:
 
 let
-  version = "0.1.0-unstable-2026-10-16";
+  version = "0.1.0-unstable-2026-10-17";
 
   # The components/derisk submodule, at the commit this tree records for it
   # (flake.nix, `self.submodules`). cleanSource drops the submodule's .git
@@ -226,13 +227,16 @@ rustPlatform.buildRustPackage {
 
   # winit and glutin dlopen libwayland-client, libxkbcommon and libEGL at run
   # time rather than linking them, so nothing puts them on the RUNPATH and the
-  # session would die looking for them.
+  # session would die looking for them. First-boot setup dlopens libpwquality,
+  # as homed does, to say a password homed would refuse is too weak while it
+  # is typed (docs/first-boot.md).
   postFixup = ''
     patchelf --add-rpath ${
       lib.makeLibraryPath [
         wayland
         libxkbcommon
         libGL
+        libpwquality
       ]
     } $out/bin/derisk
   '';
