@@ -136,21 +136,70 @@ let
   # and all but the store in it is empty. libvirt reads a compressed qcow2
   # as a backing file like any other, and pm uploads it into the pool as it
   # is.
+  #
+  # Beside each, <name>.apps: the apps the guest has when it is new, as its
+  # own `losos-guest-run --list` would print them, read from the system
+  # profile it boots. derisk offers a machine's apps while it is off from
+  # the list the machine gave last, and before it has ever run, from this
+  # one, so a machine made from a template has its apps in the palette at
+  # once (derisk-machines' template_apps).
   templates =
     pkgs.runCommand "losos-machine-templates"
       {
-        nativeBuildInputs = [ pkgs.buildPackages.qemu-utils ];
+        nativeBuildInputs = [
+          pkgs.buildPackages.qemu-utils
+          pkgs.buildPackages.gawk
+          pkgs.buildPackages.gnused
+        ];
       }
       (
         ''
           mkdir -p $out/share/losos/machines
         ''
-        + lib.concatMapStrings (system: ''
-          qemu-img convert -f raw -O qcow2 -c \
-            ${system.config.system.build.image}/${system.config.image.fileName} \
-            $out/share/losos/machines/${system.config.losos.guest.name}.qcow2
-        '') (lib.attrValues guests)
+        + lib.concatMapStrings (
+          system:
+          let
+            inherit (system.config.losos.guest) name;
+          in
+          ''
+            qemu-img convert -f raw -O qcow2 -c \
+              ${system.config.system.build.image}/${system.config.image.fileName} \
+              $out/share/losos/machines/${name}.qcow2
+            LOSOS_GUEST_APPLICATIONS=${system.config.system.path}/share/applications \
+              bash ${guestRun} --list > $out/share/losos/machines/${name}.apps
+          ''
+        ) (lib.attrValues guests)
       );
+
+  # losos-guest-run as a build runs it, for the lists above: the user and
+  # display are the guest's, and unused by --list.
+  guestRun = pkgs.writeText "losos-guest-run" (
+    builtins.replaceStrings [ "@user@" "@display@" ] [ "user" "wayland-0" ] (
+      builtins.readFile ../guest/losos-guest-run.sh
+    )
+  );
+
+  # The machines the host makes by itself (losos.machines.system), with
+  # what `pm machine create` is told of each.
+  systemMachines = lib.mapAttrsToList (
+    name: machine:
+    lib.escapeShellArgs (
+      [
+        name
+        "${templates}/share/losos/machines/${machine.template}.qcow2"
+        "--label"
+        machine.label
+      ]
+      ++ lib.optionals (machine.memory != null) [
+        "--memory"
+        (toString machine.memory)
+      ]
+      ++ lib.optionals (machine.disk != null) [
+        "--disk"
+        (toString machine.disk)
+      ]
+    )
+  ) config.losos.machines.system;
 in
 {
   options.losos.machines.guests = lib.mkOption {
@@ -161,6 +210,50 @@ in
       share/losos/machines/<name>.qcow2, the name pm records as a machine's
       template. A module that needs a machine of its own for something adds
       one here, as losos-boxes.nix's LosOS boxes machine does.
+    '';
+  };
+
+  options.losos.machines.system = lib.mkOption {
+    type = lib.types.attrsOf (
+      lib.types.submodule {
+        options = {
+          template = lib.mkOption {
+            type = lib.types.str;
+            description = "The template it is made from, a name in losos.machines.guests.";
+          };
+          label = lib.mkOption {
+            type = lib.types.enum [
+              "red"
+              "orange"
+              "yellow"
+              "green"
+              "gray"
+              "blue"
+              "purple"
+              "black"
+            ];
+            description = "The colour its windows are framed in.";
+          };
+          memory = lib.mkOption {
+            type = lib.types.nullOr lib.types.ints.positive;
+            default = null;
+            description = "Its memory in MiB, or pm's default.";
+          };
+          disk = lib.mkOption {
+            type = lib.types.nullOr lib.types.ints.positive;
+            default = null;
+            description = "Its disk in GiB, or pm's default.";
+          };
+        };
+      }
+    );
+    default = { };
+    description = ''
+      Machines the host makes by itself, by name, for a part of the OS that
+      runs in a machine of its own rather than on the host, such as
+      flatpak-machine.nix's Flatpak machine. Each is made once, at the first
+      boot that declares it, the way a person would make it with `pm
+      machine create`; one its owner has removed since is not made again.
     '';
   };
 
@@ -180,6 +273,65 @@ in
 
     environment.systemPackages = [ tools ] ++ lib.optional config.losos.machines.templates templates;
     environment.pathsToLink = [ "/share/losos/machines" ];
+
+    assertions = lib.mapAttrsToList (name: machine: {
+      assertion = config.losos.machines.guests ? ${machine.template};
+      message = "losos.machines.system.${name}: there is no template ${machine.template} in losos.machines.guests";
+    }) config.losos.machines.system;
+
+    # Makes losos.machines.system's machines through pm, as root. pm runs a
+    # plugin only when it is signed by a key its user trusts, and root is a
+    # user like any other here: this unit keeps a key of its own under its
+    # state directory, made once on this computer and never in the image
+    # (a key the image carried would be one every LosOS computer trusted),
+    # and signs the image's libvirt plugin with it at every start, since an
+    # update may bring a new one. Which machines it made is kept there too,
+    # so one its owner removed in the Machines app stays removed.
+    # Without the templates in the image there is nothing to make them from.
+    systemd.services.losos-system-machines =
+      lib.mkIf (config.losos.machines.system != { } && config.losos.machines.templates)
+        {
+          description = "Make the machines the system runs parts of itself in";
+          wantedBy = [ "multi-user.target" ];
+          requires = [ "libvirt-defaults.service" ];
+          after = [ "libvirt-defaults.service" ];
+          path = [
+            pkgs.pm
+            config.virtualisation.libvirtd.package
+            pkgs.coreutils
+          ];
+          environment = {
+            LIBVIRT_DEFAULT_URI = "qemu:///system";
+            NO_COLOR = "1";
+          };
+          serviceConfig = {
+            Type = "oneshot";
+            RemainAfterExit = true;
+            StateDirectory = "losos-machines";
+            StateDirectoryMode = "0700";
+          };
+          script = ''
+            export HOME="$STATE_DIRECTORY" XDG_CONFIG_HOME="$STATE_DIRECTORY/config"
+            plugins="$XDG_CONFIG_HOME/pm/plugins"
+            [ -e "$XDG_CONFIG_HOME/pm/signing.key" ] || pm keygen
+            mkdir -p "$plugins" "$STATE_DIRECTORY/made"
+            install -m 0644 ${pkgs.pm-plugins}/share/pm/plugins/libvirt.wasm "$plugins/libvirt.wasm"
+            pm sign "$plugins/libvirt.wasm"
+
+            make_machine() {
+              name=$1
+              shift
+              if virsh -q dominfo "$name" >/dev/null 2>&1 || [ -e "$STATE_DIRECTORY/made/$name" ]; then
+                return 0
+              fi
+              image=$1
+              shift
+              pm machine create "$name" --image "$image" "$@"
+              touch "$STATE_DIRECTORY/made/$name"
+            }
+            ${lib.concatMapStrings (args: "make_machine ${args}\n") systemMachines}
+          '';
+        };
 
     # Buildable on their own whether or not the image carries them.
     system.build = {
