@@ -47,21 +47,74 @@ fn open_fds(skip: &[RawFd]) -> Vec<RawFd> {
     fds.into_iter().collect()
 }
 
-/// The plan's Landlock rules for paths that exist. Hakoniwa resolves every
-/// rule's path inside the container and refuses to start ("landlock path
-/// must be exist") when one is missing, and the plan names paths a session
-/// often lacks: a guest has no /dev/dri, a system without 32-bit graphics
-/// no /run/opengl-driver-32, and a new user none of ~/.icons, ~/.fonts or
-/// derisk's folders. A path missing here was not bound either, so there is
-/// nothing behind it for a rule to allow.
+/// The plan's Landlock rules for paths the container will have: those that
+/// exist here, where the container's mounts come from, and those the plan
+/// mounts something at. Hakoniwa resolves every rule's path inside the
+/// container and refuses to start ("landlock path must be exist") when one
+/// is missing, and a plan can name a path a session lacks: a machine has no
+/// /dev/dri, a system without 32-bit graphics no /run/opengl-driver-32, a
+/// new user none of ~/.icons or derisk's folders. Such a path is not
+/// bound either, so there is nothing behind it for a rule to allow.
 fn landlock_rules(plan: &Plan) -> impl Iterator<Item = &(String, Access)> {
     plan.landlock.iter().filter(|(path, _)| {
-        let exists = Path::new(path).exists();
-        if !exists {
+        let mounted = plan.ops.iter().any(|op| match op {
+            Op::Bind { src, dest, .. } => dest == path && Path::new(src).exists(),
+            Op::Tmpfs(dest) | Op::Proc(dest) | Op::Dev(dest) | Op::Dir(dest) => dest == path,
+            Op::File { dest, .. } => dest == path,
+            Op::Symlink { .. } => false,
+        });
+        let kept = mounted || Path::new(path).exists();
+        if !kept {
             debug!(%path, "missing; no Landlock rule");
         }
-        exists
+        kept
     })
+}
+
+/// Whether an earlier bind of the plan already shows `dest`: an ancestor
+/// bound from the same path with the same flags. WebKit binds the
+/// D-Bus proxy's own binary inside the /nix/store it also binds; bwrap
+/// takes that, but Hakoniwa creates every file bind's target first and
+/// fails on a file it cannot open for writing (exit 125), so the
+/// redundant bind is left out instead.
+fn shown_by_ancestor(plan: &Plan, src: &str, dest: &str, ro: bool, dev: bool) -> bool {
+    src == dest
+        && plan.ops.iter().any(|op| match op {
+            Op::Bind {
+                src: s,
+                dest: d,
+                ro: r,
+                dev: v,
+                ..
+            } => {
+                s == d
+                    && d != dest
+                    && Path::new(dest).starts_with(d)
+                    && (*r, *v) == (ro, dev)
+                    && Path::new(s).exists()
+            }
+            _ => false,
+        })
+}
+
+/// The folder a symlink goes in, when nothing else in the plan makes it.
+/// WebKit asks for `/var/run` with no `/var`; bwrap makes the folder, but
+/// Hakoniwa's symlink fails without it (exit 125). The root is an empty
+/// tmpfs, so making it there is all bwrap does too.
+fn unmade_parent(plan: &Plan, link: &str) -> Option<String> {
+    let parent = Path::new(link).parent()?;
+    if parent == Path::new("/") {
+        return None;
+    }
+    let made = plan.ops.iter().any(|op| {
+        let dest = match op {
+            Op::Bind { src, dest, .. } if Path::new(src).exists() => dest,
+            Op::Tmpfs(dest) | Op::Proc(dest) | Op::Dev(dest) | Op::Dir(dest) => dest,
+            _ => return false,
+        };
+        parent.starts_with(dest)
+    });
+    (!made).then(|| parent.to_string_lossy().into_owned())
 }
 
 fn container(plan: &Plan) -> Container {
@@ -100,6 +153,10 @@ fn container(plan: &Plan) -> Container {
                     }
                     continue;
                 }
+                if shown_by_ancestor(plan, src, dest, *ro, *dev) {
+                    debug!(%dest, "already shown by an earlier bind");
+                    continue;
+                }
                 let mut options = MountOptions::BIND | MountOptions::REC;
                 if *ro {
                     options |= MountOptions::RDONLY;
@@ -110,6 +167,9 @@ fn container(plan: &Plan) -> Container {
                 c.mount(src, dest, "", options, None);
             }
             Op::Symlink { target, link } => {
+                if let Some(parent) = unmade_parent(plan, link) {
+                    c.dir(&parent, 0o755);
+                }
                 c.symlink(target, link);
             }
             Op::Tmpfs(dest) => {
@@ -191,10 +251,13 @@ fn enter(targets_hint: usize, seccomp: Option<&[u8]>, program: &[CString]) -> i3
         .collect();
     // SAFETY (all below): plain descriptor-table calls on descriptors this
     // process now owns. First every received descriptor moves out of the
-    // way, above any target, so placing one cannot close another.
+    // way, above any target, so placing one cannot close another. Just
+    // above the highest target, not at a fixed number: the open-file soft
+    // limit a systemd unit starts with is 1024, and a number past it fails.
+    let above = targets.iter().max().map_or(0, |t| t + 1);
     let mut high = Vec::with_capacity(fds.len());
     for fd in &fds {
-        let moved = unsafe { libc::fcntl(*fd, libc::F_DUPFD_CLOEXEC, 4096) };
+        let moved = unsafe { libc::fcntl(*fd, libc::F_DUPFD_CLOEXEC, above) };
         unsafe { libc::close(*fd) };
         if moved < 0 {
             return 126;
@@ -343,5 +406,51 @@ mod tests {
         };
         let kept: Vec<&str> = landlock_rules(&plan).map(|(p, _)| p.as_str()).collect();
         assert_eq!(kept, [here.as_str()]);
+    }
+
+    #[test]
+    fn a_bind_inside_the_same_bind_is_left_out() {
+        let bind = |path: &str, ro| Op::Bind {
+            src: path.into(),
+            dest: path.into(),
+            ro,
+            dev: false,
+            optional: false,
+        };
+        let plan = Plan {
+            ops: vec![bind("/", true), bind("/nix/store/x/bin/proxy", true)],
+            ..Plan::default()
+        };
+        assert!(shown_by_ancestor(
+            &plan,
+            "/nix/store/x/bin/proxy",
+            "/nix/store/x/bin/proxy",
+            true,
+            false
+        ));
+        // Not the bind itself, nor one with other flags.
+        assert!(!shown_by_ancestor(&plan, "/", "/", true, false));
+        assert!(!shown_by_ancestor(
+            &plan,
+            "/nix/store/x/bin/proxy",
+            "/nix/store/x/bin/proxy",
+            false,
+            false
+        ));
+    }
+
+    #[test]
+    fn a_symlink_gets_its_folder_unless_the_plan_makes_it() {
+        let link = |link: &str| Op::Symlink {
+            target: "../run".into(),
+            link: link.into(),
+        };
+        let plan = Plan {
+            ops: vec![link("/var/run"), Op::Tmpfs("/tmp".into()), link("/tmp/x/y")],
+            ..Plan::default()
+        };
+        assert_eq!(unmade_parent(&plan, "/var/run").as_deref(), Some("/var"));
+        assert_eq!(unmade_parent(&plan, "/tmp/x/y"), None);
+        assert_eq!(unmade_parent(&plan, "/lib64"), None);
     }
 }
