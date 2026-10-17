@@ -50,6 +50,8 @@ in
     "${modulesPath}/image/repart.nix"
     # The same browser as the host, which opens a link in any machine.
     ../modules/danube.nix
+    # The folders apps expect in the user's home, made as on the host.
+    ../modules/home-folders.nix
   ];
 
   options.losos.guest.name = lib.mkOption {
