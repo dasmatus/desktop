@@ -98,6 +98,25 @@ in
           # forwarder, so homed users must be visible to ordinary lookups.
           machine.succeed("getent passwd alice")
 
+      with subtest("the first login after setup goes straight to the desktop"):
+          # What `derisk setup` leaves when its last page is done (derisk's
+          # first_login.rs): the new user and password, root's alone, which
+          # the display manager logs in with once instead of showing the
+          # login screen. A restart starts the round that takes it.
+          machine.succeed("umask 077; printf 'alice\\0correct-horse' > /run/derisk-first-login")
+          machine.succeed("systemctl restart display-manager.service")
+          machine.wait_until_succeeds(
+              "loginctl list-sessions --no-legend | grep -q alice", timeout=300
+          )
+          machine.wait_until_succeeds("pgrep -u alice -f 'derisk session'", timeout=120)
+          # Taken once: the next round shows the login screen.
+          machine.succeed("test ! -e /run/derisk-first-login")
+
+      with subtest("the privacy display's face counter runs"):
+          # The VM has no camera: the counter says so and exits, which is
+          # how the session learns there is nothing to watch with.
+          machine.succeed("derisk-faces watch | grep -qx 'camera none'")
+
       with subtest("sysupdate sees the installed version"):
           # The test VM has no route to the release feed, and without
           # --offline sysupdate fails on the download before listing what is
