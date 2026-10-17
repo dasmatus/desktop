@@ -45,12 +45,13 @@ trap cleanup EXIT
 
 # Room for the files, their inodes (flatpak's repository is many small
 # ones) and ext4's own; du counts a file with several links once, and so
-# does mkfs.
+# does mkfs. The guest finds the disk by its serial; the label, which ext4
+# caps at 16 bytes, only names it.
 bytes=$(du -sb "$source" | cut -f1)
 files=$(find "$source" | wc -l)
 size=$((bytes + bytes / 10 + 256 * 1024 * 1024))
 truncate -s "$size" "$work/disk.img"
-mkfs.ext4 -q -F -L "$serial" -N $((files + files / 10 + 1024)) -d "$source" "$work/disk.img"
+mkfs.ext4 -q -F -L flatpak-move -N $((files + files / 10 + 1024)) -d "$source" "$work/disk.img"
 
 virsh -q vol-delete --pool default "$volume" >/dev/null 2>&1 || true
 virsh -q vol-create-as default "$volume" "$size" --format raw
