@@ -190,7 +190,13 @@ rustPlatform.buildRustPackage (finalAttrs: {
   # Language servers it installs itself run on node, which it would
   # otherwise download as a binary NixOS cannot run, and its agent's
   # terminal sandbox is bubblewrap.
+  #
+  # webrtc-sys links libwebrtc from LK_CUSTOM_WEBRTC, which is its dev
+  # output, so the editor's RUNPATH named that and kept its 268M of
+  # headers in the image; the library itself is in the lib output.
   postFixup = ''
+    patchelf $out/libexec/zed-editor --set-rpath "$(patchelf --print-rpath $out/libexec/zed-editor \
+      | sed 's|${lib.getDev livekit-libwebrtc}/lib|${lib.getLib livekit-libwebrtc}/lib|')"
     patchelf $out/libexec/zed-editor --add-rpath ${
       lib.makeLibraryPath [
         wayland
@@ -211,6 +217,15 @@ rustPlatform.buildRustPackage (finalAttrs: {
       ]
     }
   '';
+
+  # Every byte here is in /usr, whose update slot is a fixed size
+  # (losos.usrSize): a full strip takes the editor from 473M to 333M, at
+  # the cost of function names in a crash's backtrace.
+  stripAllList = [
+    "bin"
+    "libexec"
+  ];
+  disallowedReferences = [ (lib.getDev livekit-libwebrtc) ];
 
   meta = {
     description = "Code editor with an agent window, LosOS Desktop's fork of Zed";

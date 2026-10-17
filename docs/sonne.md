@@ -46,6 +46,11 @@ from a pinned revision (`fetchgit`, [Trust](trust.md)). The differences:
   libwebrtc's FFmpeg and SDL would reach the [patched GTK](gtk-qt-phone.md)
   through libdecor, and CI would compile WebRTC and FFmpeg, so it comes from
   plain nixpkgs and substitutes from cache.nixos.org.
+- **Stripped in full.** Every byte is in `/usr`, whose update slot is a
+  fixed 8G on an installed disk ([Where the OS lives](layout.md)); a full
+  strip takes the editor from 473M to 333M, and the RUNPATH is pointed at
+  libwebrtc's library rather than its 268M of headers. Sonne still adds about half a
+  gigabyte to the store, which only fits because `/usr` is compressed.
 - **No remote server and no tests.** The remote server is what Zed copies to
   a host it opens over SSH; Sonne's tests are its own repository's.
 - **Updates come with the system.** The auto-updater is off and says so.
