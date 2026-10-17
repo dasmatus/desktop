@@ -98,10 +98,16 @@ GitHub release. Its sysupdate transfers read `http://127.0.0.1:8485/`
 `losos-update-source.socket` (`nixos/modules/update-source.nix`), starts a
 short script for each request: it reads the channel's index above from
 `losos.update.index`, finds the name asked for, and streams the release
-assets it lists one after the other with curl. sysupdate gets `SHA256SUMS`,
-its signature and whole files under one URL, as from any channel, and checks
-the signature against the image's key and every file against its line. No
-service outside GitHub is involved.
+assets it lists one after the other with curl. A connection that breaks off
+is picked up from the byte it stopped at, up to ten times a part. sysupdate
+gets `SHA256SUMS`, its signature and whole files under one URL, as from any
+channel, and checks the signature against the image's key
+(`/etc/systemd/import-pubring.pgp`, with gpg on the update unit's PATH) and
+every file against its line. No service outside GitHub is involved.
+
+A download that fails anyway leaves its slot marked partial, which sysupdate
+will not install over. The update unit vacuums such slots before it starts,
+so the next timer run downloads that version again.
 
 The installer ISO's live system runs the same socket, for an install from
 the channel when the backend finds no release of the ISO's own version
