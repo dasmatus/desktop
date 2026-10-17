@@ -227,5 +227,6 @@
   machine that knows a box's address from reaching it without the LosOS
   boxes machine. Its keyring has no sign-in to unlock it, so the first
   `losos` that stores a key or token asks for a keyring password in a
-  window of the machine. Neither half has met a real box on a real LAN
+  window of the machine. Nothing makes the machine by itself either: its
+  owner makes it from the template. Neither half has met a real box on a real LAN
   yet, only a box that the machines test boots beside the host.

@@ -250,9 +250,9 @@
             f"{virsh} qemu-agent-command boxes '{{\"execute\":\"guest-ping\"}}'", timeout=900
         )
         machine.wait_until_succeeds(f"{virsh} domifaddr boxes | grep -q 192.168.122.", timeout=300)
-        boxes_address = re.search(
-            r"(192\.168\.122\.\d+)", machine.succeed(f"{virsh} domifaddr boxes")
-        ).group(1)
+        found = re.search(r"(192\.168\.122\.\d+)", machine.succeed(f"{virsh} domifaddr boxes"))
+        assert found, "the LosOS boxes machine has no address"
+        boxes_address = found.group(1)
         for _ in range(90):
             apps = in_guest(guest_run, "--list", domain="boxes")
             if "losos-box-lanbox.local\tlanbox" in apps:
