@@ -51,7 +51,7 @@ let
     src = lib.cleanSource ../../components/derisk;
   };
 
-  cargoHash = "sha256-0gGFWRjAthQG6JlWNpkKRbsdv9uSrh5R7PvpUS5YFBg=";
+  cargoHash = "sha256-xFeOglwSEYtUqyJS2JU63p8h0TMSQZnqytEn1F120cg=";
 
   # derisk-gpui, as a cargo build of its own. It cannot share derisk's: the
   # portal talks to xdg-desktop-portal through ashpd on tokio, and Sonne's
@@ -179,12 +179,16 @@ rustPlatform.buildRustPackage {
   # derisk and its portal backend, xdg-desktop-portal-derisk. `host` is the
   # compositor; without it the binary has only the headless commands. It is
   # named through its package because cargo refuses a bare feature name when
-  # more than one package is built.
+  # more than one package is built. derisk-faces is the privacy display's
+  # face counter, which the session runs from beside its own executable
+  # while one of the display's conditions holds (docs/sign-in.md).
   cargoBuildFlags = [
     "-p"
     "derisk"
     "-p"
     "derisk-portal"
+    "-p"
+    "derisk-faces"
   ];
   buildFeatures = [ "derisk/host" ] ++ lib.optional withHardenedMalloc "derisk/hardened-malloc";
 
@@ -195,6 +199,10 @@ rustPlatform.buildRustPackage {
   nativeBuildInputs = [
     pkg-config
     lld
+    # libfacedetection-sys compiles libfacedetection's vendored C++ and
+    # generates its bindings with bindgen, which needs libclang and the C++
+    # headers' include paths.
+    rustPlatform.bindgenHook
   ];
   buildInputs = [
     libxkbcommon

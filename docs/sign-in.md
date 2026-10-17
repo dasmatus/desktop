@@ -74,6 +74,32 @@ the home area holding the file is open when the module reads it; pam_unix
 is left out of that service, since it would ask a homed user for their
 password a second time.
 
+## Dimming and the privacy display
+
+The login screen, the lock screen and the polkit dialog turn the backlight
+down from the first character of a password until the field has stayed
+empty a moment or the prompt is gone, then put it back. They go through
+logind's `SetBrightness` on their own session, so only a display with a
+backlight (`/sys/class/backlight`, as laptops and phones have) dims; a
+desktop's monitor stays as it is.
+
+The privacy display is Samsung's of the same name done in software, off
+until a person turns it on in Settings, Privacy. Samsung's narrows the
+panel's viewing angle; a PC's panel cannot, so the same conditions (a
+password being typed, chosen apps open, notification pop-ups) start the
+camera instead, and the protected part of the screen is covered while a
+second face is looking at it: the whole screen for a password or a chosen
+app, the pop-ups alone for a notification. The cover is opaque, says why,
+and has a "Show anyway" button that holds until the condition ends.
+
+The faces are counted by `derisk-faces`, which `nixos/pkgs/derisk.nix`
+builds beside derisk: a few small frames a second from the first V4L2
+camera, run through [libfacedetection](https://github.com/ShiqiYu/libfacedetection)'s
+CNN, which derisk vendors and binds with bindgen. derisk runs it only while
+a condition holds, so the camera light is on only then, and frames never
+leave that process's memory. With no camera it prints `camera none` and
+nothing is covered, which the boot VM test checks.
+
 ## Password age
 
 A password lasts 365 days, with warnings for the last 14, as
