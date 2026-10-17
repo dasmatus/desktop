@@ -131,9 +131,12 @@ by where it came in, never by anything the guest says:
    so the machine's windows get none of the privileged protocols a host app
    may use (reading other windows, placing itself over them, synthetic
    input).
-5. derisk paints the window's title bar and focus ring in the machine's
-   label colour and puts the machine's name before its title, and the top
-   bar shows a dot in that colour for each running machine.
+5. Windows have no title bars of their own: the top bar shows the focused
+   window's title and buttons. derisk fills the top bar with the machine's
+   label colour while one of its windows has the focus, draws a border in
+   that colour round each of its windows, focused or not, and puts the
+   machine's name before its title; the top bar also shows a dot in that
+   colour for each running machine.
 
 Apps start in a machine through the QEMU guest agent: derisk asks libvirt to
 run the guest's `losos-guest-run` with the app's desktop file ID, and that
