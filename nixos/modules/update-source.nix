@@ -78,11 +78,30 @@ let
 
       printf 'HTTP/1.1 200 OK\r\nContent-Type: application/octet-stream\r\nContent-Length: %s\r\nConnection: close\r\n\r\n' "$size"
       [ "$method" = HEAD ] && exit 0
-      # --fail-early: one part missing ends the whole file rather than
-      # skipping to the next, so it comes up short and sysupdate refuses it.
+
+      # A connection that breaks off is picked up where it stopped, from the
+      # github.com URL again, which redirects to a fresh signed address. A
+      # /usr of 2 GiB is a long download, and one dropped connection made
+      # sysupdate throw it all away and the timer start over hours later.
+      # --continue-at fails, rather than send the file again from its start,
+      # when the server ignores the range. A part that still cannot be had
+      # ends the file there, so it comes up short and sysupdate refuses it.
       # shellcheck disable=SC2086 # the URLs are words of the index line
-      exec curl --silent --show-error --fail --fail-early --location \
-        --proto '=https' --retry 3 $urls
+      for url in $urls; do
+        sent=0 tries=0
+        until
+          rc=0
+          curl --silent --show-error --fail --location --proto '=https' \
+            --retry 3 --continue-at "$sent" \
+            --write-out '%output{/tmp/received}%{size_download}' "$url" || rc=$?
+          [ "$rc" = 0 ]
+        do
+          tries=$((tries + 1))
+          # 23: sysupdate hung up, and nothing is reading any more.
+          [ "$rc" != 23 ] && [ "$tries" -lt 10 ] || exit 1
+          sent=$((sent + $(cat /tmp/received)))
+        done
+      done
     '';
   };
 in
