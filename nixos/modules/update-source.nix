@@ -15,9 +15,12 @@
 # split file reaches sysupdate whole and nothing is staged on disk. The index
 # and the assets are not trusted: sysupdate checks SHA256SUMS.gpg against the
 # image's key and every file against SHA256SUMS, as it would from any source.
-# The installer ISO's live system runs the same socket for an install from
-# the channel (nixos/installer/default.nix), as losos-installer's own mirror
-# does for the release the ISO was built from (src/losos-installer/src/github.rs).
+# The installer reads the same index, but fetches the files with aria2 over
+# many connections into a scratch partition on the target disk first
+# (src/losos-installer/src/stage.rs). That is not done here: aria2 writes
+# each connection's range wherever it lands, so a file cannot reach
+# sysupdate as it arrives, and an installed system's free space is not a
+# partition the size of a /usr to spare.
 #
 # The index is fetched again for every request, and a release published in
 # the middle of an update can move it between SHA256SUMS and the files it

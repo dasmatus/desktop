@@ -86,3 +86,6 @@ derisk's own `Cargo.lock` still fetches mcsapi by git revision, so move
 android_translation_layer stays a `fetchgit` pin: it is an upstream fork, off
 by default, and its tree is close to half a gigabyte, which the flake would
 otherwise copy on every evaluation.
+
+[Sonne](sonne.md), the code editor, is a `fetchgit` pin too, for the same
+reason: it is a fork of Zed, and its tree is the size of Zed's.
