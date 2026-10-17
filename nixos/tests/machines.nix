@@ -1,7 +1,8 @@
 # The virtual machine desktop's host and its template (libvirt.nix,
 # machines.nix, docs/hypervisor.md): pm makes a machine from the template
 # the image ships, the machine boots and takes an address on libvirt's
-# network, its guest agent lists its apps, and opening one sends its window
+# network, its user pings the host and past it and NetworkManager finds it
+# online, its guest agent lists its apps, and opening one sends its window
 # to the host over vsock from the address libvirt gave that machine, which
 # is how the desktop tells whose window it is. The machine looks .local
 # names up through the host, so it finds a box on the host's network that
@@ -40,8 +41,29 @@
     networking.firewall.allowedUDPPorts = [ 5353 ];
   };
 
+  # The internet as far as a machine can tell: the resolver the host asks,
+  # which places GNOME's connectivity check here, and that check's page.
+  nodes.internet =
+    { config, pkgs, ... }:
+    {
+      networking.firewall.enable = false;
+      services.dnsmasq = {
+        enable = true;
+        resolveLocalQueries = false;
+        settings.address = "/nmcheck.gnome.org/${config.networking.primaryIPAddress}";
+      };
+      systemd.services.nmcheck = {
+        wantedBy = [ "multi-user.target" ];
+        script = ''
+          mkdir -p /srv
+          echo "NetworkManager is online" > /srv/check_network_status.txt
+          exec ${pkgs.python3}/bin/python3 -m http.server --directory /srv 80
+        '';
+      };
+    };
+
   nodes.machine =
-    { pkgs, ... }:
+    { nodes, pkgs, ... }:
     {
       imports = [
         ../modules/libvirt.nix
@@ -52,6 +74,9 @@
 
       # network.nix's packet filter, which the guests' DHCP has to get past.
       networking.nftables.enable = true;
+      # libvirt's dnsmasq forwards the machines' questions to the host's
+      # resolver, which asks the stand-in internet.
+      networking.nameservers = [ nodes.internet.networking.primaryIPAddress ];
 
       # And its resolver: networkd and resolved, mDNS on the LAN's link and
       # in resolved, 5353 open. libvirt's dnsmasq passes the machines'
@@ -164,6 +189,25 @@
         size = int(in_guest("/run/current-system/sw/bin/df", "--output=size", "-B1G", "/").split()[-1])
         assert size >= 7, f"the root is {size} GiB, so it did not grow into the 8 GiB disk"
         machine.wait_until_succeeds(f"{virsh} domifaddr work | grep -q 192.168.122.", timeout=300)
+
+    with subtest("the machine pings the host and past it, and is online"):
+        # As the machine's user, from the login shell its apps get, the way
+        # someone types it into the machine's Terminal.
+        as_user = [
+            "/run/current-system/sw/bin/systemd-run", "--quiet", "--user",
+            "--machine=user@.host", "--wait", "--pipe", "--",
+            "/run/current-system/sw/bin/bash", "-lc",
+        ]
+        in_guest(*as_user, "ping -c1 -W10 192.168.122.1")
+        in_guest(*as_user, "ping -c1 -W10 nmcheck.gnome.org")
+        # NetworkManager's connectivity check, which apps in the machine ask
+        # before they go online.
+        for _ in range(60):
+            if in_guest("/run/current-system/sw/bin/nmcli", "-t", "-f", "CONNECTIVITY", "general").strip() == "full":
+                break
+            time.sleep(5)
+        else:
+            raise Exception("NetworkManager never found the machine online")
 
     with subtest("the machine looks .local names up through the host"):
         lanbox.wait_for_unit("systemd-resolved.service")
