@@ -25,8 +25,6 @@ in
   imports = [
     ./common.nix
     ../modules/flatpak.nix
-    # The folders apps expect in the user's home, made as on the host.
-    ../modules/home-folders.nix
   ];
 
   # flatpak's own rule lets an active, local wheel member install for the
