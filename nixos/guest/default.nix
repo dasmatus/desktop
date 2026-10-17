@@ -63,6 +63,8 @@ in
     # host's come from.
     ../modules/danube.nix
     ../modules/flatpak.nix
+    # The folders apps expect in the user's home, made as on the host.
+    ../modules/home-folders.nix
   ];
 
   system.stateVersion = "26.05";

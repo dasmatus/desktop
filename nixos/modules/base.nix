@@ -9,6 +9,7 @@
   imports = [
     ./options.nix
     ./accounts.nix
+    ./home-folders.nix
     ./sign-in.nix
     ./setup.nix
     ./network.nix

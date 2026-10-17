@@ -47,6 +47,23 @@ fn open_fds(skip: &[RawFd]) -> Vec<RawFd> {
     fds.into_iter().collect()
 }
 
+/// The plan's Landlock rules for paths that exist. Hakoniwa resolves every
+/// rule's path inside the container and refuses to start ("landlock path
+/// must be exist") when one is missing, and the plan names paths a session
+/// often lacks: a guest has no /dev/dri, a system without 32-bit graphics
+/// no /run/opengl-driver-32, and a new user none of ~/.icons, ~/.fonts or
+/// derisk's folders. A path missing here was not bound either, so there is
+/// nothing behind it for a rule to allow.
+fn landlock_rules(plan: &Plan) -> impl Iterator<Item = &(String, Access)> {
+    plan.landlock.iter().filter(|(path, _)| {
+        let exists = Path::new(path).exists();
+        if !exists {
+            debug!(%path, "missing; no Landlock rule");
+        }
+        exists
+    })
+}
+
 fn container(plan: &Plan) -> Container {
     let mut c = Container::new();
     // `new` also makes a PID namespace and mounts /proc; a plan that wants
@@ -121,7 +138,7 @@ fn container(plan: &Plan) -> Container {
         // Relax: an older kernel gets as much of Landlock as it has,
         // instead of no browser.
         ruleset.restrict(Resource::FS, CompatMode::Relax);
-        for (path, access) in &plan.landlock {
+        for (path, access) in landlock_rules(plan) {
             let mode = match access {
                 Access::Read => FsAccess::R | FsAccess::X,
                 Access::Device => FsAccess::R | FsAccess::W | FsAccess::X,
@@ -310,4 +327,21 @@ pub fn run(plan: Plan) -> Result<ExitCode, Error> {
         debug!(code = status.code, reason = %status.reason, "sandboxed program ended");
     }
     Ok(ExitCode::from(status.code.clamp(0, 255) as u8))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn landlock_rules_leave_out_missing_paths() {
+        let here = std::env::temp_dir().to_string_lossy().into_owned();
+        let gone = format!("{here}/danube-landlock-missing-{}", std::process::id());
+        let plan = Plan {
+            landlock: vec![(here.clone(), Access::Read), (gone, Access::Read)],
+            ..Plan::default()
+        };
+        let kept: Vec<&str> = landlock_rules(&plan).map(|(p, _)| p.as_str()).collect();
+        assert_eq!(kept, [here.as_str()]);
+    }
 }

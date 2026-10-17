@@ -69,13 +69,37 @@ as it is, since each architecture's manifest there is `SHA256SUMS-<arch>`
 and a file of 2 GiB or more is split into `.part-NN` assets, so
 `losos-installer` serves the release to it from `127.0.0.1`: `SHA256SUMS`
 and its signature are the architecture's, and a split file is its parts
-streamed from GitHub one after the other, so nothing is staged in the live
-system's memory. sysupdate checks the signature and every hash itself, as
-it does for the channel. The backend finds the release through GitHub's
+one after the other. sysupdate checks the signature and every hash itself,
+as it does for the channel. The backend finds the release through GitHub's
 API by the version in its file names, a tagged release before the nightly
 of the same build. Where it finds none, such as an ISO built from a branch
 or a local build, the install reads the channel and gets its newest
-release. The installed system then updates from the channel as any other
+release, through the channel's index on the documentation site
+([Releases](releases.md)) when the OS updates from GitHub Releases.
+
+The files come down with [aria2](https://aria2.github.io/) before
+sysupdate reads them (`src/losos-installer/src/stage.rs`): one file at a
+time, each split over one connection per hardware thread, as
+`aria2c -x $(nproc)` would, at most 16, which is as many as aria2 opens
+to one server. GitHub's release storage caps each connection's speed, so
+the image arrives that many times faster than over curl's one connection,
+which is how it came before. A connection that breaks off is opened again
+and goes on from the byte it stopped at. Only the manifest, its signature
+and the files the transfers name are fetched, not the ISO, the disk image
+or the other architecture's.
+
+aria2 writes each connection's range where it belongs in the file, so a
+file is whole only once every range is in and cannot be handed to
+sysupdate as it arrives. It has to be kept somewhere first, and the live
+system's memory cannot hold a `/usr` of over 3 GiB on every machine. The disk
+being installed can: until the first boot creates root, `/home` and swap,
+everything after the `/usr` slots is free. So repart adds an ext4
+partition labelled `losos-download` there, the size of the files and some
+room, aria2 fetches into it, and once sysupdate has written the slots the
+installer wipes the partition and deletes it, so the first boot finds the
+free space it expects. Updates on the installed system still stream
+through curl (`update-source.nix`): its free space is not a partition to
+spare. The installed system then updates from the channel as any other
 does. The repository comes from `GITHUB_REPOSITORY` in CI
 (`losos.release.repository`), so a fork's ISO reads the fork's releases. The image used to be its own installer, with a second
 UKI that booted it into a tmpfs root and copied its own `/usr` with

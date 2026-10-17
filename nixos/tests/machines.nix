@@ -180,6 +180,14 @@
         else:
             raise Exception("NetworkManager never found the machine online")
 
+    with subtest("its user has the folders apps expect"):
+        # home-folders.nix, made by the user's tmpfiles when its manager
+        # started, which lingering does at boot.
+        for folder in [".config/derisk", ".local/share/fonts", ".icons", ".local/state", "Documents"]:
+            in_guest("/run/current-system/sw/bin/test", "-d", f"/home/user/{folder}")
+        dirs = in_guest("/run/current-system/sw/bin/cat", "/home/user/.config/user-dirs.dirs")
+        assert 'XDG_PICTURES_DIR="$HOME/Pictures"' in dirs, dirs
+
     with subtest("its agent lists the apps it can open"):
         apps = {}
         for line in in_guest(guest_run, "--list").splitlines():
