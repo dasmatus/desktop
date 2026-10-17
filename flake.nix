@@ -278,6 +278,9 @@
           # apps and sends an app's window to the host over vsock
           # (machines.nix).
           machines = pkgs.testers.runNixOSTest ./nixos/tests/machines.nix;
+          # derisk-terminal draws in software with no GPU and through GL when
+          # asked, and both show its text and Nerd Font icons (terminal.nix).
+          terminal = pkgs.testers.runNixOSTest ./nixos/tests/terminal.nix;
           installer-boot = pkgs.testers.runNixOSTest (
             import ./nixos/tests/installer-boot.nix { inherit self; }
           );

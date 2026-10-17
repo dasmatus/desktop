@@ -118,8 +118,9 @@ in
   # Lock signal returns before anything is drawn.
 
   # derisk's Files, Settings, Text Editor, System Monitor and Calculator are
-  # built into the derisk binary, which replaces GNOME's Files. A terminal is
-  # the one app it does not have, and foot is the one its own docs launch.
+  # built into the derisk binary, which replaces GNOME's Files. Its terminal,
+  # derisk-terminal, is a package of its own. It replaced foot, which the
+  # image shipped only because derisk had no terminal of its own.
   # derisk draws every icon in its chrome and apps from the icon theme the
   # derisk theme names, tinted grey; its built-in themes name Papirus-Dark
   # and Papirus. A theme that lacks an icon falls back through its Inherits=
@@ -127,10 +128,19 @@ in
   # set; without any of them derisk falls back to glyphs.
   environment.systemPackages = [
     pkgs.derisk
-    pkgs.foot
+    pkgs.derisk.terminal
     pkgs.papirus-icon-theme
     # derisk starts it to learn when nobody uses the session (above).
     pkgs.swayidle
+  ];
+
+  # derisk-terminal draws with the theme's monospace family through its Nerd
+  # Font build, the same letters with the icons prompts and TUIs print. Hack
+  # is the theme's default; the symbols-only Nerd Font gives the icons to a
+  # theme that names another family.
+  fonts.packages = [
+    pkgs.nerd-fonts.hack
+    pkgs.nerd-fonts.symbols-only
   ];
 
   # What GNOME's module used to switch on, kept where something in the session
@@ -150,7 +160,8 @@ in
   #
   # Bluetooth and power profiles are derisk Settings' Bluetooth page and its
   # Power mode row, which run bluetoothctl and powerprofilesctl; both
-  # modules put those on PATH. bluetooth.service starts only where
+  # modules put those on PATH. The command palette's "Power Mode" rows run
+  # the same powerprofilesctl. bluetooth.service starts only where
   # /sys/class/bluetooth exists, so a machine without an adapter runs
   # nothing. geoclue stays off: nothing in derisk asks for a location.
   hardware.bluetooth.enable = true;
