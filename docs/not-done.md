@@ -210,3 +210,14 @@
   element rules apply in Danube alone; other browsers and apps get only
   whole blocked domains ([System-wide ad blocking](adblock.md)), and a
   program with its own DNS over HTTPS skips it entirely.
+- **Backups to a LosOS box keep one copy and need a password sign-in**
+  ([Backups to a LosOS box](backup.md)). LosOS cloud keeps old versions and
+  the trash, but LosOS Git keeps only the latest state of each branch, and a
+  repository deleted at home stays on the box. Accounts with two-factor
+  sign-in cannot sign in from the Backups page, which sends a name and a
+  password. Git LFS objects are not pushed. Symbolic links, which Nextcloud
+  cannot hold, are left out. A box with HTTPS turned off
+  (`losos.tls.enable`) cannot be backed up to. Only an administrator's run
+  can start a stopped LosOS boxes machine. The schedule is once a day, with
+  no setting. It has been run against Nextcloud and Forgejo laid out as a
+  box lays them out, not against a real box.

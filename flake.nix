@@ -246,6 +246,7 @@
           "pm"
           "pm-plugins"
           "losos-adblock"
+          "losos-backup"
           "danube"
         ] (name: self.legacyPackages.${system}.${name})
         // {
@@ -281,6 +282,10 @@
           # derisk-terminal draws in software with no GPU and through GL when
           # asked, and both show its text and Nerd Font icons (terminal.nix).
           terminal = pkgs.testers.runNixOSTest ./nixos/tests/terminal.nix;
+          # A person's backups reach a Nextcloud and a Forgejo laid out as a
+          # LosOS box lays them out, files to one and a repository to the
+          # other, then again after changes (backup.nix).
+          backup = pkgs.testers.runNixOSTest ./nixos/tests/backup.nix;
           installer-boot = pkgs.testers.runNixOSTest (
             import ./nixos/tests/installer-boot.nix { inherit self; }
           );

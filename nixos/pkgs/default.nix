@@ -138,6 +138,8 @@ in
   danube = callWithMold ./danube.nix { };
   # The system-wide ad blocker (docs/adblock.md).
   losos-adblock = callWithMold ./losos-adblock.nix { };
+  # Backups to a LosOS box (docs/backup.md).
+  losos-backup = callWithMold ./losos-backup.nix { };
   x2mcsapi = callWithMold ./x2mcsapi.nix { };
   # Not a package: every package in nixpkgs, as a pm package's contents.
   pm-payloads = import ./pm-payloads.nix { inherit (final) lib pkgsStatic runCommand; };
