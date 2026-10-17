@@ -139,6 +139,11 @@ in
   # The system-wide ad blocker (docs/adblock.md).
   losos-adblock = callWithMold ./losos-adblock.nix { };
   x2mcsapi = callWithMold ./x2mcsapi.nix { };
+  # Sonne, the code editor (sonne.nix, docs/sonne.md), on the PC image. Its
+  # libwebrtc comes from nixpkgs' own package set, so it substitutes: from
+  # this one, its FFmpeg and SDL would reach the patched GTK through
+  # libdecor, and CI would compile WebRTC and FFmpeg.
+  sonne = callWithMold ./sonne.nix { inherit (plain) livekit-libwebrtc; };
   # Not a package: every package in nixpkgs, as a pm package's contents.
   pm-payloads = import ./pm-payloads.nix { inherit (final) lib pkgsStatic runCommand; };
 
