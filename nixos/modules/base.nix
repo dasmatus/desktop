@@ -26,6 +26,7 @@
     ./backup.nix
     ./docs.nix
     ./losos-boxes.nix
+    ./userland.nix
   ];
 
   nixpkgs.overlays = [ (import ../pkgs) ];
