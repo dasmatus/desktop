@@ -141,8 +141,8 @@ let
     specialArgs.losos = {
       inherit (cfg) version;
       inherit (cfg.update) baseUrl pubring;
-      # Where the live system's losos-update-source reads the channel, when
-      # baseUrl is its address (update-source.nix).
+      # Where the backend reads which assets make up the channel's files,
+      # when baseUrl is losos-update-source's address (update-source.nix).
       updateIndex = config.services.losos-update-source.index;
       releaseRepo = cfg.release.repository;
       docsUrl = cfg.docs.url;

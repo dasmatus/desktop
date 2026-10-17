@@ -40,6 +40,8 @@ pub struct Config {
     pub medium: String,
     pub work: PathBuf,
     pub source: Option<String>,
+    /// [`Plan::index`].
+    pub index: Option<String>,
     /// Where a release disk is mounted when one is attached
     /// ([`install::has_release`]).
     pub local_source: Option<PathBuf>,
@@ -240,6 +242,7 @@ pub fn run(config: &Config, input: impl BufRead, output: impl Write + Send + 'st
                     esp: config.esp.clone(),
                     work: config.work.clone(),
                     source: config.source.clone(),
+                    index: config.index.clone(),
                     local: config.local_source.clone(),
                     release: github(config),
                     bios_boot: config.bios_boot.clone(),
