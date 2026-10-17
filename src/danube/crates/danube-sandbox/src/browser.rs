@@ -9,10 +9,12 @@
 //! in the home directory exists in there, so a compromised browser cannot
 //! read SSH keys or other programs' data.
 //!
-//! The same paths make a Landlock ruleset, so even a way out of the mount
-//! namespace finds the rest of the filesystem closed, and a seccomp filter
-//! refuses the system calls a browser never needs. Network access is
-//! shared: it is a browser.
+//! A seccomp filter refuses the system calls a browser never needs.
+//! Network access is shared: it is a browser. There is no Landlock ruleset
+//! here: Landlock forbids a confined process to mount or to write its
+//! user namespace's uid_map, and WebKit builds each page's sandbox inside
+//! this one with both. The page sandboxes carry the Landlock rules instead
+//! ([`Plan::from_bwrap_args`]), around the web content itself.
 
 use std::path::{Path, PathBuf};
 
@@ -108,7 +110,6 @@ pub fn plan(session: &Session) -> Plan {
             dev: access == Access::Device,
             optional,
         });
-        plan.landlock.push((s(src), access));
     }
 
     // The system, read-only: every program and library, the configuration
@@ -135,13 +136,9 @@ pub fn plan(session: &Session) -> Plan {
     plan.ops.push(Op::Dev("/dev".into()));
     plan.ops.push(Op::Proc("/proc".into()));
     plan.ops.push(Op::Tmpfs("/tmp".into()));
-    plan.landlock.push(("/tmp".into(), Access::Write));
-    plan.landlock.push(("/proc".into(), Access::Read));
-    plan.landlock.push(("/dev".into(), Access::Device));
 
     // An empty runtime directory with only the sockets it needs.
     plan.ops.push(Op::Tmpfs(s(run)));
-    plan.landlock.push((s(run), Access::Write));
     for name in [
         session.wayland_display.as_str(),
         "pipewire-0",
@@ -201,7 +198,6 @@ pub fn plan(session: &Session) -> Plan {
     ] {
         bind(&mut plan, &home.join(dir), Access::Read, true);
     }
-    plan.landlock.push((s(home), Access::Read));
     // After the home's tmpfs, so that a folder in it shows through.
     for path in &session.read_only {
         bind(&mut plan, path, Access::Read, true);
@@ -230,10 +226,14 @@ mod tests {
         };
         let plan = plan(&session);
         let writable: Vec<&str> = plan
-            .landlock
+            .ops
             .iter()
-            .filter(|(_, a)| *a == Access::Write)
-            .map(|(p, _)| p.as_str())
+            .filter_map(|op| match op {
+                Op::Bind {
+                    dest, ro: false, ..
+                } => Some(dest.as_str()),
+                _ => None,
+            })
             .collect();
         for path in &writable {
             let path = Path::new(path);
@@ -251,6 +251,8 @@ mod tests {
             );
         }
         assert!(plan.ops.contains(&Op::Tmpfs(s(&session.home))));
+        // WebKit's page sandboxes could not be built under Landlock.
+        assert!(plan.landlock.is_empty());
         // A background page's folder shows, read-only, after the home's
         // tmpfs that would hide it.
         let page = s(&session.read_only[0]);
