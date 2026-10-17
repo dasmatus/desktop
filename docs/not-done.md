@@ -11,6 +11,12 @@
   `explain`), and the boot test checks it is installed, but a recipe written
   for an FHS host does not build on it. For the same reason seven of pm's test targets
   are skipped in the nix build (the list is in `nixos/pkgs/pm.nix`).
+- **Searching what is in every file.** `derisk-index` reads plain text
+  only: a file with a NUL byte in its first 8 KiB counts as binary and is
+  found by its name alone, so PDFs, office documents and pictures' text
+  are not searched, and only the first MiB of a large text file is. Hidden
+  files and what `.gitignore` leaves out are not indexed, and there is no
+  setting yet to index other folders or turn the index off.
 - **The guest template in full** ([Virtual machine desktop](hypervisor.md)).
   Only a reduced build of it, without Danube, Flatpak and the Calculator,
   has booted, and no machine's window has reached a desktop through it yet.
