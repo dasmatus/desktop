@@ -111,14 +111,6 @@
           losos.channel = lib.mkDefault channel;
         };
 
-      # The machine template's user's home, through Home Manager
-      # (nixos/guest/home.nix), for the image and for the test that boots a
-      # machine from its template.
-      guestHome = [
-        home-manager.nixosModules.home-manager
-        ./nixos/guest/home.nix
-      ];
-
       mkSystem =
         system:
         lib.nixosSystem {
@@ -130,7 +122,6 @@
               # closures can substitute from cache.nixos.org.
               nixpkgs.hostPlatform = system;
               losos.version = lib.mkDefault version;
-              losos.machines.guestModules = guestHome;
             }
             (
               { config, ... }:
@@ -286,7 +277,7 @@
           # pm makes a machine from the guest template, which boots, lists its
           # apps and sends an app's window to the host over vsock
           # (machines.nix).
-          machines = pkgs.testers.runNixOSTest (import ./nixos/tests/machines.nix { inherit guestHome; });
+          machines = pkgs.testers.runNixOSTest ./nixos/tests/machines.nix;
           # derisk-terminal draws in software with no GPU and through GL when
           # asked, and both show its text and Nerd Font icons (terminal.nix).
           terminal = pkgs.testers.runNixOSTest ./nixos/tests/terminal.nix;

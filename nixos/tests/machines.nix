@@ -15,8 +15,6 @@
 # Only the host's modules, not the whole image. The machine runs under TCG:
 # the test VM's KVM modules are kept out, so pm defines it to emulate rather
 # than rely on nested virtualisation the runner may not give.
-# guestHome is the flake's Home Manager for the template, as the image has it.
-{ guestHome }:
 { lib, ... }:
 
 {
@@ -35,7 +33,6 @@
         ../modules/pm.nix
       ];
       nixpkgs.overlays = [ (import ../pkgs) ];
-      losos.machines.guestModules = guestHome;
 
       # network.nix's packet filter, which the guests' DHCP has to get past.
       networking.nftables.enable = true;
@@ -139,18 +136,13 @@
         assert size >= 7, f"the root is {size} GiB, so it did not grow into the 8 GiB disk"
         machine.wait_until_succeeds(f"{virsh} domifaddr work | grep -q 192.168.122.", timeout=300)
 
-    with subtest("Home Manager gives its user the folders apps expect"):
-        # Activated at boot, before the user's manager starts, which may be
-        # after the agent answers; the folder list is modules/home-folders.nix.
-        systemctl = "/run/current-system/sw/bin/systemctl"
-        for _ in range(300):
-            state = in_guest(systemctl, "show", "-P", "ActiveState", "home-manager-user.service").strip()
-            if state != "activating":
-                break
-            time.sleep(1)
-        assert state == "active", f"home-manager-user.service is {state}"
-        for folder in [".config/derisk", ".local/share/fonts", ".icons", ".local/state"]:
+    with subtest("its user has the folders apps expect"):
+        # home-folders.nix, made by the user's tmpfiles when its manager
+        # started, which lingering does at boot.
+        for folder in [".config/derisk", ".local/share/fonts", ".icons", ".local/state", "Documents"]:
             in_guest("/run/current-system/sw/bin/test", "-d", f"/home/user/{folder}")
+        dirs = in_guest("/run/current-system/sw/bin/cat", "/home/user/.config/user-dirs.dirs")
+        assert 'XDG_PICTURES_DIR="$HOME/Pictures"' in dirs, dirs
 
     with subtest("its agent lists the apps it can open"):
         apps = {}

@@ -18,13 +18,6 @@
 { config, lib, ... }:
 
 {
-  # The folders apps expect in a home (home-folders.nix), made when a user's
-  # session starts. Per-user tmpfiles rather than homed's /etc/skel, which is
-  # copied once when a home is made and so never reaches a user made before
-  # a folder joined the list; `%h` is whichever home it is, since the image
-  # knows no user's name.
-  systemd.user.tmpfiles.rules = map (dir: "d %h/${dir} - - - -") (import ./home-folders.nix);
-
   services.homed = {
     enable = true;
 

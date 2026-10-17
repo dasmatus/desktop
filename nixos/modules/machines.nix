@@ -27,8 +27,7 @@ let
       # The image's own package set, overlay and all, so a package the host
       # and the guest share is one store path and one build.
       { nixpkgs.pkgs = pkgs; }
-    ]
-    ++ config.losos.machines.guestModules;
+    ];
   };
 
   inherit (guest.config.system.build) image;
@@ -151,16 +150,6 @@ in
       Whether the image carries its machine templates. Off only where a
       system boots the image for something else: a template is a whole
       guest's store, and every disk built from the image copies it again.
-    '';
-  };
-
-  # The flake hands Home Manager in here (flake.nix), since a module of the
-  # OS has no way to reach the flake's inputs itself.
-  options.losos.machines.guestModules = lib.mkOption {
-    type = lib.types.listOf lib.types.deferredModule;
-    default = [ ];
-    description = ''
-      More modules for the guest template, beside nixos/guest.
     '';
   };
 

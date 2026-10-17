@@ -63,16 +63,16 @@ in
     # host's come from.
     ../modules/danube.nix
     ../modules/flatpak.nix
+    # The folders apps expect in the user's home, made as on the host.
+    ../modules/home-folders.nix
   ];
 
   system.stateVersion = "26.05";
   networking.hostName = "losos-guest";
 
   # Nothing in the guest builds or switches: it is a template, and a machine
-  # made from it keeps what its owner changes on its own disk. Only a
-  # default, because Home Manager needs a working Nix to activate a home
-  # (home.nix turns it on where the flake adds Home Manager).
-  nix.enable = lib.mkDefault false;
+  # made from it keeps what its owner changes on its own disk.
+  nix.enable = false;
   documentation.enable = false;
 
   # The firmware boots the UKI straight from the ESP's fallback path. No boot
