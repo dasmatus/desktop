@@ -1,10 +1,11 @@
 # Flatpak on a PC: a machine of its own (docs/hypervisor.md, "The Flatpak
-# machine"), and nothing of Flatpak on the host. Flatpak, Flathub and
-# Bazaar run in the machine made from nixos/guest/flatpak.nix, which this
-# module adds to the templates as losos-flatpak and has the host make as
-# the machine `flatpak`, labelled purple. Its apps are on the desktop as
-# that machine's, in the palette whether it runs or not; picking one
-# starts it. Settings' Privacy page changes their permissions there.
+# machine"), and nothing of Flatpak on the host. Flatpak and Flathub run
+# in the machine made from nixos/guest/flatpak.nix, which this module adds
+# to the templates as losos-flatpak and has the host make as the machine
+# `flatpak`, labelled purple. Its apps are on the desktop as that
+# machine's, in the palette whether it runs or not; picking one starts it.
+# The host's Store installs them there, and Settings' Privacy page changes
+# their permissions there.
 #
 # Flatpak ran on the host before, so a host that updates into this may
 # have apps and their data where the host kept them. They move into the

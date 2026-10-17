@@ -24,7 +24,7 @@
 - **The Flatpak machine's loose ends**
   ([The Flatpak machine](hypervisor.md#the-flatpak-machine)). A
   `.flatpakref` or `.flatpakrepo` file opened on the host has nothing to
-  open it, as Bazaar is in the machine; it has to be copied there first.
+  open it, as Flatpak is in the machine; it has to be copied there first.
   Moving Flatpak's files off the host happens only for administrators, as
   anyone else would be asked for a password by a dialog they did not
   start; they copy their `~/.var/app` into the machine by hand. The host's

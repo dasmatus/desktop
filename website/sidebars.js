@@ -38,6 +38,7 @@ module.exports = {
         'danube',
         'adblock',
         'terminal',
+        'store',
         'sonne',
         'choice-screens',
         'losos-boxes',

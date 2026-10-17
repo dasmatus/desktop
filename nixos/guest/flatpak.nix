@@ -1,8 +1,8 @@
 # The Flatpak machine (docs/hypervisor.md, "The Flatpak machine"): where
-# Flatpak, Flathub and Bazaar run on a PC, instead of on the host. Its apps
-# are on the host's desktop as this machine's, framed in its colour, and
-# Settings' Privacy page changes what they may reach through
-# losos-guest-flatpak, below.
+# Flatpak and Flathub run on a PC, instead of on the host. Its apps are on
+# the host's desktop as this machine's, framed in its colour; the host's
+# Store installs them, and Settings' Privacy page changes what they may
+# reach, both through losos-guest-flatpak, below.
 #
 # modules/flatpak-machine.nix adds it to losos.machines.guests as
 # losos-flatpak, which is the template name derisk looks for, and has the
@@ -40,7 +40,7 @@ in
   imports = [
     ./common.nix
     # Flathub as the remote, added at boot from the repo file the image
-    # pins, and Bazaar as the store: what the host had before.
+    # pins: what the host had before. The store is the host's.
     ../modules/flatpak.nix
   ];
 
