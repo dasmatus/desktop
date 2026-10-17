@@ -17,7 +17,7 @@
 # step. What systemd-boot gave the rest of the system, GRUB gives too: the
 # bli module sets LoaderDevicePartUUID, so systemd-gpt-auto-generator finds
 # the root disk and the ESP as before, and chainloading leaves systemd-stub
-# to measure the UKI into the TPM as before (hibernate.nix seals to that).
+# to measure the UKI into the TPM as before.
 #
 # NixOS's own GRUB module stays off (boot.nix): it installs GRUB into a
 # running system and regenerates its menu on every rebuild, and this OS is

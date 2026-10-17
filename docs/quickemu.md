@@ -18,8 +18,7 @@ The firmware has to be UEFI with Secure Boot off for the reasons in
 nobody has signed. Only a UEFI boot goes through systemd-stub, which
 measures the UKI into the TPM, so with the TPM the
 [security report](security-report.md) finds both and the VM is the machine a
-laptop would be. It still never [hibernates](hibernation.md), which is only
-for laptops; `hostnamectl chassis laptop` makes it one.
+laptop would be. Like every machine it never [hibernates](hibernation.md).
 
 The disk is what first boot lays out ([Where the OS lives](layout.md)): the
 ESP, two 8 GB `/usr` slots with their verity halves, root from 8 GB, `/home`

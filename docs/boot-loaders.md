@@ -96,8 +96,7 @@ The [Windows installer](windows-installer.md) does not: it adds LosOS
 beside Windows on a UEFI PC only.
 
 UEFI GRUB chainloads the UKI, so systemd-stub runs as it would under any
-loader: it measures the UKI into the TPM (which
-[hibernation](hibernation.md) seals its key to), shows its splash and starts
+loader: it measures the UKI into the TPM, shows its splash and starts
 the kernel with the command line built in. GRUB's `bli` module sets the
 EFI variables systemd-boot used to set, `LoaderDevicePartUUID` and
 `LoaderInfo`, so `systemd-gpt-auto-generator` finds the root disk and
@@ -154,8 +153,7 @@ then starts systemd-boot until its first update after this change: then
 the firmware entry the Windows installer added names) and an empty
 `grubenv` beside it. GRUB reads the tries left in the same file names
 systemd-boot did, so a trial in progress carries on. Until then
-`losos-grub-bless` and the hibernation hook leave such a boot to
-systemd-boot's own tools.
+`losos-grub-bless` leaves such a boot to systemd-boot's own tools.
 
 ## GRUB's menu
 
@@ -199,9 +197,10 @@ Either way `grubenv` is emptied, so a disk moved to another machine
 mid-trial carries on from the file names.
 
 `grubenv` also holds `losos_oneshot`, a version to start the next time
-instead of the newest, once, as `bootctl set-oneshot` did. The hibernation
-hook sets it, so the machine resumes into the kernel that hibernated even
-if an update arrived meanwhile ([Hibernation](hibernation.md)).
+instead of the newest, once, as `bootctl set-oneshot` did. Nothing sets it
+any more: the hibernation hook that did is gone with hibernation
+([Hibernation](hibernation.md)), and GRUB still reads a value an older
+version left.
 
 ## The installer ISO
 
