@@ -1,4 +1,4 @@
-# Flatpak, with Flathub as the remote and Bazaar as the store.
+# Flatpak, with Flathub as the remote and derisk's Store in front of it.
 #
 # Apps the image does not ship come from Flathub as Flatpaks: sandboxed,
 # updated on their own schedule, and kept in /var/lib/flatpak on the root
@@ -6,7 +6,6 @@
 # removes them with the rest of the state.
 {
   config,
-  pkgs,
   ...
 }:
 
@@ -20,7 +19,7 @@ in
   #
   # flatpak's own polkit rule lets an active, local wheel member install,
   # update and remove apps for the whole system without a password. That is
-  # Bazaar's normal path; anyone else is asked for an administrator's
+  # the Store's normal path; anyone else is asked for an administrator's
   # password by derisk's polkit agent, or installs for themselves (`--user`).
   services.flatpak.enable = true;
 
@@ -42,12 +41,11 @@ in
     };
   };
 
-  # Bazaar, the store: a GTK 4 front end to the remotes flatpak already has,
-  # Flathub first. It keeps its catalogue in a session service
-  # (io.github.kolunmi.Bazaar.service, D-Bus-activated) so the window opens
-  # on loaded state; systemd.packages and dbus.packages put that user unit
-  # and its activation file where the session finds them.
-  environment.systemPackages = [ pkgs.bazaar ];
-  systemd.packages = [ pkgs.bazaar ];
-  services.dbus.packages = [ pkgs.bazaar ];
+  # The store is derisk's Store (org.derisk.store), one of the desktop's
+  # own apps, so nothing here installs it: it reads the catalogue flatpak
+  # keeps under /var/lib/flatpak/appstream and runs `flatpak` for the rest
+  # (docs/store.md). Bazaar was the store before it and is not coming back:
+  # its GTK 4 window took neither scrolling nor clicks under derisk, and the
+  # Store sorts Flathub into categories and shows apps' release notes on
+  # its front page, which Bazaar did not.
 }

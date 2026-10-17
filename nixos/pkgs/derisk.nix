@@ -41,7 +41,7 @@
 }:
 
 let
-  version = "0.1.0-unstable-2026-10-16";
+  version = "0.1.0-unstable-2026-10-17";
 
   # The components/derisk submodule, at the commit this tree records for it
   # (flake.nix, `self.submodules`). cleanSource drops the submodule's .git
@@ -51,7 +51,7 @@ let
     src = lib.cleanSource ../../components/derisk;
   };
 
-  cargoHash = "sha256-xFeOglwSEYtUqyJS2JU63p8h0TMSQZnqytEn1F120cg=";
+  cargoHash = "sha256-2eARfXA+HZib29mEh7YwC1NJ56Y+80p7ksVWEuzo7X4=";
 
   # derisk-gpui, as a cargo build of its own. It cannot share derisk's: the
   # portal talks to xdg-desktop-portal through ashpd on tokio, and Sonne's

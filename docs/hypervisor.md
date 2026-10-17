@@ -173,7 +173,8 @@ left out). It has:
 - **apps**: derisk's Terminal (`derisk-terminal`, drawing in software, as
   there is no GPU), Danube, derisk's Calculator (the one derisk core app that
   is a window of its own, `derisk-gpui`; the rest are drawn by the host's
-  compositor), and Flatpak with Flathub and Bazaar, as on the host. The
+  compositor), and Flatpak with Flathub, as on the host; the host's
+  [Store](store.md) installs into it through its guest agent. The
   guest's user may install Flatpaks for the whole machine without being
   asked;
 - **networkd**, taking an address from libvirt's `default` network.

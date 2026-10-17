@@ -58,9 +58,10 @@ in
   imports = [
     "${modulesPath}/profiles/qemu-guest.nix"
     "${modulesPath}/image/repart.nix"
-    # The same browser and Flatpak setup as the host, Bazaar and Flathub
-    # included, so apps a person installs in a machine come from where the
-    # host's come from.
+    # The same browser and Flatpak setup as the host, Flathub included, so
+    # apps a person installs in a machine come from where the host's come
+    # from. The host's Store installs into a machine through its guest
+    # agent, so the guest needs no store of its own.
     ../modules/danube.nix
     ../modules/flatpak.nix
   ];
