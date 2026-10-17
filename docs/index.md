@@ -27,7 +27,9 @@ chooser and the rest. The web browser is
 [ad blocking](adblock.md) from filter lists covers every app. The terminal
 is [derisk's own](terminal.md), `derisk-terminal`: the theme's monospace font through its
 Nerd Font build, so the icons prompts and TUIs print show, drawn on the GPU
-or, where there is none, in software.
+or, where there is none, in software. The code editor is
+[Sonne](sonne.md), the project's fork of Zed, which opens text and source
+files on the PC image.
 
 The same OS also builds as one generic system image for Treble phones and
 tablets that take GSIs and run Linux 5.10 or newer, over
