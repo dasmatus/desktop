@@ -30,16 +30,20 @@ Bazaar, whose GTK 4 window took neither scrolling nor clicks under derisk.
 
 ## Where it installs
 
-When libvirt has a machine called `flatpak`, the machine a PC's Flatpak
-apps run in ([hypervisor.md](hypervisor.md)), the Store installs into it: it runs
-`flatpak` there through the machine's guest agent, as root, so apps go into
-the machine's system installation, and reads Flathub's catalogue and icons
-from the machine's disk. It starts the machine when it is off. An app
-installed there opens on the desktop like any other machine's app.
+On a PC Flatpak apps run in a machine of their own
+([The Flatpak machine](hypervisor.md#the-flatpak-machine)), and the Store
+installs into it: it finds the first machine made from the `losos-flatpak`
+template and asks that machine's `losos-guest-flatpak` through the guest
+agent, which runs `flatpak` as the machine's user, whom the machine lets
+install for everyone in it. Installs, removals and updates run in a unit
+of that user's manager, and the Store reads what they have printed so far
+a few times a second for its progress bar. Flathub's catalogue and icons
+are read from the machine's disk. The Store starts the machine when it is
+off, and an app installed there opens on the desktop like any other
+machine's app.
 
-A phone has no machines, and keeps Flatpak on itself; so does a computer
-without that machine. There the Store runs the system's
-`flatpak`. flatpak's polkit rule lets an administrator install for everyone
+A phone has no machines, and keeps Flatpak on itself. There the Store
+runs the system's `flatpak`. flatpak's polkit rule lets an administrator install for everyone
 without a password; for anyone else the Store installs for that person alone
 (`--user`), from the app's flatpakref, which needs no remote set up.
 

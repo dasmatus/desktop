@@ -186,7 +186,7 @@ the OS: the LosOS guest, `losos-guest.qcow2`, for a person's own apps; the
 Flatpak apps run. All three are the same machine, `nixos/guest/common.nix`,
 with different apps: `nixos/guest/default.nix` adds the Calculator,
 `nixos/guest/boxes.nix` adds `losos` and box discovery, and
-`nixos/guest/flatpak.nix` adds Flatpak, Flathub and Bazaar.
+`nixos/guest/flatpak.nix` adds Flatpak and Flathub.
 Beside each template is `<name>.apps`, what `losos-guest-run --list`
 prints in it, written when the image is built, so the desktop can offer a
 machine's apps before it has ever started.
@@ -263,18 +263,30 @@ On a PC, Flatpak apps run in a machine of their own, `flatpak`, labelled
 purple, and nothing of Flatpak is on the host. `nixos/modules/flatpak-machine.nix`
 adds its template, `losos-flatpak` (`nixos/guest/flatpak.nix`), and has the
 host make the machine at its first boot (`losos.machines.system`, above).
-The template is the LosOS guest's machine with Flatpak, Flathub and
-[Bazaar](https://github.com/bazaar-org/bazaar), the same `flatpak.nix` a
-phone runs on its host ([Halium GSI](halium.md)); its user may install
-Flatpaks for the whole machine without being asked. A Flatpak's own
+The template is the LosOS guest's machine with Flatpak and Flathub, the
+same `flatpak.nix` a phone runs on its host ([Halium GSI](halium.md)); its
+user may install Flatpaks for the whole machine without being asked. It
+has no store of its own: the host's [Store](store.md) installs into it. A Flatpak's own
 sandbox still runs inside it, so an app is kept apart from the machine's
 other apps as before, and the machine keeps all of them apart from the
 host.
 
-- **On the desktop** Bazaar and every installed app are that machine's
-  apps: "Bazaar in flatpak" in the palette and the app grid, framed in
-  purple. They are offered while the machine is off too (the template's
-  list has Bazaar), and opening one starts it.
+- **On the desktop** every installed app is that machine's app: "Maps in
+  flatpak" in the palette and the app grid, framed in purple. They are
+  offered while the machine is off too, from the last list it gave, and
+  opening one starts it.
+- **The host's Store** installs, removes and updates apps in it. derisk
+  finds the machine by its template and asks its `losos-guest-flatpak`
+  through the guest agent: `store run list|remote-ls ...` answers as the
+  guest's user does, `store start install|uninstall|update ...` starts
+  `flatpak` in a unit of that user's manager and returns at once, and
+  `store progress` gives back what the job has printed so far and, once it
+  has ended, its exit status, which the Store reads a few times a second
+  for its progress bar. The agent hands a program's output over only once
+  it has exited, so this is how an install shows progress at all. Flathub's
+  catalogue and icons are read from the machine's disk with the agent's
+  file calls, in 4 MiB pieces, as they are far larger than what it keeps of
+  a program's output.
 - **Settings' Privacy page** lists the Flatpak apps the machine has and
   changes their permissions there. derisk asks the guest's
   `losos-guest-flatpak` through the guest agent: `apps` reads each app's
