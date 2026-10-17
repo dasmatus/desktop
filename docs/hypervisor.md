@@ -163,7 +163,10 @@ left out). It has:
 
 - **the QEMU guest agent**, through which the host starts apps;
 - **one account, `user`**, with no password, whose systemd manager runs from
-  boot (lingering). Nobody logs in: its apps run under that manager;
+  boot (lingering). Nobody logs in: its apps run under that manager, which
+  makes the folders apps expect in its home as the host's users' do
+  (`nixos/modules/home-folders.nix`: the XDG base and user directories with
+  `user-dirs.dirs`, and the fonts, icons and derisk folders Danube shows);
 - **a waypipe server** in that manager, `waypipe --vsock --socket 2:7350
   --no-gpu --display wayland-0 server`. Every app the user runs finds it as
   `WAYLAND_DISPLAY=wayland-0`, and each app's connection becomes a vsock
@@ -176,7 +179,11 @@ left out). It has:
   compositor), and Flatpak with Flathub and Bazaar, as on the host. The
   guest's user may install Flatpaks for the whole machine without being
   asked;
-- **networkd**, taking an address from libvirt's `default` network.
+- **NetworkManager**, taking an address from libvirt's `default` network
+  and checking it reaches the internet against GNOME's
+  `nmcheck.gnome.org`, which apps in the machine ask through GLib or the
+  portal before they go online. resolved answers DNS. The host keeps
+  networkd ([systemd](systemd.md)).
 
 `losos-guest-run`, in the guest's system profile, is what the host runs
 there through the agent:

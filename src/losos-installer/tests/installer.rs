@@ -5,6 +5,7 @@ use losos_installer::disks::{self, Disk};
 use losos_installer::github;
 use losos_installer::install;
 use losos_installer::serve::{self, Request};
+use losos_installer::stage;
 
 /// A scratch directory per test, removed when the test ends.
 struct Scratch(PathBuf);
@@ -438,6 +439,7 @@ fn an_install_is_refused_for_a_disk_not_offered() {
         medium: "/nonexistent".into(),
         work: PathBuf::from("/nonexistent"),
         source: None,
+        index: None,
         local_source: None,
         bios_boot: None,
         release_repo: None,
@@ -487,6 +489,7 @@ fn hello_names_a_release_disk_only_when_it_holds_a_release() {
         medium: "/nonexistent".into(),
         work: PathBuf::from("/nonexistent"),
         source: Some("https://proxy.example/".into()),
+        index: None,
         local_source: Some(dir.0.join("release")),
         bios_boot: None,
         release_repo: None,
@@ -500,4 +503,211 @@ fn hello_names_a_release_disk_only_when_it_holds_a_release() {
     );
     config.local_source = None;
     assert!(serve::hello(&config).get("release").is_none());
+}
+
+#[test]
+fn sources_are_read_from_the_transfers() {
+    let dir = Scratch::new("patterns");
+    dir.write(
+        "10-usr.transfer",
+        "[Source]\nType=url-file\nPath=@URL@\nMatchPattern=os_@v_usr_@u.raw.xz\n\
+         [Target]\nType=partition\nMatchPattern=os_@v\n",
+    );
+    dir.write(
+        "30-uki.transfer",
+        "[Transfer]\nProtectVersion=%A\n[Source]\nMatchPattern=os_@v_x86_64.efi\n\
+         [Target]\nMatchPattern=os_@v+@l-@d.efi os_@v.efi\n",
+    );
+    dir.write("README", "MatchPattern=not_a_transfer\n");
+    assert_eq!(
+        stage::source_patterns(&dir.0).unwrap(),
+        ["os_@v_usr_@u.raw.xz", "os_@v_x86_64.efi"]
+    );
+}
+
+#[test]
+fn a_pattern_gives_the_version_it_matched() {
+    let v = |p, n| stage::version_of(p, n);
+    assert_eq!(
+        v(
+            "os_@v_usr-x86-64_@u.raw.xz",
+            "os_20261016.232901_usr-x86-64_0b8e4a52-6c5c-4a1e-9f4e-0d1c2b3a4f5e.raw.xz"
+        )
+        .as_deref(),
+        Some("20261016.232901")
+    );
+    // The version has dots in it, and so does what follows it.
+    assert_eq!(
+        v("os_@v.grub", "os_20261016.232901.grub").as_deref(),
+        Some("20261016.232901")
+    );
+    assert_eq!(
+        v("os_@v_x86_64.efi", "os_20261016.232901_aarch64.efi"),
+        None
+    );
+    assert_eq!(v("os_@v_x86_64.efi", "os__x86_64.efi"), None);
+    assert_eq!(v("a@@b", "a@b").as_deref(), Some(""));
+}
+
+fn file(urls: &[&str], size: u64) -> github::File {
+    github::File {
+        urls: urls.iter().map(|u| (*u).to_owned()).collect(),
+        size,
+    }
+}
+
+#[test]
+fn only_what_the_transfers_read_is_fetched() {
+    let mut files = std::collections::BTreeMap::new();
+    for name in [
+        "SHA256SUMS",
+        "SHA256SUMS.gpg",
+        "os_1.0_usr_u1.raw.xz",
+        "os_1.0_x86_64.efi",
+        "os_1.0_x86_64-installer.iso",
+        "os_1.1_usr_u2.raw.xz",
+        "os_1.1_x86_64.efi",
+        "os_1.2_usr_u3.raw.xz",
+    ] {
+        files.insert(
+            name.to_owned(),
+            file(&[&format!("https://g.example/{name}")], 1),
+        );
+    }
+    let patterns = [
+        "os_@v_usr_@u.raw.xz".to_owned(),
+        "os_@v_x86_64.efi".to_owned(),
+    ];
+
+    let names = |picked: std::collections::BTreeMap<String, github::File>| {
+        picked.into_keys().collect::<Vec<_>>()
+    };
+    // The release's own version, and nothing else of it: no ISO.
+    assert_eq!(
+        names(stage::wanted(&files, &patterns, Some("1.0")).unwrap()),
+        [
+            "SHA256SUMS",
+            "SHA256SUMS.gpg",
+            "os_1.0_usr_u1.raw.xz",
+            "os_1.0_x86_64.efi"
+        ]
+    );
+    // The channel's newest with every file: 1.2 has no UKI.
+    assert_eq!(
+        names(stage::wanted(&files, &patterns, None).unwrap()),
+        [
+            "SHA256SUMS",
+            "SHA256SUMS.gpg",
+            "os_1.1_usr_u2.raw.xz",
+            "os_1.1_x86_64.efi"
+        ]
+    );
+    assert!(stage::wanted(&files, &patterns, Some("1.2")).is_err());
+    files.remove("SHA256SUMS.gpg");
+    assert!(stage::wanted(&files, &patterns, Some("1.0")).is_err());
+}
+
+#[test]
+fn the_channel_index_reads_as_files() {
+    let files = stage::index_files(
+        "SHA256SUMS 1096 https://g.example/t/SHA256SUMS-x86_64\n\
+         os_usr.raw.xz 30 https://g.example/t/os_usr.raw.xz.part-00 https://g.example/t/os_usr.raw.xz.part-01\n\
+         broken\n\
+         nosize x https://g.example/t/nosize\n",
+    );
+    assert_eq!(files.len(), 2);
+    assert_eq!(files["SHA256SUMS"].size, 1096);
+    assert_eq!(
+        files["os_usr.raw.xz"].urls,
+        [
+            "https://g.example/t/os_usr.raw.xz.part-00",
+            "https://g.example/t/os_usr.raw.xz.part-01"
+        ]
+    );
+}
+
+#[test]
+fn aria2_saves_every_part_under_its_own_name() {
+    let mut files = std::collections::BTreeMap::new();
+    files.insert(
+        "os_usr.raw.xz".to_owned(),
+        file(
+            &[
+                "https://g.example/t/os_usr.raw.xz.part-00",
+                "https://g.example/t/os_usr.raw.xz.part-01?x=1",
+            ],
+            30,
+        ),
+    );
+    files.insert(
+        "SHA256SUMS".to_owned(),
+        file(&["https://g.example/t/SHA256SUMS-x86_64"], 1),
+    );
+    assert_eq!(
+        stage::aria2_input(&files),
+        "https://g.example/t/SHA256SUMS-x86_64\n  out=SHA256SUMS-x86_64\n\
+         https://g.example/t/os_usr.raw.xz.part-00\n  out=os_usr.raw.xz.part-00\n\
+         https://g.example/t/os_usr.raw.xz.part-01?x=1\n  out=os_usr.raw.xz.part-01\n"
+    );
+    // A 2.5 GiB /usr gets its own size, ext4's share and some room on top.
+    let mut usr = std::collections::BTreeMap::new();
+    usr.insert(
+        "u".to_owned(),
+        file(&["https://g.example/u"], 2_621_440_000),
+    );
+    let size = stage::scratch_size(&usr);
+    assert_eq!(size % (1 << 20), 0);
+    assert!(size > 2_621_440_000 + (256 << 20));
+    assert!(size < 4 << 30);
+    assert!((1..=stage::MAX_CONNECTIONS).contains(&stage::connections()));
+}
+
+#[test]
+fn the_scratch_partition_is_found_in_reparts_table() {
+    let table = r#"[
+        {"type":"esp","label":"ESP","node":"/dev/nvme0n1p1","activity":"unchanged"},
+        {"type":"linux-generic","label":"losos-download","node":"/dev/nvme0n1p6","activity":"create"}
+    ]"#;
+    let node = stage::scratch_node(table).unwrap();
+    assert_eq!(node, PathBuf::from("/dev/nvme0n1p6"));
+    assert_eq!(stage::partition_number(&node), Some(6));
+    assert_eq!(stage::partition_number("/dev/vda12".as_ref()), Some(12));
+    assert_eq!(stage::partition_number("/dev/vda".as_ref()), None);
+    assert!(stage::scratch_node(r#"[{"type":"esp","node":"/dev/vda1"}]"#).is_err());
+}
+
+#[test]
+fn the_mirror_serves_a_split_file_whole() {
+    use std::io::{Read, Write};
+
+    let dir = Scratch::new("served");
+    dir.write("u.part-00", "hello, ");
+    dir.write("u.part-01", "world");
+    let mut files = std::collections::BTreeMap::new();
+    files.insert(
+        "u.raw.xz".to_owned(),
+        stage::Staged {
+            paths: vec![dir.0.join("u.part-00"), dir.0.join("u.part-01")],
+            size: 12,
+        },
+    );
+    let mirror = github::Mirror::new(files).unwrap();
+    let addr = mirror.url().unwrap();
+    let addr = addr
+        .trim_start_matches("http://")
+        .trim_end_matches('/')
+        .to_owned();
+    let (events, _log) = std::sync::mpsc::channel();
+    let get = |path: &str| {
+        let mut stream = std::net::TcpStream::connect(&addr).unwrap();
+        write!(stream, "GET {path} HTTP/1.1\r\nHost: x\r\n\r\n").unwrap();
+        let mut answer = String::new();
+        stream.read_to_string(&mut answer).unwrap();
+        answer
+    };
+    let (whole, missing) = mirror.serve(&events, || (get("/u.raw.xz"), get("/other")));
+    assert!(whole.starts_with("HTTP/1.1 200 OK\r\n"));
+    assert!(whole.contains("Content-Length: 12\r\n"));
+    assert!(whole.ends_with("\r\n\r\nhello, world"), "{whole:?}");
+    assert!(missing.starts_with("HTTP/1.1 404"));
 }

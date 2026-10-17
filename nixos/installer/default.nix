@@ -54,6 +54,12 @@ let
         # systemd-pull checks SHA256SUMS.gpg with gpg itself, and the
         # installer does the same for a release disk.
         pkgs.gnupg
+        # An online install's files, fetched over one connection per
+        # hardware thread into a scratch partition on the target disk,
+        # which repart formats with mkfs.ext4 (src/losos-installer's
+        # stage.rs).
+        pkgs.aria2
+        pkgs.e2fsprogs
       ]
     }:$PATH
     exec ${lib.getExe pkgs.losos-installer} "$@"
@@ -73,13 +79,12 @@ in
     # The installed system's boot screen, which reads "LosOS Desktop
     # installer is starting" here.
     ../modules/splash.nix
-    # The channel served from GitHub Releases on 127.0.0.1, which `--source`
-    # names when the OS updates that way (update-source.nix): an install
-    # from the channel reads it exactly as an update would.
-    ../modules/update-source.nix
+    # update-source.nix was imported here, so an install from the channel
+    # read it through the same socket on 127.0.0.1 as an update does. That
+    # socket streams each file through curl's one connection; the backend
+    # now reads the channel's index itself (`--index` below) and fetches
+    # the files with aria2 over many, so the socket would serve no one.
   ];
-
-  services.losos-update-source.index = losos.updateIndex;
 
   system.stateVersion = "26.05";
 
@@ -194,10 +199,11 @@ in
     MulticastDNS = false;
   };
 
-  # What the backend reaches GitHub's API and release files with
-  # (src/losos-installer/src/github.rs). In the system profile rather than
-  # the service's `path`: the service opens a PAM session, and pam_env sets
-  # PATH back to the profile's, so `path` never reaches the backend. NixOS
+  # What the backend reaches GitHub's API and the channel's index with
+  # (src/losos-installer/src/github.rs); aria2 fetches the files themselves.
+  # In the system profile rather than the service's `path`: the service
+  # opens a PAM session, and pam_env sets PATH back to the profile's, so
+  # `path` never reaches the backend. NixOS
   # lists curl by default; naming it keeps the installer working if that
   # default goes.
   environment.systemPackages = [ pkgs.curl ];
@@ -294,6 +300,15 @@ in
           "--local-source"
           releaseDisk
         ]
+        # Which GitHub release assets make up each of the channel's files,
+        # when the OS updates through that index (update-source.nix), so an
+        # install from the channel fetches them itself.
+        +
+          lib.optionalString (losos.updateIndex != null)
+            " ${lib.escapeShellArgs [
+               "--index"
+               losos.updateIndex
+             ]}"
         # The GitHub release of the version this ISO was built as, which
         # an online install reads instead of the channel's newest when it
         # can find it (docs/installer.md).
