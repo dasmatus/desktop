@@ -290,19 +290,22 @@ theirs to stderr.
 Two sandboxes, both built with the [Hakoniwa](https://github.com/souk4711/hakoniwa)
 crate (`src/danube/crates/danube-sandbox`).
 
-- **The browser.** Started outside it, `danube` builds a container and runs
-  itself again inside: its own user, mount, PID, IPC and UTS namespaces;
-  the Nix store, `/etc`, the GPU driver and sysfs read-only; `/dev/dri`;
-  an empty home with only `~/.local/share/danube`, `~/.cache/danube`,
-  `~/.config/danube` and `~/Downloads` writable and the user's fonts,
-  icons and derisk's settings read-only; an empty runtime directory with
-  only the Wayland, PipeWire and PulseAudio sockets and derisk's directory;
-  and the session bus through xdg-dbus-proxy, which lets through only the
-  desktop portals, notifications and the accessibility bus. Landlock
-  restricts the same paths again, and a seccomp filter denies the system
-  calls Flatpak denies (keyctl, ptrace's relatives, kexec, bpf and the
-  rest), except the namespace calls the next sandbox needs. The network
-  is the host's, since WebKit's network process needs it.
+- **The browser.** Started outside it, `danube` builds a container and
+  runs itself again inside: its own user, mount, PID, IPC and UTS
+  namespaces; the Nix store, `/etc`, the GPU driver and sysfs read-only;
+  `/dev/dri`; an empty home with only `~/.local/share/danube`,
+  `~/.cache/danube`, `~/.config/danube` and `~/Downloads` writable and the
+  user's fonts, icons and derisk's settings read-only where they exist; an
+  empty runtime directory with only the Wayland, PipeWire and PulseAudio
+  sockets and derisk's directory; and the session bus through
+  xdg-dbus-proxy, which lets through only the desktop portals,
+  notifications and the accessibility bus. Landlock restricts the same
+  paths again, leaving out any that do not exist, since Hakoniwa refuses
+  to start over a rule for a missing path and a machine has no `/dev/dri`,
+  nor a new user an `~/.icons`. A seccomp filter denies the system calls
+  Flatpak denies (keyctl, ptrace's relatives, kexec, bpf and the rest),
+  except the namespace calls the next sandbox needs. The network is the
+  host's, since WebKit's network process needs it.
 - **Each web process.** WebKit puts every web process in a sandbox of its
   own, built with bwrap upstream. One patch
   (`nixos/pkgs/patches/wpewebkit`) lets the embedder name a launcher that

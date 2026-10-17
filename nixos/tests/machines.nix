@@ -136,6 +136,14 @@
         assert size >= 7, f"the root is {size} GiB, so it did not grow into the 8 GiB disk"
         machine.wait_until_succeeds(f"{virsh} domifaddr work | grep -q 192.168.122.", timeout=300)
 
+    with subtest("its user has the folders apps expect"):
+        # home-folders.nix, made by the user's tmpfiles when its manager
+        # started, which lingering does at boot.
+        for folder in [".config/derisk", ".local/share/fonts", ".icons", ".local/state", "Documents"]:
+            in_guest("/run/current-system/sw/bin/test", "-d", f"/home/user/{folder}")
+        dirs = in_guest("/run/current-system/sw/bin/cat", "/home/user/.config/user-dirs.dirs")
+        assert 'XDG_PICTURES_DIR="$HOME/Pictures"' in dirs, dirs
+
     with subtest("its agent lists the apps it can open"):
         apps = {}
         for line in in_guest(guest_run, "--list").splitlines():
