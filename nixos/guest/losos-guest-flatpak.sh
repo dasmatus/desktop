@@ -12,6 +12,18 @@
 #   losos-guest-flatpak flatpak <permission-show|permission-set|permission-remove> ...
 #       that `flatpak` command, as the user, in its session, where the
 #       portals' permission store is
+#
+# and what the host's Store asks of it (derisk-store's flatpak module):
+#
+#   losos-guest-flatpak store run <list|remote-ls> ...
+#       that `flatpak` command, as the user, printing what it printed once
+#       it has ended
+#   losos-guest-flatpak store start <install|uninstall|update> ...
+#       starts that `flatpak` command as the user, in a unit of the user's
+#       manager, and returns at once; one at a time
+#   losos-guest-flatpak store progress
+#       `running`, or `done <exit status>` once it has ended, then all the
+#       last job has printed, its carriage returns made line ends
 
 user=@user@
 flatpak=@flatpak@
@@ -20,7 +32,7 @@ userdir=$home/.local/share/flatpak
 sysdir=/var/lib/flatpak
 
 usage() {
-  echo "usage: losos-guest-flatpak apps | overrides <app> | flatpak permission-show|permission-set|permission-remove ..." >&2
+  echo "usage: losos-guest-flatpak apps | overrides <app> | flatpak permission-show|permission-set|permission-remove ... | store run|start|progress ..." >&2
   exit 2
 }
 
@@ -87,6 +99,78 @@ flatpak)
   exec systemd-run --quiet --user --machine="$user@.host" --pipe --wait --collect \
     --setenv=DBUS_SESSION_BUS_ADDRESS="unix:path=/run/user/$(id -u "$user")/bus" \
     -- "$flatpak" "$@"
+  ;;
+store)
+  shift
+  uid=$(id -u "$user")
+  bus="unix:path=/run/user/$uid/bus"
+  # The last job's output and exit status, in the user's runtime directory,
+  # which the user's manager (lingering, common.nix) has from boot.
+  log=/run/user/$uid/losos-store.log
+  status=/run/user/$uid/losos-store.status
+  # Installs, removals and updates run as the user, whom flatpak.nix's
+  # polkit rule lets install for the whole machine, in the user's session
+  # like the permission commands above, so `flatpak list` shows the user's
+  # own installation beside the system's.
+  case "${1-}" in
+  run)
+    shift
+    case "${1-}" in
+    list | remote-ls) ;;
+    *) usage ;;
+    esac
+    exec systemd-run --quiet --user --machine="$user@.host" --pipe --wait --collect \
+      --setenv=DBUS_SESSION_BUS_ADDRESS="$bus" -- "$flatpak" "$@"
+    ;;
+  start)
+    shift
+    case "${1-}" in
+    install | uninstall | update) ;;
+    *) usage ;;
+    esac
+    # The agent hands a program's output over only once it has exited, so
+    # a job that takes minutes runs in a unit of its own and the host reads
+    # its log with `progress` meanwhile.
+    if systemctl --user --machine="$user@.host" --quiet is-active losos-store.service; then
+      echo "the Store is already installing or updating something" >&2
+      exit 1
+    fi
+    runuser -u "$user" -- rm -f "$log" "$status"
+    exec systemd-run --quiet --user --machine="$user@.host" --unit=losos-store --collect \
+      --description="Store: flatpak $1" --setenv=DBUS_SESSION_BUS_ADDRESS="$bus" \
+      -- "$(readlink -f "$0")" store job "$@"
+    ;;
+  job)
+    # The unit `start` made, as the user: flatpak, then its exit status,
+    # written whole so `progress` never reads half of it.
+    shift
+    case "${1-}" in
+    install | uninstall | update) ;;
+    *) usage ;;
+    esac
+    if "$flatpak" "$@" >"$log" 2>&1; then code=0; else code=$?; fi
+    echo "$code" >"$status.new"
+    exec mv -f "$status.new" "$status"
+    ;;
+  progress)
+    [ $# -eq 1 ] || usage
+    # Running is asked first: a job that is not running has written its
+    # status, unless it was killed before it could.
+    if systemctl --user --machine="$user@.host" --quiet is-active losos-store.service; then
+      echo running
+    elif [ -f "$status" ]; then
+      printf 'done %s\n' "$(runuser -u "$user" -- cat "$status")"
+    else
+      echo "done 1"
+    fi
+    # As the user, as `overrides` writes: the file is in the user's
+    # directory, where a link could stand in for it.
+    if [ -f "$log" ]; then
+      runuser -u "$user" -- cat "$log" | tr '\r' '\n'
+    fi
+    ;;
+  *) usage ;;
+  esac
   ;;
 *)
   usage

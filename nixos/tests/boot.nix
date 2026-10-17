@@ -79,6 +79,20 @@ in
           machine.succeed("modinfo -n nvidia")
           machine.fail("test -d /sys/module/nvidia")
 
+      with subtest("the kernel is locked down, takes only signed modules and hardens BPF"):
+          # kernel-hardening.nix. The mode is forced in the kernel's build,
+          # so the command line has nothing to say about it.
+          machine.succeed("grep -q '\\[integrity\\]' /sys/kernel/security/lockdown")
+          machine.succeed("grep -qx Y /sys/module/module/parameters/sig_enforce")
+          # NVIDIA's open module is signed inside the kernel's build
+          # (nvidia.nix), or it could never load.
+          machine.succeed("modinfo -F signer nvidia | grep -q .")
+          machine.succeed("test \"$(sysctl -n kernel.unprivileged_bpf_disabled)\" = 1")
+          machine.succeed("test \"$(sysctl -n net.core.bpf_jit_harden)\" = 2")
+          # QEMU emulates no IOMMU here, so only the asking can be checked.
+          machine.succeed("grep -qw intel_iommu=on /proc/cmdline")
+          machine.succeed("grep -qw iommu.strict=1 /proc/cmdline")
+
       with subtest("a user is a homed LUKS volume"):
           # homed's first-boot wizard runs only while no regular user exists,
           # so nothing the image ships -- derisk-greeter included -- may count
@@ -135,6 +149,30 @@ in
           machine.fail("command -v foot")
           machine.succeed("fc-list : family | grep -q 'Hack Nerd Font'")
           machine.succeed("fc-list : family | grep -q 'Symbols Nerd Font'")
+
+      # Every command above ran through the system profile, so they already
+      # ran uutils; this names which tool answers.
+      with subtest("the shell's tools are uutils, sudo-rs's su and Sequoia's gpg"):
+          machine.succeed("ls --version | grep -q uutils")
+          machine.succeed("find --version | grep -q Rust")
+          machine.succeed("/run/wrappers/bin/su --version | grep -q su-rs")
+          machine.succeed("gpg --version | grep -q 'Sequoia Chameleon'")
+          machine.succeed("command -v sq")
+          # A key, a signature and its check, through GnuPG's agent, as git
+          # signs and verifies a commit; loopback because the test has no one
+          # to answer pinentry. The check runs after the signing, not piped
+          # from it: the chameleon's --verify answers BAD to a signature
+          # still being made by a second gpg, though the same bytes check
+          # out from a file.
+          machine.succeed(
+              "install -d -m 700 /tmp/gnupg && export GNUPGHOME=/tmp/gnupg"
+              " && gpg --batch --pinentry-mode loopback --passphrase test"
+              " --quick-gen-key 'Test <test@example.org>' ed25519 sign never"
+              " && echo hello > /tmp/msg"
+              " && gpg --batch --pinentry-mode loopback --passphrase test"
+              " --armor --detach-sign -o /tmp/msg.asc /tmp/msg"
+              " && gpg --verify /tmp/msg.asc - < /tmp/msg"
+          )
 
       with subtest("the security report answers on the system bus"):
           machine.succeed(

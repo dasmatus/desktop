@@ -19,7 +19,10 @@
     ./allocator.nix
     ./image.nix
     ./disk.nix
-    ./hibernate.nix
+    # hibernate.nix is gone: the kernel is locked down (kernel-hardening.nix),
+    # and a locked-down kernel refuses to hibernate. It sealed the swap's key
+    # to the TPM so a laptop could write its memory there and resume from it
+    # (docs/hibernation.md).
     ./update.nix
     ./update-source.nix
     ./installer.nix

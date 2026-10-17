@@ -75,10 +75,7 @@ emergency throttling.
 
 Bluetooth and power profiles are not on this list because the image leaves
 them off everywhere for now: derisk has no UI for either ([What is not
-done](not-done.md)). When it does, each is a rule and a condition here. The
-laptop check for hibernation is the Hibernation module's own
-(`losos-hibernate able`), which reads the same SMBIOS chassis type facter
-would. Phones are a different image ([Halium](halium.md)), so nothing here
+done](not-done.md)). When it does, each is a rule and a condition here. Phones are a different image ([Halium](halium.md)), so nothing here
 decides between a PC and a phone.
 
 ## NVIDIA
@@ -116,12 +113,10 @@ powers down while unused (the udev rule in `nvidia.nix` lets the kernel
 suspend it).
 
 `nvidia_drm` runs with `modeset=1 fbdev=1`, which the compositor's GBM
-scanout needs. Suspend and hibernation use the driver's kernel suspend
-notifiers. The driver saves the card's used memory, the session's
+scanout needs. Suspend uses the driver's kernel suspend notifiers. The driver saves the card's used memory, the session's
 framebuffers among it, to a file in `/run/nvidia-suspend`, a tmpfs mounted
 only on machines the rule matched: in RAM, which suspend keeps powered,
-and in the hibernation image, which is in the TPM-sealed swap, rather than
-on the root partition, which is not encrypted ([Where the OS lives](layout.md)). VA-API decodes on the card
+rather than on the root partition, which is not encrypted ([Where the OS lives](layout.md)). VA-API decodes on the card
 through `nvidia-vaapi-driver`. Flatpak apps do not use these libraries: they
 take Flathub's NVIDIA GL extension of the same driver version.
 
@@ -153,6 +148,6 @@ NVIDIA's modules are installed and that udev would load nouveau, not them,
 for an RTX 4090's ID; then it hands `losos-hardware` a report with that card
 and checks nouveau is blacklisted, NVIDIA's module is loaded and, finding no
 GPU, refuses, and the fallback loads nouveau. A real card accepting the
-module, the compositor on it, suspend and hibernation, VA-API and
+module, the compositor on it, suspend, VA-API and
 hardened_malloc under NVIDIA's libraries are untested ([What is not
 done](not-done.md)).

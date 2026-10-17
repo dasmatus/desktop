@@ -52,6 +52,8 @@ in
     ../modules/danube.nix
     # The folders apps expect in the user's home, made as on the host.
     ../modules/home-folders.nix
+    # uutils, sudo-rs's su and Sequoia's gpg, as on the host.
+    ../modules/userland.nix
   ];
 
   options.losos.guest.name = lib.mkOption {
