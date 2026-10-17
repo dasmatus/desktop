@@ -33,6 +33,15 @@ or, where there is none, in software. The code editor is
 [Sonne](sonne.md), the project's fork of Zed, which opens text and source
 files on the PC image.
 
+derisk moves the way the launch film does, and quickens as each person gets
+used to it. It counts the time they spend at the desktop, unlocked and not
+dimmed, in `~/.local/state/derisk/familiarity`. For the first two hours
+every animation plays at full length. After that they speed up, settling at
+four times as fast after a few days of use. Animations get shorter but
+never disappear, so a familiar desktop still shows where things went.
+Settings › Appearance › Familiar motion turns this off or starts the count
+over, and Reduce motion still replaces the motion with cross-fades.
+
 The same OS also builds as one generic system image for Treble phones and
 tablets that take GSIs and run Linux 5.10 or newer, over
 [Halium](https://halium.org) (`nixos/halium/`): NixOS's systemd initrd as the
