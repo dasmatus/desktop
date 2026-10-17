@@ -15,6 +15,7 @@
     ./nvidia.nix
     ./libvirt.nix
     ./machines.nix
+    ./flatpak-machine.nix
     ./allocator.nix
     ./image.nix
     ./disk.nix

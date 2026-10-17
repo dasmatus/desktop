@@ -27,6 +27,12 @@ dirs=(
   /usr/share/applications
 )
 
+# A build lists a template's apps before it ever boots (machines.nix,
+# <name>.apps): it names the directories to read instead.
+if [ -n "${LOSOS_GUEST_APPLICATIONS-}" ]; then
+  IFS=: read -ra dirs <<<"$LOSOS_GUEST_APPLICATIONS"
+fi
+
 # The [Desktop Entry] group's value for `key`, unlocalised, from `file`.
 entry() {
   awk -F= -v key="$2" '

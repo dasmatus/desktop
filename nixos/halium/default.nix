@@ -42,6 +42,9 @@
 {
   imports = [
     ../modules/base.nix
+    # Flatpak on the host: a phone's kernel has no KVM for the machine a PC
+    # runs it in (modules/flatpak-machine.nix).
+    ../modules/flatpak.nix
     ./boot.nix
     ./android.nix
   ];

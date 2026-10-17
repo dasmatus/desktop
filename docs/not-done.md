@@ -21,6 +21,16 @@
   nothing makes an existing machine's disk larger.
   Portal dialogs (a Flatpak's file chooser) in a machine are GTK's, drawn
   through the same waypipe, and have not been tried.
+- **The Flatpak machine's loose ends**
+  ([The Flatpak machine](hypervisor.md#the-flatpak-machine)). A
+  `.flatpakref` or `.flatpakrepo` file opened on the host has nothing to
+  open it, as Bazaar is in the machine; it has to be copied there first.
+  Moving Flatpak's files off the host happens only for administrators, as
+  anyone else would be asked for a password by a dialog they did not
+  start; they copy their `~/.var/app` into the machine by hand. The host's
+  copy of `~/.var/app` stays after it is copied, until its owner deletes
+  it. Flatpak apps inside the machine draw in software, like the rest of
+  its apps, so a game from Flathub is slower than it was on the host.
 - **Windows and other distributions in machines**
   ([Machines from an installer CD](hypervisor.md#machines-from-an-installer-cd)).
   No Windows has been installed from the Windows tools CD yet, so its answer
@@ -210,3 +220,13 @@
   element rules apply in Danube alone; other browsers and apps get only
   whole blocked domains ([System-wide ad blocking](adblock.md)), and a
   program with its own DNS over HTTPS skips it entirely.
+- **The LosOS boxes machine passes on names, not everything**
+  ([LosOS boxes](losos-boxes.md)). It routes the other machines'
+  connections to a box only on ports 80 and 443, by the name they ask for;
+  an app's own port on a box is dialled directly, and nothing stops a
+  machine that knows a box's address from reaching it without the LosOS
+  boxes machine. Its keyring has no sign-in to unlock it, so the first
+  `losos` that stores a key or token asks for a keyring password in a
+  window of the machine. Nothing makes the machine by itself either: its
+  owner makes it from the template. Neither half has met a real box on a real LAN
+  yet, only a box that the machines test boots beside the host.

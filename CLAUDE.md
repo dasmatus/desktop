@@ -58,16 +58,22 @@ still takes time, so don't start one to check a module edit.
   `wpa_supplicant` and `derisk installer` on tty1, with `losos-installer
   serve` as its backend. `modules/installer.nix`
   evaluates it with the OS's own repart definitions and sysupdate transfers.
-- `nixos/guest/` is the machine template the image ships for its virtual
-  machine desktop (`docs/hypervisor.md`): a NixOS guest with the QEMU guest
-  agent, a waypipe server over vsock and `losos-guest-run`.
-  `modules/machines.nix` evaluates it and installs it as
-  `share/losos/machines/losos-guest.qcow2`.
+- `nixos/guest/` holds the machine templates the image ships for its
+  virtual machine desktop (`docs/hypervisor.md`): `common.nix`, a NixOS
+  guest with the QEMU guest agent, a waypipe server over vsock and
+  `losos-guest-run`, under `default.nix`, the LosOS guest, `boxes.nix`,
+  the LosOS boxes machine that holds `losos` and is the one machine that
+  talks to LosOS boxes (`docs/losos-boxes.md`), and `flatpak.nix`, the
+  Flatpak machine, where a PC's Flatpak apps run (`modules/flatpak-machine.nix`).
+  `modules/machines.nix` evaluates each and installs it as
+  `share/losos/machines/<name>.qcow2` with its app list, `<name>.apps`, and
+  makes `losos.machines.system`'s machines on the host.
 - `nixos/home/pm.nix` is the flake's `homeModules.pm`: pm and its plugins
   installed and signed by a user's own Home Manager (`docs/pm.md`).
 - `nixos/pkgs/` is the overlay, and holds only what nixpkgs lacks: pm, its
   plugins, `losos-installer`, `losos-security`, `losos-swap`, `losos-docs`
-  (`website/` built for reading offline), the Danube browser and the WPE
+  (`website/` built for reading offline), `losos`, the LosOS boxes'
+  terminal client (`docs/losos-boxes.md`), the Danube browser and the WPE
   WebKit it draws (`docs/danube.md`), `losos-adblock` (`docs/adblock.md`),
   the pm payload builder, and Halium's `libhybris`, `android-headers` and generic
   system image (`halium-gsi`).
