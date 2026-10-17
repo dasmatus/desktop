@@ -18,11 +18,13 @@ manager, the tool a user of the running system builds and runs software with
 ![The derisk overview: the open windows as tiles, workspaces along the top, and the clock, suggested apps, services, calendar and notes beside them](images/overview.png)
 
 Apps the image does not carry come from [Flathub](https://flathub.org) as
-Flatpaks, through the [Bazaar](https://github.com/bazaar-org/bazaar) store.
-derisk's own portal backend gives them its theme, screenshots and the
-wallpaper, and asks for consent in a dialog of its own (`derisk-gpui ask`,
-drawn with the same toolkit as derisk's GPUI apps); GTK's covers the file
-chooser and the rest. The web browser is
+Flatpaks, through the [Bazaar](https://github.com/bazaar-org/bazaar) store,
+and on a PC they run in [a machine of their own](hypervisor.md#the-flatpak-machine),
+whose GTK portal backend serves their dialogs. On a phone they run on the
+host, where derisk's own portal backend gives them its theme, screenshots
+and the wallpaper, and asks for consent in a dialog of its own
+(`derisk-gpui ask`, drawn with the same toolkit as derisk's GPUI apps);
+GTK's covers the file chooser and the rest. The web browser is
 [Danube](danube.md), WPE WebKit inside an mcsapi window, and
 [ad blocking](adblock.md) from filter lists covers every app. The terminal
 is [derisk's own](terminal.md), `derisk-terminal`: the theme's monospace font through its

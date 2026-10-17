@@ -4,7 +4,12 @@
 # network, its user pings the host and past it and NetworkManager finds it
 # online, its guest agent lists its apps, and opening one sends its window
 # to the host over vsock from the address libvirt gave that machine, which
-# is how the desktop tells whose window it is. Then a Windows machine, as
+# is how the desktop tells whose window it is. The machine looks .local
+# names up through the host, so it finds a box on the host's network that
+# its own multicast could never reach past libvirt's NAT. A LosOS boxes
+# machine finds that box through the host's resolved and offers it as an
+# app, and the first machine's connections to the box go through it. Then
+# a Windows machine, as
 # far as libvirt goes without Windows: defined with the image's drivers CD
 # and started with its TPM.
 #
@@ -24,6 +29,44 @@
   # The modules' packages, the guest template's among them, come from the
   # OS's overlay: the same derivations the image builds.
   node.pkgsReadOnly = false;
+
+  # A LosOS box on the host's LAN, as far as finding one goes: it answers
+  # for its name and announces `_losos._tcp` over mDNS, with Avahi as boxes
+  # before systemd-resolved did, and serves its admin pages and the
+  # /setup/state.json every box has (nixos/tests/losos-boxes.nix has the
+  # same stand-in).
+  nodes.lanbox =
+    { config, ... }:
+    {
+      services.avahi = {
+        enable = true;
+        openFirewall = true;
+        publish = {
+          enable = true;
+          addresses = true;
+        };
+        extraServiceFiles.losos = ''
+          <?xml version="1.0" standalone='no'?>
+          <!DOCTYPE service-group SYSTEM "avahi-service.dtd">
+          <service-group>
+            <name replace-wildcards="yes">%h</name>
+            <service>
+              <type>_losos._tcp</type>
+              <port>80</port>
+              <txt-record>version=v0.4.0</txt-record>
+            </service>
+          </service-group>
+        '';
+      };
+      services.nginx = {
+        enable = true;
+        virtualHosts.front = {
+          default = true;
+          locations."/".return = "200 'admin pages'";
+        };
+      };
+      networking.firewall.allowedTCPPorts = [ 80 ];
+    };
 
   # The internet as far as a machine can tell: the resolver the host asks,
   # which places GNOME's connectivity check here, and that check's page.
@@ -53,6 +96,9 @@
         ../modules/libvirt.nix
         ../modules/machines.nix
         ../modules/pm.nix
+        # The LosOS boxes machine is the only one that talks to boxes: the
+        # host has neither losos nor losos-boxes' service of its own.
+        ../modules/losos-boxes.nix
       ];
       nixpkgs.overlays = [ (import ../pkgs) ];
 
@@ -62,6 +108,18 @@
       # resolver, which asks the stand-in internet.
       networking.nameservers = [ nodes.internet.networking.primaryIPAddress ];
 
+      # And its resolver: networkd and resolved, mDNS on the LAN's link and
+      # in resolved, 5353 open. libvirt's dnsmasq passes the machines'
+      # queries to it through /etc/resolv.conf, as on the image.
+      networking.useNetworkd = true;
+      networking.useDHCP = false;
+      systemd.network.networks."40-eth1".networkConfig.MulticastDNS = true;
+      services.resolved = {
+        enable = true;
+        settings.Resolve.MulticastDNS = true;
+      };
+      networking.firewall.allowedUDPPorts = [ 5353 ];
+
       boot.blacklistedKernelModules = [
         "kvm_intel"
         "kvm_amd"
@@ -69,7 +127,8 @@
 
       virtualisation = {
         cores = 4;
-        memorySize = 4096;
+        # The two machines it runs at once, and itself.
+        memorySize = 6144;
         # The template is uploaded into libvirt's pool and the machine's
         # disk grows on top of it.
         diskSize = 12 * 1024;
@@ -99,18 +158,18 @@
     virsh = "virsh -c qemu:///system"
     guest_run = "/run/current-system/sw/bin/losos-guest-run"
 
-    def agent(command):
-        reply = machine.succeed(f"{virsh} qemu-agent-command work '{json.dumps(command)}'")
+    def agent(command, domain="work"):
+        reply = machine.succeed(f"{virsh} qemu-agent-command {domain} '{json.dumps(command)}'")
         return json.loads(reply)["return"]
 
-    def in_guest(path, *args):
+    def in_guest(path, *args, domain="work"):
         """Runs a program in the machine through its agent, as the desktop does."""
         pid = agent({
             "execute": "guest-exec",
             "arguments": {"path": path, "arg": list(args), "capture-output": True},
-        })["pid"]
+        }, domain)["pid"]
         for _ in range(120):
-            status = agent({"execute": "guest-exec-status", "arguments": {"pid": pid}})
+            status = agent({"execute": "guest-exec-status", "arguments": {"pid": pid}}, domain)
             if status["exited"]:
                 out = base64.b64decode(status.get("out-data", "")).decode()
                 err = base64.b64decode(status.get("err-data", "")).decode()
@@ -119,6 +178,7 @@
             time.sleep(1)
         raise Exception(f"{path} {args} did not finish")
 
+    start_all()
     machine.wait_for_unit("libvirt-defaults.service")
 
     with subtest("libvirt is the host's control plane"):
@@ -180,6 +240,25 @@
         else:
             raise Exception("NetworkManager never found the machine online")
 
+    with subtest("the machine looks .local names up through the host"):
+        lanbox.wait_for_unit("avahi-daemon.service")
+        address = lanbox.succeed("ip -4 -o addr show eth1 | awk '{print $4}' | cut -d/ -f1").strip()
+        machine.wait_until_succeeds(f"resolvectl query lanbox.local | grep -q {address}", timeout=120)
+        status = in_guest("/run/current-system/sw/bin/resolvectl", "status")
+        print(status)
+        assert "-mDNS" in status and "+mDNS" not in status, "the machine multicasts itself"
+        for _ in range(30):
+            try:
+                found = in_guest("/run/current-system/sw/bin/getent", "hosts", "lanbox.local")
+                break
+            except Exception:
+                time.sleep(2)
+        else:
+            raise Exception("the machine cannot look up lanbox.local")
+        assert found.split()[0] == address, f"lanbox.local is {found}, not {address}"
+        # The address the host gave is one the machine reaches through NAT.
+        in_guest("/run/current-system/sw/bin/ping", "-c", "1", "-W", "5", "lanbox.local")
+
     with subtest("its user has the folders apps expect"):
         # home-folders.nix, made by the user's tmpfiles when its manager
         # started, which lingering does at boot.
@@ -207,6 +286,81 @@
         machine.wait_until_succeeds("test -s /tmp/peer", timeout=120)
         peer = machine.succeed("cat /tmp/peer").strip()
         assert peer == cid, f"the connection came from {peer}, the machine is {cid}"
+
+    with subtest("a LosOS boxes machine finds the box through the host and offers it"):
+        machine.fail("command -v losos")
+        machine.wait_for_unit("losos-boxes-relay.service")
+        machine.wait_for_unit("losos-boxes-dns.service")
+        machine.succeed(f"{virsh} net-dumpxml default | grep -q hostsdir=/run/losos-boxes/hosts")
+        machine.succeed(
+            "LIBVIRT_DEFAULT_URI=qemu:///system pm machine create boxes"
+            " --image /run/current-system/sw/share/losos/machines/losos-boxes.qcow2"
+            " --label green --memory 1536 --cpus 2 --disk 8",
+            "LIBVIRT_DEFAULT_URI=qemu:///system pm machine start boxes",
+        )
+        machine.wait_until_succeeds(
+            f"{virsh} qemu-agent-command boxes '{{\"execute\":\"guest-ping\"}}'", timeout=900
+        )
+        machine.wait_until_succeeds(f"{virsh} domifaddr boxes | grep -q 192.168.122.", timeout=300)
+        found = re.search(r"(192\.168\.122\.\d+)", machine.succeed(f"{virsh} domifaddr boxes"))
+        assert found, "the LosOS boxes machine has no address"
+        boxes_address = found.group(1)
+        for _ in range(90):
+            apps = in_guest(guest_run, "--list", domain="boxes")
+            if "losos-box-lanbox.local\tlanbox" in apps:
+                break
+            time.sleep(2)
+        else:
+            print(machine.succeed("journalctl -u losos-boxes-relay --no-pager"))
+            raise Exception(f"the LosOS boxes machine offers no lanbox: {apps}")
+        print(apps)
+        entry = in_guest(
+            "/run/current-system/sw/bin/cat",
+            "/home/user/.local/share/applications/losos-box-lanbox.local.desktop",
+            domain="boxes",
+        )
+        print(entry)
+        assert "\nExec=derisk-terminal --app-id=org.losos.Boxes --title=lanbox losos-boxes terminal http://lanbox.local\n" in entry
+        assert "\nComment=LosOS v0.4.0 box at lanbox.local\n" in entry
+        # The machine's own resolved does no mDNS: what it found came
+        # through the host's.
+        status = in_guest("/run/current-system/sw/bin/resolvectl", "status", domain="boxes")
+        assert "+mDNS" not in status, status
+
+    with subtest("the other machines reach the box through the LosOS boxes machine"):
+        machine.wait_until_succeeds(
+            f"grep -qx '{boxes_address} lanbox.local' /run/losos-boxes/hosts/boxes", timeout=120
+        )
+        for _ in range(30):
+            found = in_guest("/run/current-system/sw/bin/getent", "hosts", "lanbox.local")
+            if found.split()[0] == boxes_address:
+                break
+            time.sleep(2)
+        else:
+            raise Exception(f"lanbox.local is {found} for the machine, not {boxes_address}")
+        request = (
+            "exec 3<>/dev/tcp/{host}/80;"
+            " printf 'GET / HTTP/1.1\\r\\nHost: {name}\\r\\nConnection: close\\r\\n\\r\\n' >&3;"
+            " cat <&3"
+        )
+        answer = in_guest(
+            "/run/current-system/sw/bin/bash", "-c",
+            request.format(host="lanbox.local", name="lanbox.local"),
+        )
+        assert answer.rstrip().endswith("admin pages"), answer
+        # The box saw the connection come from the host's LAN address, which
+        # is where the LosOS boxes machine's traffic leaves libvirt's NAT.
+        lanbox.succeed("grep -q 'GET / ' /var/log/nginx/access.log")
+        # A name that is not a box gets nothing passed on.
+        refused = in_guest(
+            "/run/current-system/sw/bin/bash", "-c",
+            request.format(host=boxes_address, name="printer.local") + " || true",
+        )
+        assert "admin pages" not in refused, refused
+
+    with subtest("a stopped LosOS boxes machine routes nothing"):
+        machine.succeed("LIBVIRT_DEFAULT_URI=qemu:///system pm machine remove boxes")
+        machine.wait_until_fails("test -e /run/losos-boxes/hosts/boxes", timeout=60)
 
     with subtest("pm removes it and keeps the template"):
         machine.succeed("LIBVIRT_DEFAULT_URI=qemu:///system pm machine remove work")

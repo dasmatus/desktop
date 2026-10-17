@@ -246,6 +246,7 @@
           "pm"
           "pm-plugins"
           "losos-adblock"
+          "losos-boxes"
           "danube"
         ] (name: self.legacyPackages.${system}.${name})
         // {
@@ -274,6 +275,9 @@
           # The start-up sound reaches a sound card, and plays backwards at
           # shutdown (boot-sound.nix).
           boot-sound = pkgs.testers.runNixOSTest ./nixos/tests/boot-sound.nix;
+          # LosOS boxes, one announcing _losos._tcp and one from before
+          # that, found over mDNS and offered as applications (losos-boxes.nix).
+          losos-boxes = pkgs.testers.runNixOSTest ./nixos/tests/losos-boxes.nix;
           # pm makes a machine from the guest template, which boots, lists its
           # apps and sends an app's window to the host over vsock
           # (machines.nix).
