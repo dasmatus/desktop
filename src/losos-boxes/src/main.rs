@@ -10,7 +10,7 @@
 //! answers mDNS on this OS, and writes a `.desktop` file for each box into
 //! the user's applications directory, which derisk's palette and app list
 //! read each time the palette opens. `terminal` is the command those entries'
-//! "Manage in the terminal" action runs in foot.
+//! "Manage in the terminal" action runs in derisk-terminal.
 
 use std::io::{self, BufRead, BufReader, IsTerminal, Read, Write};
 use std::net::{IpAddr, Shutdown, SocketAddr, SocketAddrV6, TcpStream};

@@ -13,7 +13,7 @@ Type a box's name, or "LosOS", into the palette. Each box on the network is
 an app named after the box, `mattbox`, described as "LosOS v0.4.0 box at
 mattbox.local". Opening it opens the box's admin pages,
 `http://mattbox.local/`, in the default browser. Its one action, **Manage
-in the terminal**, opens the box in `losos` in a foot window, signing in
+in the terminal**, opens the box in `losos` in a derisk-terminal window, signing in
 first when `losos hosts` does not list it yet (below); if anything fails,
 the window stays open until Enter so what `losos` said can be read.
 

@@ -310,7 +310,7 @@ impl LososBox {
              \n\
              [Desktop Action terminal]\n\
              Name=Manage in the terminal\n\
-             Exec=foot --app-id=org.losos.Boxes --title={name} losos-boxes terminal {url}\n",
+             Exec=derisk-terminal --app-id=org.losos.Boxes --title={name} losos-boxes terminal {url}\n",
             name = escape(self.name()),
             comment = escape(&comment),
             host = escape(&self.host),
