@@ -83,6 +83,33 @@ derisk's Machines app lists them, makes new ones from the templates under
 and removes them. For a running machine it also lists the apps the machine
 has and opens the one picked.
 
+## Names on the network
+
+A machine looks up `.local` names through the host instead of multicasting
+for them itself. libvirt's NAT carries no multicast between `virbr0` and
+the host's own networks, so an mDNS query a machine sent would reach only
+the other machines on `virbr0`, never a LosOS box, printer or other PC on
+the host's LAN. The host is on both:
+
+1. The guest's resolved does no mDNS or LLMNR, and its link on `default`
+   has `~local` as a routing domain, so a `.local` lookup goes to the DNS
+   server DHCP gave it, which is the host (`192.168.122.1`). resolved never
+   sends a `.local` name to a unicast server otherwise.
+2. libvirt's dnsmasq on `virbr0` answers it from the host's own resolver,
+   `/etc/resolv.conf`, which is resolved's stub.
+3. resolved on the host asks every link it does mDNS on, the LAN and
+   `virbr0` alike, and answers with the address it found.
+
+The machine then reaches that address through libvirt's NAT like any
+other. With nothing multicasting in the machine, it also neither answers
+nor announces on `virbr0`: the host's answer is the only one. A machine
+installed from a CD keeps whatever its own system does, which for most
+distributions is Avahi multicasting on `virbr0` alone.
+
+`nixos/tests/machines.nix` checks it: a machine made from the template
+finds `lanbox.local`, a test machine on the host's LAN that answers only
+over mDNS, at that machine's LAN address, and pings it.
+
 ## A machine's windows
 
 A machine has no screen. Its apps' windows come to the host's desktop over
@@ -173,7 +200,9 @@ left out). It has:
   compositor), and Flatpak with Flathub and Bazaar, as on the host. The
   guest's user may install Flatpaks for the whole machine without being
   asked;
-- **networkd**, taking an address from libvirt's `default` network.
+- **networkd**, taking an address from libvirt's `default` network, and
+  resolved, which asks the host for `.local` names
+  ([above](#names-on-the-network)).
 
 `losos-guest-run`, in the guest's system profile, is what the host runs
 there through the agent:

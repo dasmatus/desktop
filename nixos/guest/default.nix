@@ -130,6 +130,30 @@ in
   # host's resolver.
   networking.useNetworkd = true;
 
+  # .local names are the host's to look up (docs/hypervisor.md, "Names on
+  # the network"). libvirt's NAT carries no multicast between the machine
+  # and the host's own networks, so an mDNS query asked here would reach
+  # only the other machines on virbr0 and never a box on the host's LAN.
+  # Asked of the host's resolver instead, libvirt's dnsmasq hands it to
+  # resolved on the host, which asks every network the host is on. resolved
+  # sends .local to a unicast server only on a link that names it as a
+  # routing domain, hence ~local; and with nothing here multicasting, the
+  # machine neither answers nor announces on virbr0, so the host's answer
+  # is the only one.
+  services.resolved.settings.Resolve = {
+    MulticastDNS = false;
+    LLMNR = false;
+  };
+  systemd.network.networks."10-libvirt" = {
+    matchConfig.Type = "ether";
+    networkConfig = {
+      DHCP = "yes";
+      Domains = "~local";
+      MulticastDNS = false;
+      LLMNR = false;
+    };
+  };
+
   users.users.${user} = {
     isNormalUser = true;
     uid = 1000;

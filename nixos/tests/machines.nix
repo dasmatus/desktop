@@ -3,7 +3,10 @@
 # the image ships, the machine boots and takes an address on libvirt's
 # network, its guest agent lists its apps, and opening one sends its window
 # to the host over vsock from the address libvirt gave that machine, which
-# is how the desktop tells whose window it is. Then a Windows machine, as
+# is how the desktop tells whose window it is. The machine looks .local
+# names up through the host, so it finds a box on the host's network that
+# its own multicast could never reach past libvirt's NAT. Then a Windows
+# machine, as
 # far as libvirt goes without Windows: defined with the image's drivers CD
 # and started with its TPM.
 #
@@ -24,6 +27,19 @@
   # OS's overlay: the same derivations the image builds.
   node.pkgsReadOnly = false;
 
+  # A machine on the host's LAN that answers for its name over mDNS, as a
+  # LosOS box or a printer does.
+  nodes.lanbox = {
+    networking.useNetworkd = true;
+    networking.useDHCP = false;
+    systemd.network.networks."40-eth1".networkConfig.MulticastDNS = true;
+    services.resolved = {
+      enable = true;
+      settings.Resolve.MulticastDNS = true;
+    };
+    networking.firewall.allowedUDPPorts = [ 5353 ];
+  };
+
   nodes.machine =
     { pkgs, ... }:
     {
@@ -36,6 +52,18 @@
 
       # network.nix's packet filter, which the guests' DHCP has to get past.
       networking.nftables.enable = true;
+
+      # And its resolver: networkd and resolved, mDNS on the LAN's link and
+      # in resolved, 5353 open. libvirt's dnsmasq passes the machines'
+      # queries to it through /etc/resolv.conf, as on the image.
+      networking.useNetworkd = true;
+      networking.useDHCP = false;
+      systemd.network.networks."40-eth1".networkConfig.MulticastDNS = true;
+      services.resolved = {
+        enable = true;
+        settings.Resolve.MulticastDNS = true;
+      };
+      networking.firewall.allowedUDPPorts = [ 5353 ];
 
       boot.blacklistedKernelModules = [
         "kvm_intel"
@@ -94,6 +122,7 @@
             time.sleep(1)
         raise Exception(f"{path} {args} did not finish")
 
+    start_all()
     machine.wait_for_unit("libvirt-defaults.service")
 
     with subtest("libvirt is the host's control plane"):
@@ -135,6 +164,25 @@
         size = int(in_guest("/run/current-system/sw/bin/df", "--output=size", "-B1G", "/").split()[-1])
         assert size >= 7, f"the root is {size} GiB, so it did not grow into the 8 GiB disk"
         machine.wait_until_succeeds(f"{virsh} domifaddr work | grep -q 192.168.122.", timeout=300)
+
+    with subtest("the machine looks .local names up through the host"):
+        lanbox.wait_for_unit("systemd-resolved.service")
+        address = lanbox.succeed("ip -4 -o addr show eth1 | awk '{print $4}' | cut -d/ -f1").strip()
+        machine.wait_until_succeeds(f"resolvectl query lanbox.local | grep -q {address}", timeout=120)
+        status = in_guest("/run/current-system/sw/bin/resolvectl", "status")
+        print(status)
+        assert "-mDNS" in status and "+mDNS" not in status, "the machine multicasts itself"
+        for _ in range(30):
+            try:
+                found = in_guest("/run/current-system/sw/bin/getent", "hosts", "lanbox.local")
+                break
+            except Exception:
+                time.sleep(2)
+        else:
+            raise Exception("the machine cannot look up lanbox.local")
+        assert found.split()[0] == address, f"lanbox.local is {found}, not {address}"
+        # The address the host gave is one the machine reaches through NAT.
+        in_guest("/run/current-system/sw/bin/ping", "-c", "1", "-W", "5", "lanbox.local")
 
     with subtest("its agent lists the apps it can open"):
         apps = {}
