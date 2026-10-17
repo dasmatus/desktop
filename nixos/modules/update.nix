@@ -14,7 +14,12 @@
 # older UKI's usrhash still names the older /usr, which is still there. A
 # BIOS PC boots the same way, from the kernel and initrd bios.nix's
 # transfers put beside each UKI.
-{ config, lib, ... }:
+{
+  config,
+  lib,
+  pkgs,
+  ...
+}:
 
 let
   cfg = config.losos;
@@ -51,8 +56,27 @@ let
 in
 {
   # sysupdate verifies SHA256SUMS.gpg against this keyring; Verify= is on by
-  # default in every transfer below.
-  environment.etc."systemd/import-pubring.gpg".source = cfg.update.pubring;
+  # default in every transfer below. systemd 261's systemd-pull hands gpg
+  # --keyring=/etc/systemd/import-pubring.pgp whether or not that file
+  # exists, so the older .gpg name left gpg with no key and every update
+  # failed with "Can't check signature: No public key".
+  environment.etc."systemd/import-pubring.pgp".source = cfg.update.pubring;
+
+  # systemd-pull runs gpg from PATH to check that signature, and a NixOS
+  # unit's PATH holds only coreutils, findutils, grep, sed and systemd, so
+  # the timer's updates failed before the check began. nixpkgs gives
+  # sysupdated, which runs updatectl's and Settings' updates, this same
+  # gnupg already, and only that unit.
+  systemd.services.systemd-sysupdate = {
+    path = [ pkgs.gnupgMinimal ];
+
+    # A download that breaks off leaves its slot marked partial, and every
+    # later `update` then refuses that version until something vacuums it:
+    # one dropped connection stopped updates for good. A bare vacuum removes
+    # only partial and pending slots and versions beyond InstancesMax, so the
+    # version to fall back to stays.
+    serviceConfig.ExecStartPre = "${config.systemd.package}/lib/systemd/systemd-sysupdate vacuum";
+  };
 
   services.losos-update-source.index = lib.mkIf local cfg.update.index;
 

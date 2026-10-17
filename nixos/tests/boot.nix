@@ -110,6 +110,13 @@ in
           machine.succeed("pm --help")
           machine.succeed("pm source-path https://example.org/x-1.0.tar.xz | grep -q x-1.0.tar.xz")
 
+      with subtest("the terminal is derisk-terminal, with a Nerd Font, and foot is gone"):
+          machine.succeed("command -v derisk-terminal")
+          machine.succeed("test -e /run/current-system/sw/share/applications/org.derisk.terminal.desktop")
+          machine.fail("command -v foot")
+          machine.succeed("fc-list : family | grep -q 'Hack Nerd Font'")
+          machine.succeed("fc-list : family | grep -q 'Symbols Nerd Font'")
+
       with subtest("the security report answers on the system bus"):
           machine.succeed(
               "busctl call io.losos.Security1 /io/losos/Security1 "

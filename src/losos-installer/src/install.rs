@@ -74,7 +74,7 @@ pub struct GitHub {
 }
 
 /// Where the release signing key is, as sysupdate itself reads it.
-const PUBRING: &str = "/etc/systemd/import-pubring.gpg";
+const PUBRING: &str = "/etc/systemd/import-pubring.pgp";
 
 /// Whether `dir` holds a release to install from.
 pub fn has_release(dir: &Path) -> bool {
