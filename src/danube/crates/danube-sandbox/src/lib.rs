@@ -3,11 +3,11 @@
 //!
 //! Two sandboxes are built here. [`browser`] is the one the whole browser
 //! runs in: its own user, mount, PID, IPC and UTS namespaces, a filesystem
-//! of the store, its profile and Downloads, Landlock over the same paths,
-//! and a seccomp filter. Inside it, WebKit puts each web process in a
-//! second, narrower sandbox; WebKit only knows how to ask bwrap for that,
-//! so the `danube-sandbox` program takes the arguments WebKit gives bwrap
-//! ([`Plan::from_bwrap_args`]) and builds the same sandbox with Hakoniwa.
+//! of the store, its profile and Downloads, and a seccomp filter. Inside
+//! it, WebKit puts each web process in a second, narrower sandbox; WebKit
+//! only knows how to ask bwrap for that, so the `danube-sandbox` program
+//! takes the arguments WebKit gives bwrap ([`Plan::from_bwrap_args`]) and
+//! builds the same sandbox with Hakoniwa, and Landlock over it.
 //! WebKit runs it in bwrap's place because Danube sets
 //! `WEBKIT_SANDBOX_LAUNCHER` (nixos/pkgs/patches/wpewebkit).
 //!
@@ -245,6 +245,30 @@ impl Plan {
         if plan.program.is_empty() {
             return Err(Error::NoProgram);
         }
+        // Landlock over what WebKit set up, which bwrap has no equivalent
+        // of: the program may read and run whatever is in its sandbox, and
+        // write only where WebKit made it writable. Here rather than over
+        // the whole browser (browser.rs), which would forbid this sandbox.
+        plan.landlock.push(("/".into(), Access::Read));
+        let writable: Vec<(String, Access)> = plan
+            .ops
+            .iter()
+            .filter_map(|op| match op {
+                Op::Bind {
+                    dest,
+                    ro: false,
+                    dev,
+                    ..
+                } => Some((
+                    dest.clone(),
+                    if *dev { Access::Device } else { Access::Write },
+                )),
+                Op::Tmpfs(dest) => Some((dest.clone(), Access::Write)),
+                Op::Dev(dest) => Some((dest.clone(), Access::Device)),
+                _ => None,
+            })
+            .collect();
+        plan.landlock.extend(writable);
         Ok(plan)
     }
 }
@@ -301,6 +325,15 @@ mod tests {
         assert_eq!(
             plan.env,
             vec![("A".into(), Some("1".into())), ("B".into(), None)]
+        );
+        // Read and run anything in there; write only to the GPU and /dev.
+        assert_eq!(
+            plan.landlock,
+            vec![
+                ("/".into(), Access::Read),
+                ("/dev/dri".into(), Access::Device),
+                ("/dev".into(), Access::Device),
+            ]
         );
     }
 
