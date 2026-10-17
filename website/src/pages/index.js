@@ -43,7 +43,7 @@ const features = [
   },
   {
     title: 'Apps and the web',
-    text: 'Flatpaks from Flathub through derisk's own Store, Danube as the browser, and ad blocking from filter lists for every app on the system.',
+    text: "Flatpaks from Flathub through derisk's own Store, Danube as the browser, and ad blocking from filter lists for every app on the system.",
     to: '/danube',
     link: 'Danube',
   },
