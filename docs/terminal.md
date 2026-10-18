@@ -51,8 +51,6 @@ GNU tool's options, on the host and in the guest template alike
 |---|---|
 | `ls`, `cp`, `cat` and the rest of coreutils | [uutils coreutils](https://github.com/uutils/coreutils) |
 | `find`, `xargs`, `locate`, `updatedb` | [uutils findutils](https://github.com/uutils/findutils) |
-| `su` | [sudo-rs](https://github.com/trifectatechfoundation/sudo-rs) |
-| `sudo` | run0's sudo shim, in Rust, over `run0` ([systemd.md](systemd.md)) |
 | `gpg`, `gpgv`, `gpgconf` | [Sequoia's GnuPG chameleon](https://gitlab.com/sequoia-pgp/sequoia-chameleon-gnupg), with `sq` beside it |
 
 The chameleon reads and writes GnuPG's own `~/.gnupg`, so git's commit
@@ -75,7 +73,11 @@ were written against GNU. So does `systemd-pull`'s check of an update's
 signature, which passes gpg `--import-options=merge-only`, an option the
 chameleon refuses.
 
-The image's boot test checks which of these answers `ls`, `find`, `su` and
+There is no `sudo`, `su` or `run0`, and nothing that runs a command as
+root: `pm system` manages units and updates ([pm on LosOS](pm.md#administering-the-machine)).
+The guest template keeps sudo-rs's `su`, since a guest has no pm service.
+
+The image's boot test checks which of these answers `ls`, `find` and
 `gpg`, and makes a key with the chameleon, signs a file with it and verifies
 the signature (`nixos/tests/boot.nix`). It verifies after signing rather than
 piping one gpg into another: the chameleon's `--verify` reports a BAD

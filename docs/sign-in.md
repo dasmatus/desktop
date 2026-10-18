@@ -13,7 +13,7 @@ yields the volume's key can log them in.
 
 ![derisk's login screen asking for a password, and the same screen after a wrong one, relaying PAM's "Sorry, try again"](images/sign-in-login-screen.png)
 
-| Method | Login screen | Lock screen | polkit, run0 |
+| Method | Login screen | Lock screen | polkit, `pm system` |
 | --- | --- | --- | --- |
 | Password | yes | yes | yes |
 | Security key (FIDO2) | yes, instead of the password | yes | yes |
@@ -45,11 +45,11 @@ administrator prompt. Fingerprints are enrolled from Settings with
 `fprintd-enroll`, which fprintd lets a person do only after authenticating
 again; derisk's polkit agent asks, so no polkit rule waves it through.
 
-## polkit and run0
+## polkit and pm
 
 `derisk session` is polkit's authentication agent for its logind session.
-When polkit wants someone to authenticate before it allows an action (run0,
-an app installed for every user, enrolling a fingerprint), the desktop dims
+When polkit wants someone to authenticate before it allows an action
+(`pm system`, an app installed for every user, enrolling a fingerprint), the desktop dims
 under a dialog that says what is asked and who may answer, the person at the
 desktop when polkit accepts them, else a choice of administrators. The
 dialog relays what PAM's `polkit-1` stack asks through
@@ -58,8 +58,9 @@ dialog relays what PAM's `polkit-1` stack asks through
 fingerprint reader first when the person enrolled a finger (until it gives
 up), then the password or the security key's PIN. Every key goes to the
 dialog while it is open, and input from agents can cancel it but not
-authenticate. run0 in a terminal uses the dialog too: it only falls back to
-asking on the terminal when the session has no agent.
+authenticate. `pm system` in a terminal uses the dialog too: it only falls
+back to asking on the terminal, through `pkttyagent`, when the session has no
+agent ([pm on LosOS](pm.md#administering-the-machine)).
 
 ## Verification codes
 

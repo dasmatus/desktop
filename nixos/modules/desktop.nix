@@ -25,13 +25,15 @@ let
 in
 {
   # derisk is the display manager too: `derisk display-manager` runs as root
-  # on VT1 and does only PAM and session starts, drawing nothing. It runs
+  # from VT1 and does only PAM and session starts, drawing nothing. It runs
   # derisk's lock screen as the login screen (`derisk greeter`), so logging in
   # and unlocking are the same screen, and the greeter runs as its own
   # unprivileged user and talks to it over a socket only that user can open.
   # After a login it opens the user's session through the derisk-login PAM
-  # service and runs the session command as them; when the session ends the
-  # greeter comes back.
+  # service and runs the session command as them. Several people can be
+  # logged in at once, each session on a free VT of its own; the greeter
+  # comes back when the session on the screen ends or asks to switch user
+  # (docs/users.md).
   #
   # This replaced gdm, a GNOME Shell process with its own accounts daemon and
   # session chooser, all to offer one session. greetd would also have done:
@@ -40,7 +42,7 @@ in
   # it nothing on the login path is anything but derisk and systemd.
   #
   # --execute makes app launches and lock/suspend/reboot real rather than
-  # simulated. There is one session, so no session chooser and no
+  # simulated. There is one kind of session, so no session chooser and no
   # wayland-sessions entry: the greeter is handed the command outright.
   #
   # Boot to graphical.target, which is what pulls the display manager in.
@@ -51,7 +53,10 @@ in
     description = "derisk display manager";
     aliases = [ "display-manager.service" ];
     wantedBy = [ "graphical.target" ];
-    # VT1 is the display manager's, as it was gdm's: no getty there.
+    # VT1 is the display manager's first, as it was gdm's: no getty there.
+    # Further sessions take the VTs after it that nothing has open; the
+    # display manager holds one open while it starts a login screen there, so
+    # logind's autovt getty never starts on it.
     conflicts = [ "getty@tty1.service" ];
     # After Plymouth has let go of the display (splash.nix), which leaves
     # its last frame there for the greeter to draw over.
@@ -81,7 +86,8 @@ in
       # Sessions live in their own logind scopes; stopping the display
       # manager should not take a logged-in desktop down with it.
       KillMode = "process";
-      # Its own runtime directory, for the greeter's socket.
+      # Its own runtime directory, for the greeter's socket and switch.sock,
+      # where a session asks for the login screen (Switch user).
       RuntimeDirectory = "derisk-dm";
       RuntimeDirectoryMode = "0711";
     };
@@ -104,8 +110,17 @@ in
   security.pam.services.derisk-login.startSession = true;
   security.pam.services.derisk-greeter.startSession = true;
 
-  # derisk-session.target, derisk-agent.socket and derisk-agent.service.
-  systemd.packages = [ pkgs.derisk ];
+  # derisk-session.target, derisk-agent.socket and derisk-agent.service,
+  # and derisk-index's socket and service. The index starts with the
+  # graphical session, so home is indexed by the time the palette asks;
+  # the units' [Install] sections mean nothing to NixOS, so the wants are
+  # here. Not derisk-session.target: nothing requires it, so it stops
+  # itself as soon as it is reached and would take the index with it.
+  systemd.packages = [
+    pkgs.derisk
+    pkgs.derisk.index
+  ];
+  systemd.user.services.derisk-index.wantedBy = [ "graphical-session.target" ];
 
   # Generate the PAM stack used by derisk's lock screen. With homed enabled,
   # NixOS includes pam_systemd_home in this service.
@@ -129,6 +144,8 @@ in
   environment.systemPackages = [
     pkgs.derisk
     pkgs.derisk.terminal
+    # `derisk-index search ...` asks the index from a terminal.
+    pkgs.derisk.index
     pkgs.papirus-icon-theme
     # derisk starts it to learn when nobody uses the session (above).
     pkgs.swayidle

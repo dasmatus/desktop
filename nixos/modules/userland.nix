@@ -68,9 +68,10 @@
   # first `gpg --quick-gen-key` failed. Each user manager makes it at start.
   systemd.user.tmpfiles.rules = [ "d %h/.gnupg 0700 - - -" ];
 
-  # sudo is already Rust: run0's sudo shim (accounts.nix). su is shadow's, a
-  # setuid C program; sudo-rs's su takes the same options and runs through
-  # the same PAM service. It also asks for su-l, for `su -`, which NixOS
+  # su is shadow's, a setuid C program; sudo-rs's su takes the same options
+  # and runs through the same PAM service. Only the guests (nixos/guest/)
+  # install it: the host has no su at all, and administers itself through pm
+  # (accounts.nix). It also asks for su-l, for `su -`, which NixOS
   # defines only in its sudo-rs module, so it is defined here the way su is.
   security.shadow.su.package = pkgs.sudo-rs;
   security.pam.services.su-l = {

@@ -7,6 +7,8 @@ time zone, network, then the first account (full name, user name, password).
 It saves them with `localectl set-locale`, `localectl set-x11-keymap`,
 `timedatectl set-timezone` and `homectl create --member-of=wheel`, the
 password passed in `NEWPASSWORD` and never on a command line, and exits.
+Everyone after the first account is added in Settings, Users
+([More than one person](users.md)).
 The keyboard layout switches live as it is picked, and the display manager
 hands localed's saved layout to the login screen and the session as
 xkbcommon's defaults.
