@@ -21,15 +21,13 @@
       imports = [ ../modules/windows-apps.nix ];
       nixpkgs.overlays = [ (import ../pkgs) ];
 
-      # A person with homed's first UID, as the image's people have. Made by
-      # NixOS here, which would give them subordinate IDs of its own beside
-      # the module's.
-      users.users.alice = {
-        isNormalUser = true;
-        uid = 60001;
-        autoSubUidGidRange = false;
-        linger = true;
-      };
+      # People as the image has them (accounts.nix, base.nix): homed's,
+      # made after boot, with system users from systemd-sysusers, which
+      # leaves /etc/subuid and /etc/subgid to the module. NixOS's own users
+      # script would rewrite both with ranges of its own.
+      services.homed.enable = true;
+      systemd.sysusers.enable = true;
+      users.mutableUsers = false;
 
       environment.etc."windows-apps-test/image.tar".source = pkgs.dockerTools.buildImage {
         name = "localhost/test";
@@ -64,6 +62,14 @@
           )
 
       machine.wait_for_unit("multi-user.target")
+      # homed's first person, who gets its first UID, signed in so that
+      # their user manager and runtime directory are there.
+      machine.succeed(
+          "NEWPASSWORD=correct-horse homectl create alice --uid=60001 --storage=directory"
+          " --enforce-password-policy=no"
+      )
+      machine.succeed("PASSWORD=correct-horse homectl activate alice")
+      machine.succeed("loginctl enable-linger alice")
       machine.wait_for_unit("user@60001.service")
 
       with subtest("root has no Podman"):

@@ -16,8 +16,9 @@ needs KVM.
 | Each app's window | a FreeRDP RemoteApp session, H.264 in full colour (AVC444) |
 | Who starts the container | pm (`pm container`, its podman plugin), never Podman or Docker directly |
 
-dockur downloads Windows from Microsoft and installs it unattended with an
-answer file. At Windows' first sign-in it runs WinBoat's guest server, a
+dockur downloads Windows from Microsoft, in the person's language, and
+installs it unattended with an answer file. When Microsoft's servers turn
+the download down, dockur tries mirrors of the same ISO. At Windows' first sign-in it runs WinBoat's guest server, a
 service that lists Windows' apps and their icons for the app, and imports
 the registry changes that let every program be a RemoteApp. The person's
 home is shared with Windows as a network drive.
