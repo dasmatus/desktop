@@ -29,7 +29,7 @@
   linux-pam,
   libpwquality,
   libvirt,
-  # derisk-gpui's GPUI (Sonne's) links these, and finds the rest below at
+  # derisk-gpui's GPUI (Zed's) links these, and finds the rest below at
   # run time.
   fontconfig,
   libx11,

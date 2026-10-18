@@ -57,6 +57,7 @@ the PC image shipped as its code editor and as what text and source files
 opened in. Sonne added about half a gigabyte to `/usr`, whose update slot is
 a fixed 8G, for an editor that the Text Editor and the Agent's own code view
 cover. Its agent window, skills, project setup and previews moved into
-derisk, and Sonne left the image; it is not coming back. derisk-gpui still
-builds against Sonne's fork of GPUI as a library, which is a separate
-matter.
+derisk, and Sonne left the image; it is not coming back. derisk-gpui and
+mcsapi took GPUI from Sonne's repository too, until it stopped being
+public; they now take it from upstream Zed, at the commit Sonne was forked
+from.
