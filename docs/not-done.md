@@ -153,11 +153,11 @@
     droid modules, no sensorfw. Android's init starts the HALs, and nothing
     on the Linux side talks to them yet beyond EGL.
 - **Wi-Fi, Bluetooth and power modes in Settings.** derisk Settings'
-  Network page lists, joins and forgets networks through
-  `wpa_supplicant`'s control socket, which only the `wpa_supplicant` group
-  may use. First-boot setup puts the account it creates in that group; an
-  account made before it did is not, and its Network page says so until
-  `homectl update --member-of=wheel,wpa_supplicant <user>` adds it. The
+  Network page lists, joins and forgets networks through NetworkManager,
+  which lets the `networkmanager` group change them. First-boot setup puts
+  the account it creates in that group; an account made before it did is
+  not, and its Network page says so until
+  `homectl update --member-of=wheel,networkmanager <user>` adds it. The
   Bluetooth page pairs without asking anything, so a device that wants a
   passkey typed or compared does not pair. None of the three pages has run
   against a real adapter or `power-profiles-daemon` on hardware (the command

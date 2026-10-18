@@ -46,6 +46,8 @@ in
       wantedBy = [ "graphical-session.target" ];
       partOf = [ "graphical-session.target" ];
       after = [ "graphical-session.target" ];
+      # nmcli, which it watches NetworkManager with (captive.rs).
+      path = [ config.networking.networkmanager.package ];
       serviceConfig = {
         ExecStart = "${lib.getExe pkgs.danube} captive-watch";
         Restart = "on-failure";

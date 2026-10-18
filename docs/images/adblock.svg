@@ -37,7 +37,7 @@ text { font-family: Inter, "Segoe UI", system-ui, -apple-system, "Helvetica Neue
 <text x="615.0" y="164.5" class="b" text-anchor="middle">systemd-resolved</text>
 <rect x="540" y="195" width="150" height="50" rx="8" fill="#1d2a1c" stroke="#a3e635" stroke-width="1.5"/>
 <text x="615.0" y="216.5" class="b" text-anchor="middle">the forwarder</text>
-<text x="615.0" y="232.5" class="ms" text-anchor="middle">127.0.0.153:53</text>
+<text x="615.0" y="232.5" class="ms" text-anchor="middle">169.254.153.53:53</text>
 <path d="M615,125 L615,138" fill="none" stroke="#9aa8bc" stroke-width="1.6" marker-end="url(#h9aa8bc)"/>
 <path d="M615,180 L615,193" fill="none" stroke="#9aa8bc" stroke-width="1.6" marker-end="url(#h9aa8bc)"/>
 <path d="M470,135 L505,135 L505,220 L538,220" fill="none" stroke="#a3e635" stroke-width="1.6" marker-end="url(#ha3e635)"/>
