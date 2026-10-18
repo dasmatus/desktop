@@ -65,8 +65,16 @@ lib.mkIf pkgs.stdenv.hostPlatform.isx86_64 {
   # Nor root's Podman API, whose socket NixOS opens to the podman group: a
   # rootful daemon by another name. Each person's own socket stays.
   systemd.sockets.podman.wantedBy = lib.mkForce [ ];
-  environment.etc.subuid.text = subordinateIds;
-  environment.etc.subgid.text = subordinateIds;
+  # Files of their own rather than NixOS's symlinks into /etc/static:
+  # newuidmap and newgidmap open them without following a link, and refuse.
+  environment.etc.subuid = {
+    text = subordinateIds;
+    mode = "0644";
+  };
+  environment.etc.subgid = {
+    text = subordinateIds;
+    mode = "0644";
+  };
 
   # The setup, as each person's own unit, which the app starts when its
   # person has no Windows yet and which carries on while the app is closed:
