@@ -9,23 +9,28 @@ There is no sudo, su or run0. An administrator changes the system with
 | --- | --- |
 | `pm system start\|stop\|restart\|reload <unit>` | the same to a system unit; a bare name is a service |
 | `pm system update [--reboot]` | installs the newest version for the next boot (`systemd-sysupdate.service`), and reboots into it if asked and there was one |
-| `pm system run <command>` | runs one command as root |
-| `pm system run` | root's shell |
+
+That is all it does. It runs no command as root and opens no shell, so an
+administrator's session, or whatever takes it over, can do no more than
+start and stop the units the image already has and install its signed
+updates. A machine that needs more, because something is broken, gets a
+root shell from the boot menu, which takes someone at the machine ([When
+something goes wrong](troubleshooting.md#no-one-can-administer-the-machine)).
 
 `pm` asks `pmd --system`, a service the system bus starts on the first call
 (`pm-system.service`, `nixos/modules/pm.nix`), and it asks polkit whether the
 caller may. polkit asks an administrator, a member of `wheel`, to
 authenticate as themselves: in derisk's dialog ([polkit and pm](sign-in.md#polkit-and-pm)),
-or on the terminal through `pkttyagent` when the session has no agent. A
-password typed for `start`, `stop`, `restart`, `reload` or `update` is good
-for a few minutes; one for `run` is asked every time. Only then does the
-daemon act, as `pm`, through systemd. A command run as root runs in a unit of
-its own, `pm-run-<pid>-<n>.service`, on a pseudo-terminal the daemon checks
-belongs to the caller, with the caller's terminal relayed to it; `pm` leaves
-with its exit status, and the journal records who ran what.
+or on the terminal through `pkttyagent` when the session has no agent. The
+password is good for a few minutes. Only then does the daemon act, as `pm`,
+through systemd, and the journal records who asked for what.
 
 The `pm` user owns nothing and holds no capability. What it may do comes from
-one polkit rule, which lets it manage units without asking. A second rule,
+one polkit rule, which lets it manage units without asking, all but
+`debug-shell.service`: that unit is a root shell on tty9 with no password,
+so starting it would be a root shell by another name. The recovery shell
+starts it from the kernel's command line instead, where polkit has no say.
+A second rule,
 evaluated last, refuses unit management to everyone else: without it an
 administrator could still `systemctl restart` a service, or use the run0
 that systemd itself carries, and become root past pm. Root is never asked, so
@@ -36,10 +41,10 @@ Everything else polkit governs is as it was: accounts through homed, the
 network through NetworkManager, updates from Settings through `sysupdated`,
 and Flatpak.
 
-The image's boot test runs `pm system restart` and `pm system run` as root,
-checks the daemon runs as `pm`, and asks polkit what it says to `pm` and to
-an administrator about managing units directly and about `pm system run`
-(`nixos/tests/boot.nix`).
+The image's boot test runs `pm system restart` as root, checks the daemon
+runs as `pm`, that `pm system run` is gone and that pm cannot start the
+debug shell, and asks polkit what it says to `pm` and to an administrator
+about managing units directly and through pm (`nixos/tests/boot.nix`).
 
 ## pm's plugins
 

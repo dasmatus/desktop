@@ -58,8 +58,8 @@
   users.allowNoPasswordLogin = true;
 
   # No sudo, no su, no run0. Each of them made the person typing root; pm
-  # does the work as its own user instead, and runs a command as root only
-  # when asked to, in a unit of its own (`pm system run`). run0 was here
+  # does the work as its own user instead, and only manages units and
+  # updates: nothing a session can reach runs a command as root. run0 was here
   # until pm took its place, sudo before it as run0's alias. systemd still
   # carries the run0 binary, but polkit refuses to let anyone but pm and root
   # manage units (pm.nix), so it can no longer start anything. su is a setuid
