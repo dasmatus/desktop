@@ -14,12 +14,12 @@ Under UEFI, the ISO's appended FAT partition holds GRUB as
 disc or a stick. Either way GRUB's menu and the Plymouth splash after it look
 as they do on an installed system, and say "LosOS Desktop installer"
 ([Boot loader and boot screen](boot-loaders.md)). Either way the initrd mounts the ISO by its volume label and the Nix store from a squashfs
-on it. It carries `wpa_supplicant` and no NetworkManager. networkd runs DHCP
-on every physical wired port, built in or USB, as soon as a cable is in, at
-boot or later, and prefers it over Wi-Fi when both are up; a machine with a
-cable in is online with nothing asked. Otherwise derisk talks to
-`wpa_supplicant` over its control socket to scan for and join a Wi-Fi
-network, which networkd then runs DHCP on too. Of the firmware NixOS would add, only
+on it. It runs NetworkManager with NixOS's defaults, as the installed system
+does. NetworkManager runs DHCP on every wired port, built in or USB, as soon
+as a cable is in, at boot or later, and prefers it over Wi-Fi when both are
+up; a machine with a cable in is online with nothing asked. Otherwise derisk
+scans for and joins a Wi-Fi network through NetworkManager with `nmcli`.
+Of the firmware NixOS would add, only
 `linux-firmware` is on the medium, because most Wi-Fi cards do not start
 without it.
 

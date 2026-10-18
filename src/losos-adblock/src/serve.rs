@@ -1,12 +1,13 @@
 //! The DNS forwarder resolved sends every query to.
 //!
 //! resolved stays the system's resolver, with its cache, its stub on
-//! 127.0.0.53, mDNS and LLMNR; the OS makes this forwarder its only global
-//! server and takes the default route away from each link's servers
-//! (nixos/modules/adblock.nix), so every query for the wider internet comes
-//! here. A blocked name is answered on the spot; anything else goes,
-//! unchanged, to the servers the network handed out, which resolved lists
-//! in /run/systemd/resolve/resolv.conf for programs like this one.
+//! 127.0.0.53, mDNS and LLMNR. The OS gives NetworkManager a dummy link whose
+//! only DNS server is this forwarder, for every domain and ahead of every
+//! other link (nixos/modules/adblock.nix), so every query for the wider
+//! internet comes here and the networks' own servers are handed to resolved
+//! for nothing. A blocked name is answered on the spot; anything else goes,
+//! unchanged, to the servers the network handed out, which NetworkManager
+//! still lists for each device and `nmcli` reads back.
 //!
 //! Queries go through a bounded queue to a few worker threads: resolved
 //! caches and coalesces, so what reaches here is a desktop's worth of
@@ -17,10 +18,11 @@
 
 use std::fs;
 use std::io::{self, Read, Write};
-use std::net::{IpAddr, Ipv6Addr, SocketAddr, SocketAddrV6, TcpListener, TcpStream, UdpSocket};
+use std::net::{IpAddr, SocketAddr, SocketAddrV6, TcpListener, TcpStream, UdpSocket};
 use std::os::fd::FromRawFd;
 use std::path::PathBuf;
-use std::sync::RwLock;
+use std::process::{Command, Stdio};
+use std::sync::{Mutex, RwLock};
 use std::thread;
 use std::time::{Duration, Instant, SystemTime};
 
@@ -30,12 +32,18 @@ use tracing::{debug, info, warn};
 use crate::dns;
 use crate::rules::{Blocklist, Verdict};
 
-/// Where resolved lists every server it knows, links' included.
+/// Where resolved lists the servers it uses, for a system without
+/// NetworkManager.
 const RESOLV_CONF: &str = "/run/systemd/resolve/resolv.conf";
 /// How long one upstream gets before the next is tried.
 const UPSTREAM_TIMEOUT: Duration = Duration::from_secs(2);
-/// How often the compiled list and resolv.conf are checked for changes.
+/// How often the compiled list is checked for changes and the upstreams
+/// read again.
 const RELOAD_EVERY: Duration = Duration::from_secs(15);
+/// The least time between two readings of the upstreams forced by a query
+/// none of them answered, so a network that is down is not asked about on
+/// every query.
+const REFRESH_GAP: Duration = Duration::from_secs(2);
 /// Worker threads answering UDP queries, and how many queries may wait
 /// for one: enough for a burst of cache misses, few enough that a dead
 /// upstream cannot pile up minutes of work.
@@ -112,9 +120,11 @@ struct State {
 struct Shared {
     state: RwLock<State>,
     list: PathBuf,
-    /// Our own addresses, never forwarded to: resolved lists us among its
-    /// servers.
+    /// Our own addresses, never forwarded to: NetworkManager and resolved
+    /// list us among their servers.
     own: Vec<SocketAddr>,
+    /// When the upstreams were last read.
+    refreshed: Mutex<Instant>,
 }
 
 fn modified(path: &std::path::Path) -> Option<SystemTime> {
@@ -137,63 +147,140 @@ fn load_list(path: &std::path::Path) -> Blocklist {
     }
 }
 
-/// The servers resolved knows, minus resolved's own stubs and us.
+/// A server's address from its text, `ip` or `ip%link`, minus resolved's
+/// own stubs and us.
+fn server(text: &str, link: Option<&str>, own: &[SocketAddr]) -> Option<SocketAddr> {
+    let (ip, link) = match text.split_once('%') {
+        Some((ip, link)) => (ip, Some(link)),
+        None => (text, link),
+    };
+    let addr = match ip.parse::<IpAddr>().ok()? {
+        // A link-local IPv6 server is only reachable through its link.
+        IpAddr::V6(v6) if v6.segments()[0] & 0xffc0 == 0xfe80 => {
+            let name = std::ffi::CString::new(link?).ok()?;
+            // SAFETY: a NUL-terminated interface name.
+            let index = unsafe { libc::if_nametoindex(name.as_ptr()) };
+            SocketAddr::V6(SocketAddrV6::new(v6, 53, 0, index))
+        }
+        ip => SocketAddr::new(ip, 53),
+    };
+    let stub = matches!(addr.ip(), IpAddr::V4(v4) if v4.octets()[..3] == [127, 0, 0] && matches!(v4.octets()[3], 53 | 54));
+    (!stub && !own.iter().any(|o| o.ip() == addr.ip())).then_some(addr)
+}
+
+/// The servers in a resolv.conf, minus resolved's own stubs and us.
 pub fn upstreams(text: &str, own: &[SocketAddr]) -> Vec<SocketAddr> {
     let mut out = Vec::new();
     for line in text.lines() {
-        let Some(server) = line.trim().strip_prefix("nameserver") else {
+        let Some(text) = line.trim().strip_prefix("nameserver") else {
             continue;
         };
-        let server = server.trim();
-        let addr = match server.split_once('%') {
-            // A link-local IPv6 server is only reachable through its link.
-            Some((ip, link)) => {
-                let Ok(ip) = ip.parse::<Ipv6Addr>() else {
-                    continue;
-                };
-                let Ok(name) = std::ffi::CString::new(link) else {
-                    continue;
-                };
-                // SAFETY: a NUL-terminated interface name.
-                let index = unsafe { libc::if_nametoindex(name.as_ptr()) };
-                SocketAddr::V6(SocketAddrV6::new(ip, 53, 0, index))
-            }
-            None => match server.parse::<IpAddr>() {
-                Ok(ip) => SocketAddr::new(ip, 53),
-                Err(_) => continue,
-            },
-        };
-        let stub = matches!(addr.ip(), IpAddr::V4(v4) if v4.octets()[..3] == [127, 0, 0] && matches!(v4.octets()[3], 53 | 54));
-        if stub || own.iter().any(|o| o.ip() == addr.ip()) || out.contains(&addr) {
-            continue;
+        match server(text.trim(), None, own) {
+            Some(addr) if !out.contains(&addr) => out.push(addr),
+            _ => {}
         }
-        out.push(addr);
+    }
+    out
+}
+
+/// The servers in `nmcli -t -f GENERAL.DEVICE,IP4.DNS,IP6.DNS device show`,
+/// each device's after its `GENERAL.DEVICE` line, minus us. Terse output
+/// escapes a colon in a value, as in every IPv6 address, with a backslash.
+pub fn nm_upstreams(text: &str, own: &[SocketAddr]) -> Vec<SocketAddr> {
+    let mut out = Vec::new();
+    let mut device = String::new();
+    for line in text.lines() {
+        let Some((key, value)) = line.split_once(':') else {
+            continue;
+        };
+        let value = value.replace("\\:", ":").replace("\\\\", "\\");
+        if key == "GENERAL.DEVICE" {
+            device = value;
+        } else if key.starts_with("IP4.DNS[") || key.starts_with("IP6.DNS[") {
+            match server(&value, Some(&device), own) {
+                Some(addr) if !out.contains(&addr) => out.push(addr),
+                _ => {}
+            }
+        }
     }
     out
 }
 
 fn load_upstreams(own: &[SocketAddr]) -> Vec<SocketAddr> {
-    // Outside a resolved system, /etc/resolv.conf names the real servers;
-    // under resolved it names only the stub, which is skipped.
-    let text = fs::read_to_string(RESOLV_CONF)
-        .or_else(|_| fs::read_to_string("/etc/resolv.conf"))
-        .unwrap_or_default();
-    let found = upstreams(&text, own);
+    // NetworkManager knows each network's servers. Without it, resolved's
+    // resolv.conf lists them, and outside a resolved system /etc/resolv.conf
+    // does; under resolved that names only the stub, which is skipped.
+    let nmcli = Command::new("nmcli")
+        .args([
+            "-t",
+            "-f",
+            "GENERAL.DEVICE,IP4.DNS,IP6.DNS",
+            "device",
+            "show",
+        ])
+        .stderr(Stdio::null())
+        .output();
+    let found = match nmcli {
+        Ok(out) if out.status.success() => nm_upstreams(&String::from_utf8_lossy(&out.stdout), own),
+        _ => {
+            let text = fs::read_to_string(RESOLV_CONF)
+                .or_else(|_| fs::read_to_string("/etc/resolv.conf"))
+                .unwrap_or_default();
+            upstreams(&text, own)
+        }
+    };
     debug!(?found, "upstream servers");
     found
 }
 
-/// Answers `query`: blocked here, forwarded, or a SERVFAIL.
+/// Reads the upstreams again, unless that was done within `gap`; true if
+/// they changed.
+fn refresh_upstreams(shared: &Shared, gap: Duration) -> bool {
+    {
+        let Ok(mut refreshed) = shared.refreshed.try_lock() else {
+            return false;
+        };
+        if refreshed.elapsed() < gap {
+            return false;
+        }
+        *refreshed = Instant::now();
+    }
+    let upstreams = load_upstreams(&shared.own);
+    let Ok(mut state) = shared.state.write() else {
+        return false;
+    };
+    let changed = state.upstreams != upstreams;
+    state.upstreams = upstreams;
+    changed
+}
+
+/// Answers `query`: blocked here, forwarded, or a SERVFAIL. When no
+/// upstream answers, the network may have changed since they were read, so
+/// they are read again and tried once more.
 fn answer(shared: &Shared, query: &[u8], tcp: bool) -> Option<Vec<u8>> {
-    let state = shared.state.read().ok()?;
-    if let Some(question) = dns::question(query) {
-        if let Verdict::Blocked(rule) = state.blocklist.verdict(&question.name) {
-            debug!(name = %question.name, %rule, "blocked");
-            return Some(dns::blocked(query, &question));
+    {
+        let state = shared.state.read().ok()?;
+        if let Some(question) = dns::question(query) {
+            if let Verdict::Blocked(rule) = state.blocklist.verdict(&question.name) {
+                debug!(name = %question.name, %rule, "blocked");
+                return Some(dns::blocked(query, &question));
+            }
         }
     }
-    let upstreams = state.upstreams.clone();
-    drop(state);
+    if let Some(reply) = forward(shared, query, tcp) {
+        return Some(reply);
+    }
+    if refresh_upstreams(shared, REFRESH_GAP) {
+        if let Some(reply) = forward(shared, query, tcp) {
+            return Some(reply);
+        }
+    }
+    dns::servfail(query)
+}
+
+/// The first upstream's reply to `query`, if any gives one.
+fn forward(shared: &Shared, query: &[u8], tcp: bool) -> Option<Vec<u8>> {
+    let upstreams = shared.state.read().ok()?.upstreams.clone();
     for upstream in upstreams {
         let result = if tcp {
             forward_tcp(upstream, query)
@@ -205,7 +292,7 @@ fn answer(shared: &Shared, query: &[u8], tcp: bool) -> Option<Vec<u8>> {
             Err(error) => debug!(%upstream, %error, "upstream failed"),
         }
     }
-    dns::servfail(query)
+    None
 }
 
 fn forward_udp(upstream: SocketAddr, query: &[u8]) -> io::Result<Vec<u8>> {
@@ -274,6 +361,7 @@ pub fn run(sockets: Sockets, list: PathBuf) {
         }),
         list,
         own,
+        refreshed: Mutex::new(Instant::now()),
     };
     let shared = &shared;
 
@@ -282,12 +370,12 @@ pub fn run(sockets: Sockets, list: PathBuf) {
     let (queue, queries) = crossbeam_channel::bounded::<(Vec<u8>, SocketAddr, &UdpSocket)>(QUEUE);
 
     thread::scope(|s| {
-        // Reloads: the blocklist after an update, the upstreams after the
-        // network changes. Checked by modification time, so an update needs
-        // no signal to reach a running forwarder.
+        // Reloads: the blocklist after an update, checked by modification
+        // time so an update needs no signal to reach a running forwarder,
+        // and the upstreams, which a network change moves without touching
+        // any file this could watch.
         s.spawn(move || {
             let mut list_time = modified(&shared.list);
-            let mut conf_time = modified(std::path::Path::new(RESOLV_CONF));
             loop {
                 thread::sleep(RELOAD_EVERY);
                 let now = modified(&shared.list);
@@ -298,14 +386,7 @@ pub fn run(sockets: Sockets, list: PathBuf) {
                         state.blocklist = list;
                     }
                 }
-                let now = modified(std::path::Path::new(RESOLV_CONF));
-                if now != conf_time {
-                    conf_time = now;
-                    let upstreams = load_upstreams(&shared.own);
-                    if let Ok(mut state) = shared.state.write() {
-                        state.upstreams = upstreams;
-                    }
-                }
+                refresh_upstreams(shared, Duration::ZERO);
             }
         });
 
@@ -360,6 +441,20 @@ pub fn run(sockets: Sockets, list: PathBuf) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn reads_networkmanagers_servers() {
+        let own: Vec<SocketAddr> = vec!["169.254.153.53:53".parse().unwrap()];
+        let text = "GENERAL.DEVICE:eth0\nIP4.DNS[1]:192.168.1.1\nIP4.DNS[2]:192.168.1.1\nIP6.DNS[1]:2001\\:db8\\:\\:1\n\nGENERAL.DEVICE:adblock0\nIP4.DNS[1]:169.254.153.53\n\nGENERAL.DEVICE:lo\n";
+        let found = nm_upstreams(text, &own);
+        assert_eq!(
+            found,
+            vec![
+                "192.168.1.1:53".parse::<SocketAddr>().unwrap(),
+                "[2001:db8::1]:53".parse::<SocketAddr>().unwrap()
+            ]
+        );
+    }
 
     #[test]
     fn reads_resolveds_servers() {

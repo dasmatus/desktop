@@ -5,7 +5,7 @@
 Linux 5.10 or newer, through [Halium](https://halium.org), the Android hardware layer that ports
 such as Ubuntu Touch and Droidian build on. `nixosModules.gsi` imports
 `nixos/modules/base.nix`, which holds everything a PC and a phone share (the
-derisk desktop, homed accounts, networkd, pm, no Nix on the device, the `/etc`
+derisk desktop, homed accounts, NetworkManager, pm, no Nix on the device, the `/etc`
 overlay, sysusers), and adds its own boot (`boot.nix`) and Android layer
 (`android.nix`) in place of the PC's UEFI, verity `/usr`, sysupdate and
 installer. The [web flasher](web-flasher.md) installs it.

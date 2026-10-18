@@ -1,16 +1,14 @@
-# The installer's live system: a kernel, systemd, wpa_supplicant and
+# The installer's live system: a kernel, systemd, NetworkManager and
 # `derisk installer` as the session on tty1. installer.nix in the OS evaluates
 # this and passes in, as `losos`, what to install and from where; iso.nix
 # turns it into the ISO.
 #
 # derisk draws the pages and joins networks; `losos-installer serve`, its
 # child, offers the disks and runs repart and sysupdate. Nothing else of the
-# desktop is here: no display manager, no apps, no user. There is no
-# NetworkManager: networkd runs DHCP on every wired port that has a cable and
-# on whatever wireless link wpa_supplicant brings up, and derisk drives
-# wpa_supplicant over its control socket, as first-boot setup does on the
-# installed system. That is the whole network stack, and the only one an
-# install needs.
+# desktop is here: no display manager, no apps, no user. NetworkManager runs
+# DHCP on every wired port that has a cable, and derisk joins Wi-Fi through
+# it with nmcli, as first-boot setup does on the installed system
+# (modules/network.nix).
 {
   config,
   lib,
@@ -136,7 +134,7 @@ in
   systemd.sysusers.enable = true;
   users.mutableUsers = false;
 
-  # tty2 and onwards log root in without a password, for wpa_cli and anything
+  # tty2 and onwards log root in without a password, for nmcli and anything
   # else the installer does not cover. The machine is in front of whoever booted it,
   # and the installer that already runs on tty1 can erase any disk.
   services.getty.autologinUser = "root";
@@ -146,54 +144,24 @@ in
 
   networking = {
     hostName = "losos-installer";
-    useNetworkd = true;
-    # The links are configured below, by name, rather than by nixpkgs'
-    # catch-all defaults, so what a cable gets is written down here.
-    useDHCP = false;
-
-    wireless = {
-      enable = true;
-      # Control sockets under /run/wpa_supplicant, which derisk uses to scan
-      # and to add the network someone picks.
-      userControlled = true;
-    };
+    # NixOS's defaults: a cable that is plugged in, at boot or later, gets an
+    # address with nothing asked, and the installer goes straight on to the
+    # disks. With a cable and Wi-Fi both up, the cable's lower route metric
+    # wins, so the image comes down the cable.
+    networkmanager.enable = true;
 
     # Nothing listens: no SSH, and resolved is told below not to answer on
     # the local network. A packet filter would guard no port.
     firewall.enable = false;
   };
 
-  systemd.network = {
-    # Any physical wired port, built in or on USB: a cable that is plugged in,
-    # at boot or later, gets an address with nothing asked, and the installer
-    # goes straight on to the disks. Kind=!* leaves out bridges, bonds and the
-    # like; wireless links have Type=wlan, so they are not matched here.
-    networks."20-wired" = {
-      matchConfig = {
-        Type = "ether";
-        Kind = "!*";
-      };
-      networkConfig.DHCP = "yes";
-      # The lower metric wins, so with a cable and Wi-Fi both up the image
-      # comes down the cable.
-      dhcpV4Config.RouteMetric = 100;
-      ipv6AcceptRAConfig.RouteMetric = 100;
-    };
+  # Nothing here waits for the network: the installer watches for it, and a
+  # machine with neither a cable nor Wi-Fi in range must still reach it.
+  systemd.services.NetworkManager-wait-online.enable = false;
 
-    # Whatever station wpa_supplicant associates, once someone picks a network
-    # in the installer.
-    networks."30-wireless" = {
-      matchConfig.WLANInterfaceType = "station";
-      networkConfig.DHCP = "yes";
-      dhcpV4Config.RouteMetric = 600;
-      ipv6AcceptRAConfig.RouteMetric = 600;
-    };
-
-    # Nothing here waits for the network: the installer watches for it, and a
-    # machine with neither a cable nor Wi-Fi in range must still reach it.
-    wait-online.enable = false;
-  };
-
+  # NixOS's default, made explicit: NetworkManager hands each link's DNS to
+  # resolved, as on the installed system.
+  services.resolved.enable = true;
   services.resolved.settings.Resolve = {
     LLMNR = false;
     MulticastDNS = false;
