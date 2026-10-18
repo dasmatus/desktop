@@ -45,7 +45,7 @@
 }:
 
 let
-  version = "0.1.0-unstable-2026-10-17";
+  version = "0.1.0-unstable-2026-10-18";
 
   # The components/derisk submodule, at the commit this tree records for it
   # (flake.nix, `self.submodules`). cleanSource drops the submodule's .git

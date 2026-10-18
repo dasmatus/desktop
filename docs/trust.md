@@ -85,8 +85,41 @@ needs `git clone --recurse-submodules` (or `git submodule update --init`), and
 is `git -C components/<name> checkout <rev>`, a commit here, and a new
 `cargoHash` in its `nixos/pkgs/*.nix` when its `Cargo.lock` changed. There is
 no source hash to update: the submodule commit already names the tree.
+`tools/nix-refresh-hashes --list > before.txt` before the move and
+`tools/nix-refresh-hashes before.txt` after it finds and rewrites that
+`cargoHash`.
 derisk's own `Cargo.lock` still fetches mcsapi by git revision, so move
 `components/mcsapi` to the revision that lock names.
+
+## Keeping the pins current
+
+Every Monday the `lockfiles` workflow (`.github/workflows/lockfiles.yml`)
+runs `tools/update-lockfiles`, which a person can run the same way:
+
+- `nix flake update` moves nixpkgs and Home Manager in `flake.lock`.
+- `cargo update` moves every `Cargo.lock` outside `components/`, and
+  `npm update --package-lock-only` every `package-lock.json`, each only as
+  far as its manifest allows, with cargo and npm from the new nixpkgs.
+- `tools/nix-refresh-hashes` then re-fetches every fixed output pinned in
+  this repository whose derivation those changes touched, and writes back
+  the hash it really has. Re-fetching is the point: a stale hash still names
+  the old store path, so a machine or cache that has the old output builds
+  with it and never notices. losos-docs' npm hash moves this way whenever
+  `website/package-lock.json` does.
+
+The result is a pull request on an `automation/lockfiles-<date>` branch that
+merges itself with a merge commit once every check on it has passed and no
+VM test warned; otherwise it waits for a person, with a comment saying
+which check stopped it. A newer week's pull request closes the older one.
+The submodules stay where they are, since each of derisk, mcsapi and pm
+updates its own lockfiles the same way and moving a pin is a decision.
+
+The workflow opens and merges with `LOCKFILE_UPDATE_TOKEN`, a fine-grained
+token with Contents and Pull requests write. GitHub starts no workflow for
+a pull request or push made with Actions' own token, so with that token
+neither the pull request's checks nor main's run after the merge would
+start. Without the secret the branch is still pushed, and the run's summary
+links the page that opens its pull request.
 
 android_translation_layer stays a `fetchgit` pin: it is an upstream fork, off
 by default, and its tree is close to half a gigabyte, which the flake would
