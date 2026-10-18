@@ -14,6 +14,7 @@
     ./setup.nix
     ./network.nix
     ./desktop.nix
+    ./assistant.nix
     ./danube.nix
     ./adblock.nix
     # flatpak.nix is not here: a PC runs Flatpak in a machine of its own
