@@ -52,12 +52,18 @@ pub struct Config {
     pub release_repo: Option<String>,
     /// The version the ISO was built as.
     pub release_version: Option<String>,
+    /// The cadence the ISO was built for; `nightly` when not given.
+    pub release_channel: Option<String>,
 }
 
 /// The GitHub release an install reads, when the ISO was told both halves.
 pub fn github(config: &Config) -> Option<install::GitHub> {
     Some(install::GitHub {
         repo: config.release_repo.clone()?,
+        channel: config
+            .release_channel
+            .clone()
+            .unwrap_or_else(|| "nightly".to_owned()),
         version: config.release_version.clone()?,
         // The names release files carry, which are the kernel's: x86_64
         // and aarch64.

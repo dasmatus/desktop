@@ -31,7 +31,7 @@ lib.mkIf (cfg.arch.name == "x86_64") {
     pkgs.pkgsCross.mingwW64.callPackage ../pkgs/losos-windows-installer.nix
       {
         updateUrl = if local then null else cfg.update.baseUrl;
-        updateIndex = if local then config.services.losos-update-source.index else null;
+        updateIndex = if local then config.services.losos-update-source.defaultIndex else null;
         inherit (cfg.update) pubring;
         imageId = config.system.image.id;
         arch = cfg.arch.name;

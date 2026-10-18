@@ -7,21 +7,27 @@
 # Every job runs on a hosted Ubuntu runner and calls `nix` or `oras` directly,
 # the same commands a person would run, so a failure here reproduces at a desk.
 name: ci
+# A run cadence.yml started is named for its cadence and the nightly it
+# builds, which is how cadence.yml sees that one is still going. Other runs
+# keep GitHub's own name: an empty run-name means that.
+run-name: ${{ github.event_name == 'workflow_dispatch' && format('{0} release of {1}', inputs.cadence, github.ref_name) || '' }}
 
 on:
   push:
     branches: [main]
   pull_request:
-  # A run started by hand publishes like a main run. Given a tag, it makes a
-  # release under that tag and title instead of a nightly (`publish`).
+  # A run started by hand publishes like a main run, as a release of the
+  # cadence it names (`publish`). cadence.yml starts one on the newest
+  # nightly's tag for each weekly, monthly or yearly release that is due.
   workflow_dispatch:
     inputs:
-      tag:
-        description: "Tag for a release of this commit, such as v0.1.0. Empty publishes a nightly."
-        type: string
-        default: ""
+      cadence:
+        description: "The cadence to release this commit for."
+        type: choice
+        options: [nightly, weekly, monthly, yearly]
+        default: nightly
       title:
-        description: "The release's title, such as LosOS 0.1. Empty uses the tag."
+        description: "The release's title, such as LosOS 2027. Empty names the cadence and version."
         type: string
         default: ""
 
@@ -36,19 +42,21 @@ permissions:
   contents: read
 
 # A newer push to a pull request cancels the run already going. Runs that
-# publish queue instead, so none is killed half-way through an upload.
+# publish queue instead, so none is killed half-way through an upload. The
+# cadence is part of the group because cadence.yml can start a weekly, a
+# monthly and a yearly run on the same tag at once, and a group holds one
+# waiting run: a third would cancel the second.
 concurrency:
-  group: ${{ github.workflow }}-${{ github.ref }}
+  group: ${{ github.workflow }}-${{ github.ref }}-${{ inputs.cadence }}
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
-# The channel the images are built for, `losos.channel` (flake.nix reads it):
-# what an installed system updates from (docs/releases.md).
-# Every run builds and publishes the nightly, but for a run started by hand
-# with a tag, which is a release of the stable channel. The images then
-# follow the stable channel, and `publish` moves its tags rather than the
-# nightly's.
+# The cadence the images are built for, `losos.channel` (flake.nix reads
+# it): what a system installed from them updates from until someone picks
+# another in Settings (docs/releases.md). Every run builds the nightly but
+# one started by hand, which builds the cadence it names; `publish` then
+# releases it under that cadence and moves that cadence's tags.
 env:
-  LOSOS_CHANNEL: ${{ github.event_name == 'workflow_dispatch' && inputs.tag != '' && 'stable' || 'nightly' }}
+  LOSOS_CHANNEL: ${{ github.event_name == 'workflow_dispatch' && inputs.cadence || 'nightly' }}
 
 jobs:
   # Every package the release needs, built on each architecture before the
@@ -705,7 +713,7 @@ jobs:
   # The one check branch protection looks for, so a skipped or cancelled job
   # never reads as green.
   ci:
-    needs: [prebuild, flake, format, proxy, release-name]
+    needs: [prebuild, flake, format, proxy]
     if: always()
     runs-on: ubuntu-24.04
     timeout-minutes: 5
@@ -716,47 +724,23 @@ jobs:
           FLAKE: ${{ needs.flake.result }}
           FORMAT: ${{ needs.format.result }}
           PROXY: ${{ needs.proxy.result }}
-          RELEASE_NAME: ${{ needs.release-name.result }}
         run: |
           test "$PREBUILD" = success
           test "$FLAKE" = success
           test "$FORMAT" = success
           test "$PROXY" = success
-          # Skipped unless a run started by hand names a tag.
-          test "$RELEASE_NAME" != failure
 
-  # A tag given to a run started by hand is checked before anything is
-  # built, so a name that is malformed or already released fails in seconds
-  # rather than after the build. `ci` requires it, and `publish` waits on it.
-  release-name:
-    if: github.event_name == 'workflow_dispatch' && inputs.tag != ''
-    runs-on: ubuntu-24.04
-    timeout-minutes: 5
-    steps:
-      - name: Check the tag
-        env:
-          GH_TOKEN: ${{ github.token }}
-          TAG: ${{ inputs.tag }}
-        run: |
-          # A git ref name that is also a plain release asset URL segment.
-          # nightly- names belong to the nightlies, which a hand-made tag
-          # would otherwise take before its run did.
-          if ! [[ "$TAG" =~ ^[A-Za-z0-9][A-Za-z0-9._-]{0,99}$ ]] || [[ "$TAG" == *..* ]]; then
-            echo "::error::'$TAG' is not a tag name: letters, digits, '.', '_' and '-', starting with a letter or digit."
-            exit 1
-          fi
-          if [[ "$TAG" == nightly* ]]; then
-            echo "::error::Tags starting with 'nightly' are the nightlies'. Pick another name."
-            exit 1
-          fi
-          if gh release view "$TAG" --repo "$GITHUB_REPOSITORY" --json isDraft --jq .isDraft 2>/dev/null | grep -qx false; then
-            echo "::error::$TAG is already released, and a release is never edited."
-            exit 1
-          fi
+  # release-name checked a tag given to a run started by hand, back when a
+  # release could have any name. Every tag is now `<cadence>-<stamp>`, made
+  # from the version, so there is nothing left to check before the build.
 
   # Moves the channel's tag in GHCR and publishes the run as its own GitHub
-  # release, tagged `nightly-<YYYYMMDD>T<HHMM>` from the commit's time (the
-  # version every file name carries, flake.nix) and marked a prerelease.
+  # release, tagged `<cadence>-<YYYYMMDD>T<HHMM>` from the commit's time (the
+  # version every file name carries, flake.nix). The prefix is the release's
+  # cadence, which is how cadence.yml and the site's index
+  # (website/release-index.js) tell the channels apart. A nightly is a
+  # prerelease; a weekly, monthly or yearly release is a full one, and only a
+  # yearly is marked GitHub's latest release.
   # sysupdate keeps reading the channel tag through proxy/; the release is the
   # same artifacts for a person to download, pinned to the commit. Only an
   # architecture that finished its build and passed its flake check reached
@@ -767,14 +751,13 @@ jobs:
   # moving `nightly` release any more: GitHub refuses to reuse the tag of a
   # deleted immutable release, so one could not be replaced.
   #
-  # A run started by hand with a tag publishes its files as a release under
-  # that tag and title instead, not a prerelease. Its images were built for
-  # the stable channel (LOSOS_CHANNEL above), so it moves the stable
-  # channel's tags, and systems installed from it follow the stable releases
-  # while those installed from a nightly keep following the nightlies.
+  # A weekly, monthly or yearly run's images were built for that cadence
+  # (LOSOS_CHANNEL above), so systems installed from it follow that cadence's
+  # releases while those installed from a nightly keep following the
+  # nightlies.
   publish:
-    needs: [push, release-name]
-    if: always() && needs.push.result == 'success' && needs.release-name.result != 'failure'
+    needs: [push]
+    if: always() && needs.push.result == 'success'
     runs-on: ubuntu-24.04
     timeout-minutes: 90
     # actions: write starts docs.yml at the end, for the site's release index.
@@ -792,7 +775,7 @@ jobs:
         id: pulled
         env:
           GHCR_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          TAG: ${{ inputs.tag }}
+          GH_TOKEN: ${{ github.token }}
           TITLE: ${{ inputs.title }}
         run: |
           # A run publishes both architectures or neither: a release with one
@@ -815,12 +798,46 @@ jobs:
             echo "::error::Expected one version across the architectures, found: ${versions:-none}"
             exit 1
           fi
-          # 20261010.175322 is tagged nightly-20261010T1753, unless the run
-          # was started by hand with a tag (release-name checked it).
-          if [ -n "$TAG" ]; then
-            tag=$TAG title=${TITLE:-$TAG} nightly=false
-          else
-            tag=nightly-${versions:0:8}T${versions:9:4} title="LosOS nightly $versions" nightly=true
+          # 20261010.175322 is tagged nightly-20261010T1753 for a nightly,
+          # weekly-20261010T1753 for a weekly, and so on.
+          tag=$LOSOS_CHANNEL-${versions:0:8}T${versions:9:4}
+          title=${TITLE:-LosOS $LOSOS_CHANNEL $versions}
+          # Each release also gets a name, an adjective and a verb that start
+          # with the same letter ("Quiet Queue"), drawn from the Oxford 3000
+          # and 5000 word lists of Oxford Learner's Dictionaries. A verb some
+          # earlier release's name already used is not drawn again; the names
+          # are read back from the titles of this repository's releases, the
+          # last word of the part after " · ". Once every verb has been used
+          # they repeat. The name is a nicety, so a dictionary that cannot be
+          # reached leaves the release without one rather than unreleased.
+          if [ -z "$TITLE" ]; then
+            if words=$(curl --silent --show-error --fail --location --retry 3 --max-time 120 \
+              https://www.oxfordlearnersdictionaries.com/wordlists/oxford3000-5000); then
+              # The page is one line; every <li> is a headword and its part
+              # of speech.
+              grep -oE '<li data-hw="[a-z]+"[^>]*>[^<]*<a [^>]*>[^<]*</a>[^<]*<span class="pos">(verb|adjective)</span>' \
+                <<<"$words" | sed -E 's|<li data-hw="([a-z]+)".*<span class="pos">([a-z]+)</span>|\2 \1|' \
+                | sort -u > words.txt
+              gh release list --repo "$GITHUB_REPOSITORY" --limit 100000 --json name --jq '.[].name' \
+                | sed -nE 's/.* · [A-Za-z]+ ([A-Za-z]+)$/\1/p' | tr '[:upper:]' '[:lower:]' | sort -u > used.txt
+              # Verbs that have an adjective of their letter.
+              awk '$1 == "adjective" { a[substr($2, 1, 1)] = 1 } $1 == "verb" && a[substr($2, 1, 1)] { print $2 }' \
+                words.txt | sort -u > verbs.txt
+              fresh=$(comm -23 verbs.txt used.txt)
+              if [ -z "$fresh" ]; then
+                echo "::warning::Every verb of the word list has named a release, so one is used again."
+                fresh=$(cat verbs.txt)
+              fi
+              verb=$(shuf -n 1 <<<"$fresh")
+              adjective=$(awk -v l="${verb:0:1}" '$1 == "adjective" && substr($2, 1, 1) == l { print $2 }' words.txt | shuf -n 1)
+              if [ -n "$verb" ] && [ -n "$adjective" ]; then
+                title="$title · ${adjective^} ${verb^}"
+              else
+                echo "::warning::The word list had no verb and adjective to name this release with."
+              fi
+            else
+              echo "::warning::The Oxford word list could not be fetched, so this release has no name."
+            fi
           fi
           # A title is one line, so it cannot add outputs of its own.
           title=${title//[$'\r\n']/ }
@@ -828,14 +845,13 @@ jobs:
             echo "version=$versions"
             echo "tag=$tag"
             echo "title=$title"
-            echo "nightly=$nightly"
             echo "any=true"
           } >> "$GITHUB_OUTPUT"
 
       # proxy/ serves `images:<channel>-<arch>` at /updates/<channel>/<arch>/,
       # so the tag moves only here, to the artifact the release below is made
-      # of: `nightly-<arch>` for a nightly, `stable-<arch>` for a tagged
-      # release.
+      # of: `nightly-<arch>` for a nightly, `weekly-<arch>` for a weekly
+      # release, and so on.
       - name: Move the channel tags in GHCR
         if: steps.pulled.outputs.any == 'true'
         run: |
@@ -856,21 +872,17 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           TAG: ${{ steps.pulled.outputs.tag }}
           TITLE: ${{ steps.pulled.outputs.title }}
-          NIGHTLY: ${{ steps.pulled.outputs.nightly }}
           VERSION: ${{ steps.pulled.outputs.version }}
           PROXY_URL: ${{ vars.LOSOS_PROXY_URL }}
         run: |
-          # A tag is published once. A re-run of this commit finds its
-          # release there and stops; only a draft, which an upload that died
-          # half-way leaves behind and which is not yet immutable, is
-          # replaced.
+          # A tag is published once. A re-run of this commit and cadence
+          # finds its release there and stops; only a draft, which an upload
+          # that died half-way leaves behind and which is not yet immutable,
+          # is replaced.
           if draft=$(gh release view "$TAG" --repo "$GITHUB_REPOSITORY" --json isDraft --jq .isDraft 2>/dev/null); then
-            if [ "$draft" != true ] && [ "$NIGHTLY" = true ]; then
+            if [ "$draft" != true ]; then
               echo "::notice::$TAG is already published, and a release is never edited."
               exit 0
-            elif [ "$draft" != true ]; then
-              echo "::error::$TAG was released while this run built, and a release is never edited."
-              exit 1
             fi
             gh release delete "$TAG" --repo "$GITHUB_REPOSITORY" --yes
           fi
@@ -905,8 +917,8 @@ jobs:
           cat > notes.md <<NOTES
           Built from $GITHUB_SHA, version \`$VERSION\`, for x86_64 and aarch64.
 
-          - **Install:** write \`*-installer.iso\` to a USB stick and boot it, or run the Windows installer on a PC that keeps Windows. The ISO installs this version from this release over the network; the Windows installer installs the newest release of the $LOSOS_CHANNEL channel.
-          - **Update images:** the UKI (\`.efi\`) and the two halves of \`/usr\` (\`_usr-*.raw.xz\`) are what systemd-sysupdate installs. Systems installed from this release follow the $LOSOS_CHANNEL channel and $fetched; these are the same files, pinned to this version.
+          - **Install:** write \`*-installer.iso\` to a USB stick and boot it, or run the Windows installer on a PC that keeps Windows. The ISO installs this version from this release over the network; the Windows installer installs the newest $LOSOS_CHANNEL release.
+          - **Update images:** the UKI (\`.efi\`) and the two halves of \`/usr\` (\`_usr-*.raw.xz\`) are what systemd-sysupdate installs. Systems installed from this release follow the $LOSOS_CHANNEL releases, until another cadence is picked in Settings, System, and $fetched; these are the same files, pinned to this version.
           - **Disk image:** \`<arch>.raw.xz\`. Unpack it and write it to a disk, or convert it for a VM with \`qemu-img convert -O qcow2\`.
           - **Files of 2 GiB or more** are split into \`.part-00\`, \`.part-01\` and on, because GitHub rejects larger assets. \`cat <file>.part-* > <file>\` joins one.
           - **Checking:** \`SHA256SUMS-<arch>\` lists that architecture's files and \`SHA256SUMS-<arch>.gpg\` signs it with the [update signing key]($GITHUB_SERVER_URL/$GITHUB_REPOSITORY/blob/$GITHUB_SHA/nixos/keys/update-signing.asc). \`gpg --verify SHA256SUMS-<arch>.gpg SHA256SUMS-<arch>\`, then \`sha256sum --check --ignore-missing SHA256SUMS-<arch>\`.
@@ -914,8 +926,15 @@ jobs:
           # gh creates the release as a draft, uploads every asset and only
           # then publishes it, so an immutable release is never published
           # with files still missing.
-          prerelease=()
-          [ "$NIGHTLY" = true ] && prerelease=(--prerelease)
+          # A nightly is a prerelease, which GitHub never shows as latest.
+          # The others are full releases, and only a yearly one is the
+          # repository's latest: gh would otherwise mark every weekly and
+          # monthly latest as it came out.
+          case $LOSOS_CHANNEL in
+            nightly) kind=(--prerelease) ;;
+            yearly) kind=(--latest) ;;
+            *) kind=(--latest=false) ;;
+          esac
           # The runner's connection to the API can drop for a moment (a
           # nightly was lost to one "dial tcp ... i/o timeout"), and this
           # step comes hours into the run, so a failed attempt is tried
@@ -924,7 +943,7 @@ jobs:
           # lost.
           for attempt in 1 2 3; do
             if gh release create "$TAG" --repo "$GITHUB_REPOSITORY" --target "$GITHUB_SHA" \
-              --title "$TITLE" "${prerelease[@]}" --notes-file notes.md \
+              --title "$TITLE" "${kind[@]}" --notes-file notes.md \
               assets/*; then
               exit 0
             fi

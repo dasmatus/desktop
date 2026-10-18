@@ -18,9 +18,9 @@ SHA256SUMS
 CI pushes it to GHCR as one OCI artifact per architecture with `oras`, which
 a deployment of `proxy/` can serve to sysupdate, which cannot fetch from an
 OCI registry itself (see [Binary cache](binary-cache.md)). The publish job then
-creates a GitHub release of its own for that run, tagged
-`nightly-<YYYYMMDD>T<HHMM>` from the version (`20261010.175322` is
-`nightly-20261010T1753`) and marked a prerelease. It carries both
+creates a GitHub release of its own for that run, tagged with its cadence
+and the version: `20261010.175322` is `nightly-20261010T1753` for a
+nightly, which is marked a prerelease (see [Release cadences](#release-cadences)). It carries both
 architectures' files, the update images, disk images, installer ISOs and the
 [Windows installer](windows-installer.md). Each architecture's signed manifest
 goes beside them as `SHA256SUMS-<arch>` and `SHA256SUMS-<arch>.gpg`.
@@ -42,23 +42,55 @@ releases immutable. A re-run of the same commit finds its tag taken and
 publishes nothing. There is no moving `nightly` release: GitHub refuses to
 reuse the tag of a deleted immutable release, so it could not be replaced.
 
-A tagged release is a run of `ci` started by hand (Actions, ci, Run
-workflow) on the commit to release, with a **tag** such as `v0.1.0` and a
-**title** such as `LosOS 0.1`. The run checks the tag first and fails within
-a minute if it is malformed, starts with `nightly`, or is already released.
-Otherwise it builds the commit for the **stable channel**
-(`losos.channel = "stable"`, which `flake.nix` takes from `LOSOS_CHANNEL`
-in CI), mostly from the cache, and publishes the same kinds of files as a
-nightly would, as a full release rather than a prerelease. Its images
-update from the stable channel's newest release (or a proxy's
-`/updates/stable/<arch>/`), and the run moves `images:stable-<arch>` in
-GHCR to it, so a system installed from a tagged
-release, or from its installer ISO or Windows installer, follows the tagged
-releases, and one installed from a nightly keeps following the nightlies.
-Only what names the channel differs from the nightly of the same commit:
-the update URL in `/usr`'s sysupdate transfers, and so `/usr`, the UKI and
-the images built from them; every package is the same store path. A run
-started by hand without a tag publishes a nightly.
+## Release cadences
+
+Every release belongs to one of four cadences, and its tag says which:
+`nightly-`, `weekly-`, `monthly-` or `yearly-`, then the version's
+`<YYYYMMDD>T<HHMM>`. A nightly is a prerelease. A weekly, monthly or yearly
+release is a full release, and only a yearly one is marked as the
+repository's latest release on GitHub.
+
+Each green run on main publishes a nightly. Once a day,
+`.github/workflows/cadence.yml` lists the repository's releases and checks
+each slower cadence. If that cadence's newest release came out in an
+earlier ISO week, month or year than today, or there is none yet, it starts
+`ci` on the newest nightly's tag for that cadence. A weekly therefore comes
+out on Monday, a monthly on the 1st and a yearly on 1 January, or on the
+first day after that when a nightly exists that the cadence has not
+released yet. The run builds the same commit again with
+`LOSOS_CHANNEL` set to the cadence (`losos.channel`, which `flake.nix`
+reads). Every package comes from the cache, and only `/usr`, the UKI and the
+images built from them change, because the cadence a system follows by
+default is part of `/usr`. A system installed from a weekly release's ISO
+or disk image therefore follows the weekly releases. A cadence whose run
+failed has no release for that period yet, so the next day starts it
+again.
+
+A run of `ci` started by hand (Actions, ci, Run workflow) takes a
+**cadence** and an optional **title**, such as `LosOS 2027`. It releases
+the commit it ran on for that cadence and moves that cadence's tag in GHCR,
+`images:<cadence>-<arch>`, to it.
+
+Each release CI makes without a title is also given a name: an adjective
+and a verb that start with the same letter, such as "Quiet Queue", picked
+at random from the [Oxford 3000 and 5000](https://www.oxfordlearnersdictionaries.com/wordlists/oxford3000-5000)
+word lists and put after a ` · ` in the release's title. A verb that an
+earlier release's name used is not picked again until every verb has been
+used. If the word list cannot be fetched, the release is published without
+a name.
+
+## Choosing a cadence
+
+Settings, System, Updates offers all four cadences. The choice is the
+machine's: `losos-update-channel set <cadence>`, which Settings runs as
+`losos-update-channel@<cadence>.service` so that polkit asks an
+administrator first, writes it to `/var/lib/losos/update-channel`.
+`losos-update-channel` on its own prints the cadence the machine follows,
+which is the image's own until someone picks another. The update source
+below reads that file again for each request, so a new choice applies from
+the next update. sysupdate never installs a version older than the one
+running, so moving to a slower cadence keeps the current version until that
+cadence has a newer one. A factory reset forgets the choice.
 
 ![CI pushes store paths, releases and compiler caches to GHCR; the proxy redirects Nix, sysupdate and CI to GHCR's storage and streams the GSI's files to the web flasher; each nightly is also a GitHub release](images/binary-cache.svg)
 
@@ -76,8 +108,9 @@ as a file, `updates/<channel>/<arch>/index`, written when the site is built
 (`website/release-index.js`). It has one line per file sysupdate would ask
 a channel for: the name, its size, and the release asset URLs it is made of,
 so `SHA256SUMS` is the line for `SHA256SUMS-<arch>`, and a split file lists
-its parts in order. The nightly channel's newest release is the newest
-`nightly-*` prerelease; the stable channel's is the newest full release.
+its parts in order. Each channel's newest release is its cadence's newest
+release by tag, which the site reads through as many pages of the API as it
+takes, since a yearly release sits behind hundreds of nightlies.
 
 ```
 SHA256SUMS 1096 https://github.com/<repo>/releases/download/nightly-20261016T1200/SHA256SUMS-x86_64
@@ -93,12 +126,13 @@ hash.
 
 ## Updating from GitHub Releases
 
-An image built without `LOSOS_PROXY_URL` updates from its channel's newest
-GitHub release. Its sysupdate transfers read `http://127.0.0.1:8485/`
+An image built without `LOSOS_PROXY_URL` updates from the newest GitHub
+release of the cadence it follows. Its sysupdate transfers read `http://127.0.0.1:8485/`
 (`losos.update.baseUrl`), where a socket of its own,
 `losos-update-source.socket` (`nixos/modules/update-source.nix`), starts a
 short script for each request: it reads the channel's index above from
-`losos.update.index`, finds the name asked for, and streams the release
+`losos.update.index`, with the machine's cadence in place of `{channel}`,
+finds the name asked for, and streams the release
 assets it lists one after the other with curl. A connection that breaks off
 is picked up from the byte it stopped at, up to ten times a part. sysupdate
 gets `SHA256SUMS`, its signature and whole files under one URL, as from any
@@ -125,4 +159,6 @@ the new manifest.
 
 Systems installed from an image that names a proxy keep reading that proxy:
 the URL is part of `/usr`, so only an update from it, or a reinstall, moves
-them to GitHub Releases.
+them to GitHub Releases. Their sysupdate transfers name the proxy's
+`/updates/<cadence>/<arch>/` for the cadence they were built for, so
+Settings' choice does not move them ([What is not done](not-done.md)).

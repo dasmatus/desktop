@@ -19,7 +19,7 @@ use tracing_subscriber::EnvFilter;
 // (nixos/installer/default.nix), always passes them, so a default here could
 // only drift from it.
 const USAGE: &str = "usage: losos-installer serve --name NAME --repart-definitions DIR --sysupdate-definitions DIR \
---esp DIR --medium DIR --work DIR [--source URL] [--index URL] [--local-source DIR] [--release-repo OWNER/NAME --release-version VERSION] \
+--esp DIR --medium DIR --work DIR [--source URL] [--index URL] [--local-source DIR] [--release-repo OWNER/NAME --release-version VERSION [--release-channel CHANNEL]] \
 [--bios-boot PROGRAM]";
 
 fn parse(mut args: impl Iterator<Item = String>) -> miette::Result<Config> {
@@ -45,6 +45,7 @@ fn parse(mut args: impl Iterator<Item = String>) -> miette::Result<Config> {
         bios_boot: None,
         release_repo: None,
         release_version: None,
+        release_channel: None,
     };
     while let Some(flag) = args.next() {
         let value = args
@@ -62,6 +63,7 @@ fn parse(mut args: impl Iterator<Item = String>) -> miette::Result<Config> {
             "--bios-boot" => config.bios_boot = Some(PathBuf::from(value)),
             "--release-repo" => config.release_repo = Some(value),
             "--release-version" => config.release_version = Some(value),
+            "--release-channel" => config.release_channel = Some(value),
             "--name" => name = Some(value),
             _ => return Err(miette!(help = USAGE, "unknown argument {flag}")),
         }

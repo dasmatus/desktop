@@ -32,16 +32,33 @@ in
     };
 
     channel = mkOption {
-      type = types.str;
+      type = types.enum config.losos.channels;
       default = "nightly";
       description = ''
-        The release channel: `nightly`, which every CI run on main
-        publishes, or `stable`, which a tagged release is built for. CI
-        moves the channel's tag in GHCR to each release of it, and proxy/
-        serves that tag at `/updates/<channel>/`; the documentation site
-        lists the channel's newest GitHub release at
-        `updates/<channel>/<arch>/index`. Either way the update URL stays
-        the same across releases. flake.nix sets it from `LOSOS_CHANNEL`.
+        The release cadence this build is for, and so the one a system
+        installed from it follows until someone picks another in Settings,
+        System (update-source.nix). `nightly` is every CI run on main; a
+        weekly, monthly or yearly release is CI built again from the newest
+        nightly's commit for that cadence (docs/releases.md). CI moves the
+        channel's tag in GHCR to each release of it, and proxy/ serves that
+        tag at `/updates/<channel>/`; the documentation site lists the
+        channel's newest GitHub release at `updates/<channel>/<arch>/index`.
+        flake.nix sets it from `LOSOS_CHANNEL`.
+      '';
+    };
+
+    channels = mkOption {
+      type = types.listOf (types.strMatching "[a-z][a-z0-9-]*");
+      default = [
+        "nightly"
+        "weekly"
+        "monthly"
+        "yearly"
+      ];
+      description = ''
+        Every release cadence: the prefix of its releases' tags, which is
+        how website/release-index.js and .github/workflows/cadence.yml tell
+        them apart, and what `losos-update-channel` accepts.
       '';
     };
 
@@ -104,13 +121,14 @@ in
           if config.losos.docs.url == null then
             null
           else
-            "${config.losos.docs.url}/updates/${config.losos.channel}/${config.losos.arch.name}/index";
-        defaultText = lib.literalExpression ''"''${config.losos.docs.url}/updates/''${config.losos.channel}/<arch>/index"'';
+            "${config.losos.docs.url}/updates/{channel}/${config.losos.arch.name}/index";
+        defaultText = lib.literalExpression ''"''${config.losos.docs.url}/updates/{channel}/<arch>/index"'';
         description = ''
-          The channel's index on the documentation site
+          Each channel's index on the documentation site
           (website/release-index.js): which GitHub release assets make up
-          each file of its newest release. losos-update-source reads it
-          when `baseUrl` is its own address.
+          each file of its newest release, with `{channel}` where the
+          channel's name goes. losos-update-source reads the one of the
+          channel the machine follows when `baseUrl` is its own address.
         '';
       };
 

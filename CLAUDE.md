@@ -163,11 +163,15 @@ in a few minutes, so run `nix fmt` before pushing any `.nix` edit, including
 one made in GitHub's web editor. `push` uploads it to
 GHCR. It is the only job holding `packages: write` beside release files, and
 it checks out no code. `publish` moves the `images:nightly-<arch>` tag that
-`proxy/` serves updates from, creates that run's own prerelease,
-`nightly-<YYYYMMDD>T<HHMM>`, with both architectures' files, and starts
+`proxy/` serves updates from, creates that run's own release,
+`<cadence>-<YYYYMMDD>T<HHMM>` (a prerelease for a nightly), with both
+architectures' files and a name such as "Quiet Queue", and starts
 `docs.yml` so the site's release index follows it; a run started by hand
-with a `tag` and `title` publishes a release under those instead
-(`docs/releases.md`).
+takes a `cadence` and an optional `title` (`docs/releases.md`).
+`cadence.yml` runs daily, reads the GitHub releases' tags
+(`nightly-`, `weekly-`, `monthly-`, `yearly-`) and starts `ci` on the newest
+nightly's tag for each cadence due a release; only a yearly release is marked
+latest (`docs/releases.md`, "Release cadences").
 `proxy` tests the proxy and deploys nothing. `ci` is the check branch
 protection reads. `docs.yml` builds the site and the wiki pages on a pull
 request, and from main deploys the site to Pages and pushes the wiki.

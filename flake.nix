@@ -84,9 +84,9 @@
       # send no ping.
       proxyUrl = builtins.getEnv "LOSOS_PROXY_URL";
 
-      # The channel CI builds for (ci.yml): `nightly`, or `stable` for a
-      # tagged release. Empty outside Actions, where options.nix's default,
-      # nightly, stands.
+      # The cadence CI builds for (ci.yml): `nightly`, or `weekly`,
+      # `monthly` or `yearly` for a run cadence.yml started. Empty outside
+      # Actions, where options.nix's default, nightly, stands.
       channel = builtins.getEnv "LOSOS_CHANNEL";
 
       # The repository CI runs in, which is the one its releases go to.
