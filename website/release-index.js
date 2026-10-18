@@ -24,13 +24,18 @@ const path = require('node:path');
 
 const ARCHES = ['x86_64', 'aarch64'];
 
-// The channel a release belongs to, as ci.yml's publish job tags it: a
-// nightly is a prerelease tagged nightly-<YYYYMMDD>T<HHMM>, and a release
-// someone tagged by hand is the stable channel's.
+// The channel a release belongs to: its cadence, which ci.yml's publish job
+// puts in front of the version stamp of its tag. A nightly is a
+// prerelease tagged nightly-<YYYYMMDD>T<HHMM>, and a weekly, monthly or
+// yearly release is a full one tagged weekly-, monthly- or yearly- the same
+// way (cadence.yml). Anything else, such as a release made by hand, is in
+// no channel.
+const CHANNELS = ['nightly', 'weekly', 'monthly', 'yearly'];
+
 function channel(release) {
   if (release.draft) return null;
-  if (/^nightly-[0-9]{8}T[0-9]{4}$/.test(release.tag_name)) return 'nightly';
-  return release.prerelease ? null : 'stable';
+  const match = release.tag_name.match(/^([a-z]+)-[0-9]{8}T[0-9]{4}$/);
+  return match && CHANNELS.includes(match[1]) ? match[1] : null;
 }
 
 // Code point order, as `sort` would give strings, whatever the locale.
@@ -105,13 +110,23 @@ async function flasherReleases() {
   return out;
 }
 
+// Every release, newest first, a page at a time. Nightlies come several a
+// day, so a yearly release is soon hundreds of releases down the list; the
+// pages stop once every channel has its pick on both architectures.
 async function releases(repository) {
   const api = process.env.GITHUB_API_URL || 'https://api.github.com';
   const headers = { accept: 'application/vnd.github+json' };
   if (process.env.GITHUB_TOKEN) headers.authorization = `Bearer ${process.env.GITHUB_TOKEN}`;
-  const response = await fetch(`${api}/repos/${repository}/releases?per_page=100`, { headers });
-  if (!response.ok) throw new Error(`release-index: ${repository}'s releases: ${response.status}`);
-  return response.json();
+  const all = [];
+  for (let page = 1; ; page++) {
+    const url = `${api}/repos/${repository}/releases?per_page=100&page=${page}`;
+    const response = await fetch(url, { headers });
+    if (!response.ok) throw new Error(`release-index: ${repository}'s releases: ${response.status}`);
+    const batch = await response.json();
+    all.push(...batch);
+    if (batch.length < 100) return all;
+    if (Object.keys(pick(all)).length === CHANNELS.length * ARCHES.length) return all;
+  }
 }
 
 module.exports = () => ({
@@ -127,4 +142,6 @@ module.exports = () => ({
 });
 
 module.exports.pick = pick;
+module.exports.channel = channel;
+module.exports.CHANNELS = CHANNELS;
 module.exports.flasherReleases = flasherReleases;

@@ -21,7 +21,8 @@ fetches. It serves these from this project's GHCR namespace:
   that passed verification. With `LOSOS_PROXY_URL` set, CI sets
   `losos.update.baseUrl` to `<proxy>/updates/<channel>/<arch>/`, so
   sysupdate fetches manifests and images through the proxy. The channels
-  are `nightly` and `stable`, which tagged releases are built for. Without
+  are the release cadences: `nightly`, `weekly`, `monthly` and `yearly`
+  ([Releases](releases.md#release-cadences)). Without
   it, images update from each channel's newest GitHub release instead,
   through an index on the documentation site and a service on the machine
   that joins split files ([Releases](releases.md#updating-from-github-releases)).

@@ -76,6 +76,13 @@
   cache locally. Systems installed from an image built with a proxy URL
   keep asking that proxy for updates until they are reinstalled or it
   serves them one more update.
+- **A cadence picked on a machine that updates from a proxy.** An image
+  built with `LOSOS_PROXY_URL` names the proxy's
+  `/updates/<cadence>/<arch>/` for its own cadence in its sysupdate
+  transfers, which are part of `/usr`. Settings still lists the cadences
+  there, but `losos-update-channel` only exists where updates come from
+  GitHub Releases, so the page says the choice is not available
+  ([Releases](releases.md#choosing-a-cadence)).
 - **A complete image build.** CI builds release images within its runner time
   budget; local image builds may take longer.
 - **Hibernation.** No machine hibernates: the locked-down kernel refuses

@@ -277,9 +277,9 @@ in
                "--index"
                losos.updateIndex
              ]}"
-        # The GitHub release of the version this ISO was built as, which
-        # an online install reads instead of the channel's newest when it
-        # can find it (docs/installer.md).
+        # The GitHub release of the version and cadence this ISO was built
+        # as, which an online install reads instead of the channel's newest
+        # when it can find it (docs/installer.md).
         +
           lib.optionalString (losos.releaseRepo != null)
             " ${lib.escapeShellArgs [
@@ -287,6 +287,8 @@ in
                losos.releaseRepo
                "--release-version"
                losos.version
+               "--release-channel"
+               losos.channel
              ]}"
         # GRUB into the installed disk's MBR and BIOS boot partition, so a
         # legacy BIOS PC starts it as UEFI firmware does (bios.nix).

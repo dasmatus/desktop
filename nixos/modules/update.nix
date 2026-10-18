@@ -78,7 +78,10 @@ in
     serviceConfig.ExecStartPre = "${config.systemd.package}/lib/systemd/systemd-sysupdate vacuum";
   };
 
-  services.losos-update-source.index = lib.mkIf local cfg.update.index;
+  services.losos-update-source = lib.mkIf local {
+    inherit (cfg.update) index;
+    inherit (cfg) channel channels;
+  };
 
   assertions = [
     {

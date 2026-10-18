@@ -237,30 +237,26 @@ fn release_json(tag: &str, prerelease: bool, names: &[&str]) -> serde_json::Valu
 }
 
 #[test]
-fn nightly_tags_come_from_the_version() {
+fn release_tags_come_from_the_cadence_and_version() {
     assert_eq!(
-        github::nightly_tag("20261010.175322").as_deref(),
+        github::release_tag("nightly", "20261010.175322").as_deref(),
         Some("nightly-20261010T1753")
     );
-    assert_eq!(github::nightly_tag("0.1"), None);
-    assert_eq!(github::nightly_tag("20261010.17532x"), None);
+    assert_eq!(
+        github::release_tag("weekly", "20261010.175322").as_deref(),
+        Some("weekly-20261010T1753")
+    );
+    assert_eq!(github::release_tag("nightly", "0.1"), None);
+    assert_eq!(github::release_tag("nightly", "20261010.17532x"), None);
 }
 
 #[test]
-fn a_tagged_release_is_picked_before_its_nightly() {
+fn a_release_carries_its_version_for_its_architecture() {
     let v = "20261010.175322";
     let files = [
         "SHA256SUMS-x86_64",
         "SHA256SUMS-x86_64.gpg",
         "losos-desktop_20261010.175322_x86_64.efi",
-    ];
-    let other = [
-        "SHA256SUMS-x86_64",
-        "losos-desktop_20261009.000000_x86_64.efi",
-    ];
-    let only_arm = [
-        "SHA256SUMS-aarch64",
-        "losos-desktop_20261010.175322_aarch64.efi",
     ];
     let draft = {
         let mut json = release_json("v9", false, &files);
@@ -268,26 +264,11 @@ fn a_tagged_release_is_picked_before_its_nightly() {
         json
     };
     assert!(github::parse_release(&draft).is_none());
-    let releases: Vec<_> = [
-        release_json("nightly-20261010T1753", true, &files),
-        release_json("v0.0.1", false, &files),
-        release_json("v0.0.0", false, &other),
-        release_json("arm", false, &only_arm),
-    ]
-    .iter()
-    .filter_map(github::parse_release)
-    .collect();
-    assert_eq!(
-        github::pick(releases.clone(), v, "x86_64").unwrap().tag,
-        "v0.0.1"
-    );
-    assert_eq!(
-        github::pick(releases[..1].to_vec(), v, "x86_64")
-            .unwrap()
-            .tag,
-        "nightly-20261010T1753"
-    );
-    assert!(github::pick(releases, "20261011.000000", "x86_64").is_none());
+    let release =
+        github::parse_release(&release_json("weekly-20261010T1753", false, &files)).unwrap();
+    assert!(github::carries(&release, v, "x86_64"));
+    assert!(!github::carries(&release, v, "aarch64"));
+    assert!(!github::carries(&release, "20261011.000000", "x86_64"));
 }
 
 #[test]
@@ -444,6 +425,7 @@ fn an_install_is_refused_for_a_disk_not_offered() {
         bios_boot: None,
         release_repo: None,
         release_version: None,
+        release_channel: None,
     };
     let input = "{\"method\":\"install\",\"disk\":\"/dev/not-a-disk\"}\nbogus\n";
     let (tx, rx) = std::sync::mpsc::channel();
@@ -494,6 +476,7 @@ fn hello_names_a_release_disk_only_when_it_holds_a_release() {
         bios_boot: None,
         release_repo: None,
         release_version: None,
+        release_channel: None,
     };
     assert!(serve::hello(&config).get("release").is_none());
     dir.write("release/SHA256SUMS", "");

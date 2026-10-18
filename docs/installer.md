@@ -65,16 +65,17 @@ behind an "Erase and install" button before anything is touched. Then:
 
 So an install is an update into an empty slot, from the release the ISO came
 with ([Releases](releases.md)): an ISO from `nightly-20261010T2127` installs
-that nightly, and one from a tagged release installs that release. Neither
+that nightly, and one from `weekly-20261012T0300` installs that weekly
+release, whose system then follows the weekly releases. Neither
 is a copy of the OS on the medium. sysupdate cannot read a GitHub release
 as it is, since each architecture's manifest there is `SHA256SUMS-<arch>`
 and a file of 2 GiB or more is split into `.part-NN` assets, so
 `losos-installer` serves the release to it from `127.0.0.1`: `SHA256SUMS`
 and its signature are the architecture's, and a split file is its parts
 one after the other. sysupdate checks the signature and every hash itself,
-as it does for the channel. The backend finds the release through GitHub's
-API by the version in its file names, a tagged release before the nightly
-of the same build. Where it finds none, such as an ISO built from a branch
+as it does for the channel. The backend asks GitHub's API for the
+release by its tag, which it makes from the cadence and version the ISO was
+built as. Where it finds none, such as an ISO built from a branch
 or a local build, the install reads the channel and gets its newest
 release, through the channel's index on the documentation site
 ([Releases](releases.md)) when the OS updates from GitHub Releases.

@@ -27,6 +27,16 @@
 # names. Their names carry the version, so the old ones are then simply not
 # found, sysupdate gives up on that attempt, and the next timer run starts
 # over from the new manifest.
+#
+# Which channel's index it reads is the machine's to choose, not the image's:
+# the image names the cadence it was built for, and Settings, System can
+# pick another (nightly, weekly, monthly, yearly), which
+# losos-update-channel writes to /var/lib/losos/update-channel as root. The
+# script reads that file for each request too, so a new choice holds from
+# the next update on. The files of every cadence's release are the same
+# kind and signed by the same key, so a machine can move between them; it
+# only never moves back in version, since sysupdate installs nothing older
+# than what it runs.
 {
   config,
   lib,
@@ -37,6 +47,54 @@
 let
   inherit (lib) mkOption types;
   cfg = config.services.losos-update-source;
+
+  # The channel the machine follows: the one losos-update-channel wrote, when
+  # it is still one this image knows, and the image's own otherwise. Shared
+  # by the server and the command, so they cannot disagree.
+  current = ''
+    channel=${lib.escapeShellArg cfg.channel}
+    channels=${lib.escapeShellArg (toString cfg.channels)}
+    if read -r chosen 2>/dev/null <${cfg.stateFile}; then
+      case " $channels " in
+        *" $chosen "*) channel=$chosen ;;
+      esac
+    fi
+  '';
+
+  # `losos-update-channel` says which channel this machine updates from;
+  # `losos-update-channel set <channel>`, as root, changes it. Settings runs
+  # the second through losos-update-channel@<channel>.service, so polkit
+  # asks an administrator, as it does for any unit started by hand.
+  command = pkgs.writeShellApplication {
+    name = "losos-update-channel";
+    text = ''
+      ${current}
+      case ''${1-} in
+        "")
+          echo "$channel"
+          ;;
+        set)
+          new=''${2-}
+          case " $channels " in
+            *" $new "*) ;;
+            *)
+              echo "losos-update-channel: '$new' is not a channel; one of: $channels" >&2
+              exit 2
+              ;;
+          esac
+          mkdir -p "$(dirname ${cfg.stateFile})"
+          # Written beside and renamed, so a reader never sees half a name.
+          echo "$new" > ${cfg.stateFile}.new
+          mv ${cfg.stateFile}.new ${cfg.stateFile}
+          echo "$new"
+          ;;
+        *)
+          echo "usage: losos-update-channel [set ${lib.concatStringsSep "|" cfg.channels}]" >&2
+          exit 2
+          ;;
+      esac
+    '';
+  };
 
   serve = pkgs.writeShellApplication {
     name = "losos-update-source";
@@ -64,8 +122,10 @@ let
         "" | .* | */* | *[!A-Za-z0-9._+-]*) answer "404 Not Found" ;;
       esac
 
+      ${current}
+      url=${lib.escapeShellArg cfg.index}
       index=$(curl --silent --show-error --fail --location --proto '=https' \
-        --retry 3 --max-time 60 ${lib.escapeShellArg cfg.index}) ||
+        --retry 3 --max-time 60 "''${url//\{channel\}/$channel}") ||
         answer "502 Bad Gateway"
       size="" urls=""
       while read -r file length rest; do
@@ -113,10 +173,41 @@ in
     index = mkOption {
       type = types.nullOr types.str;
       default = null;
-      example = "https://losos-project.github.io/losos-desktop/updates/nightly/x86_64/index";
+      example = "https://losos-project.github.io/losos-desktop/updates/{channel}/x86_64/index";
       description = ''
-        The channel's index on the documentation site, which names the
-        GitHub release assets each file is made of. `null` serves nothing.
+        Each channel's index on the documentation site, which names the
+        GitHub release assets each file is made of, with `{channel}` where
+        the channel's name goes. `null` serves nothing.
+      '';
+    };
+
+    channel = mkOption {
+      type = types.str;
+      default = "nightly";
+      description = "The channel served until someone picks another.";
+    };
+
+    channels = mkOption {
+      type = types.listOf (types.strMatching "[a-z][a-z0-9-]*");
+      default = [ cfg.channel ];
+      description = "The channels `losos-update-channel set` accepts.";
+    };
+
+    stateFile = mkOption {
+      type = types.path;
+      default = "/var/lib/losos/update-channel";
+      description = "Where the channel picked on this machine is kept.";
+    };
+
+    defaultIndex = mkOption {
+      type = types.nullOr types.str;
+      readOnly = true;
+      default =
+        if cfg.index == null then null else lib.replaceStrings [ "{channel}" ] [ cfg.channel ] cfg.index;
+      defaultText = lib.literalMD "`index` with `channel` filled in";
+      description = ''
+        The index of the image's own channel, for the installers, which
+        install from it before any machine has chosen one.
       '';
     };
 
@@ -128,6 +219,16 @@ in
   };
 
   config = lib.mkIf (cfg.index != null) {
+    environment.systemPackages = [ command ];
+
+    systemd.services."losos-update-channel@" = {
+      description = "Follow the %i update channel";
+      serviceConfig = {
+        Type = "oneshot";
+        ExecStart = "${lib.getExe command} set %i";
+      };
+    };
+
     systemd.sockets.losos-update-source = {
       description = "LosOS update channel from GitHub Releases";
       wantedBy = [ "sockets.target" ];
