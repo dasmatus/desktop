@@ -248,7 +248,8 @@ remembered; remembered answers are lines in `~/.config/danube/permissions`
 ## Captive portals
 
 `danube captive-watch`, a user service in every session, rechecks the
-network whenever systemd-networkd's state changes: it fetches GNOME's
+network whenever NetworkManager reports a change and says the machine is
+connected (it reads `nmcli monitor`): it fetches GNOME's
 check, `http://nmcheck.gnome.org/check_network_status.txt`, over plain HTTP,
 which a portal intercepts, sending the request line, the host and "Danube"
 as the User-Agent and nothing else. Any answer but a 200 saying

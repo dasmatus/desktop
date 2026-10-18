@@ -5,18 +5,20 @@ EasyList-style filter lists, by `losos-adblock` (`src/losos-adblock`,
 `nixos/modules/adblock.nix`). It has two halves.
 
 **DNS, for every app.** resolved sends every name to losos-adblock's
-forwarder on `127.0.0.153:53`, its only global DNS server, and the
-networks' own servers no longer route anything by themselves. The
-forwarder answers `0.0.0.0` (A) or `::` (AAAA) for a blocked domain and
-its subdomains, and no records for any other type, so a program fails
-at once rather than retrying, and passes every other query on, byte for
-byte, to the servers the network gave (it reads them from
-`/run/systemd/resolve/resolv.conf`). That covers Flatpaks, the Android
-layer and anything else that resolves names, but only whole domains. A
-network's own search domains still go straight to its servers, so local
-names keep working. resolved's DNS over TLS is off, since a forwarder on
-loopback speaks plain DNS; the forwarder's own queries are plain DNS, which
-is what "opportunistic" fell back to on most networks anyway.
+forwarder on `169.254.153.53:53`. NetworkManager gives resolved a dummy
+link, `adblock0`, whose one DNS server is the forwarder, for every domain
+and ahead of every network's own servers, which then route nothing by
+themselves. The forwarder answers `0.0.0.0` (A) or `::` (AAAA) for a
+blocked domain and its subdomains, and no records for any other type, so
+a program fails at once rather than retrying, and passes every other query
+on, byte for byte, to the servers the network gave (it asks NetworkManager
+for them with `nmcli`, again whenever none of them answers). That covers
+Flatpaks, the Android layer and anything else that resolves names, but only
+whole domains. A local network's names still resolve through its server,
+but a bare name such as `printer` no longer gets the network's search
+domain appended. resolved's DNS over TLS is off, since the forwarder speaks
+plain DNS; the forwarder's own queries are plain DNS, which is what
+"opportunistic" fell back to on most networks anyway.
 
 **Content blockers, in the browser.** The rules that need a URL or a page
 (a path such as `/banner/ad_`, an element to hide such as

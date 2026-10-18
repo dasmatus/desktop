@@ -54,8 +54,8 @@ still takes time, so don't start one to check a module edit.
   userdata as the root, the vendor's partitions mapped out of `super`, and
   its HALs under Halium's generic system image in an LXC container. No device
   ports. `docs/halium.md` says how it boots.
-- `nixos/installer/` is the installer ISO's live system: networkd,
-  `wpa_supplicant` and `derisk installer` on tty1, with `losos-installer
+- `nixos/installer/` is the installer ISO's live system: NetworkManager
+  and `derisk installer` on tty1, with `losos-installer
   serve` as its backend. `modules/installer.nix`
   evaluates it with the OS's own repart definitions and sysupdate transfers.
 - `nixos/guest/` holds the machine templates the image ships for its
