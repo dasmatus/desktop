@@ -45,11 +45,11 @@ there keep running on the host ([Halium GSI](halium.md)).
   for the machines' windows.
 - **waypipe is installed.** The desktop runs `waypipe client` for each
   running machine to turn what comes out of the guest back into Wayland.
-- **swtpm, virt-viewer and WinApps are installed** for machines that install
-  from a CD ([below](#machines-from-an-installer-cd)): swtpm is the TPM
-  libvirt gives a Windows machine, virt-viewer shows a machine's own screen,
-  and WinApps opens a Windows machine's apps as windows of their own.
-  WinApps only on x86-64, where Windows machines are.
+- **swtpm and virt-viewer are installed** for machines that install from a
+  CD ([below](#machines-from-an-installer-cd)): swtpm is the TPM libvirt
+  gives a Windows machine, and virt-viewer shows a machine's own screen.
+  Windows apps as windows of their own are
+  [Windows app support](windows-apps.md)'s, which runs its own Windows.
 - **Administrators manage machines without being asked.** polkit lets the
   `wheel` group, which first-boot setup puts the first account in, use
   `org.libvirt.unix.manage` outright: handing a machine a host disk is an
@@ -363,22 +363,18 @@ starts with:
 4. It offers a local account as well as a Microsoft one.
 5. At the first sign-in, `losos\setup.cmd` from the CD installs the rest
    of virtio's drivers and the QEMU guest agent (virtio-win's guest tools),
-   then runs WinApps' own Windows setup: Remote Desktop on, RemoteApp for
-   every program, and its firewall rule.
+   and nothing else.
 
 What Setup still asks: the language, the product key or edition, and the
 account. The firmware's "Press any key to boot from CD" is the person's to
 answer on the machine's screen; missed, the machine stops at the
 firmware's boot menu, and starting it again offers it again.
 
-**WinApps** ([winapps-org/winapps](https://github.com/winapps-org/winapps),
-`nixos/pkgs/winapps.nix`) then opens the machine's Windows apps as windows
-of their own on the desktop, each a FreeRDP RemoteApp session. It is set up
-as its own documentation says for libvirt, in
-`~/.config/winapps/winapps.conf`: `WAFLAVOR="libvirt"`, `VM_NAME` the
-machine's name, and `RDP_USER` and `RDP_PASS` the Windows account; then
-`winapps-setup --user` lists the machine's apps into the app grid. Remote
-Desktop needs Windows' Pro edition or above.
+A Windows machine shows its whole desktop in virt-viewer. Its apps as
+windows of their own are [Windows app support](windows-apps.md)'s, which
+installs a Windows of its own in a rootless container rather than using a
+machine. WinApps, which opened a Windows machine's apps once a person had
+described the machine to it by hand, went with that change.
 
 ### Other distributions
 
