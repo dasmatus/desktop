@@ -118,20 +118,24 @@ in
       Type = "oneshot";
       RemainAfterExit = true;
     };
+    # libvirtd starts what is marked to autostart itself as it comes up, and
+    # may still be doing so when this runs. A start that loses that race
+    # fails with "already active", so a failed start counts as long as the
+    # pool or network is up afterwards; otherwise this unit failed, and
+    # losos-boxes-dns after it, and no machine had a network to start on.
     script = ''
+      pool_running() { [ "$(virsh -q pool-info default | sed -n 's/^State: *//p')" = running ]; }
+      net_active() { [ "$(virsh -q net-info default | sed -n 's/^Active: *//p')" = yes ]; }
+
       if ! virsh -q pool-info default >/dev/null 2>&1; then
         virsh -q pool-define-as default dir --target /var/lib/libvirt/images
         virsh -q pool-build default
       fi
       virsh -q pool-autostart default
-      if [ "$(virsh -q pool-info default | sed -n 's/^State: *//p')" != running ]; then
-        virsh -q pool-start default
-      fi
+      pool_running || virsh -q pool-start default || pool_running
 
       virsh -q net-autostart default
-      if [ "$(virsh -q net-info default | sed -n 's/^Active: *//p')" != yes ]; then
-        virsh -q net-start default
-      fi
+      net_active || virsh -q net-start default || net_active
     '';
   };
 

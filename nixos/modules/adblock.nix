@@ -3,9 +3,10 @@
 #
 # Two halves from the same lists. Every program's DNS goes through
 # losos-adblock's forwarder, which answers 0.0.0.0 (or ::) for a blocked
-# domain and passes everything else on: resolved sends every query to it
-# as its only global server, and no link's own servers are a default
-# route. That covers every app, Flatpaks and the Android layer included,
+# domain and passes everything else on: resolved sends every query to it,
+# because NetworkManager hands resolved a dummy link with the forwarder as
+# its server for every domain, ahead of every network's own. That covers
+# every app, Flatpaks and the Android layer included,
 # but only whole domains. The rules that need a URL or a page (a path, a
 # hidden element) are compiled into WebKit content blockers, which Danube
 # loads into every page.
@@ -18,8 +19,10 @@
 
 let
   cfg = config.losos.adblock;
-  # Loopback, but not 127.0.0.53 or .54, which resolved listens on.
-  address = "127.0.0.153";
+  # On the dummy link below, not loopback: resolved asks a link's server
+  # through that link, so the forwarder listens on an address the link
+  # itself holds. Link-local, so nothing past this machine routes to it.
+  address = "169.254.153.53";
   # Both services run as the same user with the same confinement: a
   # reader and writer of its own state and a sender of DNS and HTTPS,
   # with no capabilities (systemd binds port 53 for the forwarder).
@@ -97,23 +100,38 @@ in
     };
     users.groups.losos-adblock = { };
 
-    # resolved forwards every name to the forwarder, as its only global
-    # server, and the links' own servers route nothing by themselves; the
-    # forwarder reads them from /run/systemd/resolve/resolv.conf and sends
-    # each query there. Queries for a link's own search domains still go
-    # straight to that link's servers, as they must for a local network's
-    # names. DNS over TLS cannot reach a forwarder on loopback that speaks
-    # plain DNS, so it is off; the forwarder's own queries to the network's
-    # servers are plain DNS too, which is what "opportunistic" fell back to
-    # on most networks anyway.
-    services.resolved.settings.Resolve = {
-      DNS = address;
-      Domains = "~.";
-      DNSOverTLS = lib.mkForce "no";
+    # A dummy link whose one DNS server is the forwarder, for `~.`, every
+    # domain. Its negative priority shuts out every other connection's
+    # servers and domains, so resolved has no other server to ask and sends
+    # everything here; the forwarder asks NetworkManager for the networks'
+    # servers and sends each query there (serve.rs). A local network's own
+    # names still resolve, through its server, but a bare name no longer
+    # gets the network's search domain appended. DNS over TLS cannot reach
+    # a forwarder that speaks plain DNS, so it is off; the forwarder's own
+    # queries are plain DNS too, which is what "opportunistic" fell back
+    # to on most networks anyway.
+    #
+    # networkd ran the links before (network.nix), and this took the
+    # default route from each of them and made the forwarder resolved's
+    # global server. The forwarder read the networks' servers from
+    # resolved's resolv.conf, which leaves out a link that is not a default
+    # route, so it forwarded to nothing and every name failed.
+    networking.networkmanager.ensureProfiles.profiles.losos-adblock = {
+      connection = {
+        id = "losos-adblock";
+        type = "dummy";
+        interface-name = "adblock0";
+      };
+      ipv4 = {
+        method = "manual";
+        address1 = "${address}/32";
+        dns = "${address};";
+        dns-search = "~.;";
+        dns-priority = -100;
+      };
+      ipv6.method = "disabled";
     };
-    systemd.network.networks = lib.genAttrs [ "20-wired" "30-wireless" ] (_: {
-      networkConfig.DNSDefaultRoute = false;
-    });
+    services.resolved.settings.Resolve.DNSOverTLS = lib.mkForce "no";
 
     systemd.sockets.losos-adblock = {
       description = "losos-adblock DNS forwarder";
@@ -121,8 +139,8 @@ in
       # resolved starts before sysinit.target, and a socket's default
       # dependencies order it after sysinit.target, so ordering this one
       # before resolved made a cycle systemd broke by dropping resolved's
-      # start. Without them it is ready as early as resolved needs it; a
-      # loopback address with FreeBind needs nothing mounted or up.
+      # start. Without them it is ready as early as resolved needs it, and
+      # FreeBind lets it listen before the dummy link holds the address.
       unitConfig.DefaultDependencies = false;
       before = [
         "systemd-resolved.service"
@@ -138,7 +156,9 @@ in
     systemd.services.losos-adblock = {
       description = "losos-adblock DNS forwarder";
       requires = [ "losos-adblock.socket" ];
-      # Only a reader of its blocklist and resolved's server list, and a
+      # nmcli, which the forwarder asks for the networks' servers.
+      path = [ config.networking.networkmanager.package ];
+      # Only a reader of its blocklist and of NetworkManager over D-Bus, and a
       # sender of DNS.
       serviceConfig = hardening // {
         ExecStart = "${lib.getExe pkgs.losos-adblock} serve";
