@@ -65,10 +65,11 @@ have closed, under Plymouth's "is shutting down" screen
 the volume the machine was left at, since no PipeWire runs at either moment.
 A machine without a sound card plays nothing.
 
-The kernel prints errors only (`loglevel=3`), systemd prints its status
-lines only when a unit fails or the boot stalls (`systemd.show_status=auto`),
-and Plymouth keeps even those behind Esc; every message is still in the
-journal.
+> [!TIP]
+> The kernel prints errors only (`loglevel=3`), systemd prints its status
+> lines only when a unit fails or the boot stalls (`systemd.show_status=auto`),
+> and Plymouth keeps even those behind Esc; every message is still in the
+> journal.
 
 The [installer ISO](installer.md) looks the same, but says "LosOS Desktop
 installer". Halium phones boot through Android's boot loader and draw
@@ -170,10 +171,11 @@ started from (on a BIOS, only those with a kernel beside them), and offers:
 3. on UEFI, Windows Boot Manager when it is on the same disk, and the
    firmware's own settings when the firmware can be asked to open them.
 
-Kernel arguments typed at GRUB's prompt into `losos_extra`, and exported,
-are added to whichever entry starts next, on x86_64 under UEFI as on a BIOS.
-That is the recovery shell ([When something goes
-wrong](troubleshooting.md#no-one-can-administer-the-machine)).
+> [!TIP]
+> Kernel arguments typed at GRUB's prompt into `losos_extra`, and exported,
+> are added to whichever entry starts next, on x86_64 under UEFI as on a BIOS.
+> That is the recovery shell ([When something goes
+> wrong](troubleshooting.md#no-one-can-administer-the-machine)).
 
 ## Boot counting
 
@@ -220,9 +222,10 @@ is starting" until the installer takes the screen.
 
 ## Secure Boot
 
-Secure Boot is UEFI's and does not apply to a BIOS boot. On UEFI neither
-GRUB nor the UKIs are signed, so Secure Boot must be off
-([What is not done](not-done.md)).
+> [!IMPORTANT]
+> Secure Boot is UEFI's and does not apply to a BIOS boot. On UEFI neither
+> GRUB nor the UKIs are signed, so Secure Boot must be off
+> ([What is not done](not-done.md)).
 
 ## Tested
 

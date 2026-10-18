@@ -78,7 +78,8 @@ that none of them is left to compile. Later runs substitute them from the
 cache until nixpkgs moves GTK or Qt. Flatpak applications run on their runtime's own GTK and Qt
 and do not get these patches.
 
-When nixpkgs moves GTK or Qt and a patch stops applying, the build fails at
-that patch. Purism rebases the GTK series for each Debian release;
-refreshing means copying the series from `pureos/latest` again and
-rebasing the two `Treat a display of phone-sized monitors` patches.
+> [!NOTE]
+> When nixpkgs moves GTK or Qt and a patch stops applying, the build fails at
+> that patch. Purism rebases the GTK series for each Debian release;
+> refreshing means copying the series from `pureos/latest` again and
+> rebasing the two `Treat a display of phone-sized monitors` patches.

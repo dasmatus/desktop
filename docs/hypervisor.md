@@ -17,8 +17,9 @@ starts QEMU itself or keeps its own list of machines: pm, virsh and
 virt-manager all talk to the same daemon, `qemu:///system`, and see the same
 machines.
 
-The GSI does not do any of this. Most phones' kernels have no KVM, so apps
-there keep running on the host ([Halium GSI](halium.md)).
+> [!NOTE]
+> The GSI does not do any of this. Most phones' kernels have no KVM, so apps
+> there keep running on the host ([Halium GSI](halium.md)).
 
 ## The host
 
@@ -395,8 +396,9 @@ machine's apps like a LosOS guest's, framed in its colour. Its socket is
 `losos-wayland`, not `wayland-0`, so a desktop the distribution runs on the
 machine's own screen keeps its own.
 
-Under libvirt without KVM, in the machines VM test
-(`nixos/tests/machines.nix`), a Windows machine from a stand-in CD is
-defined with the drivers CD, a TPM and a screen, starts with its swtpm, and
-is removed leaving both CDs for other machines. No Windows or other
-distribution has been installed from them yet.
+> [!NOTE]
+> Under libvirt without KVM, in the machines VM test
+> (`nixos/tests/machines.nix`), a Windows machine from a stand-in CD is
+> defined with the drivers CD, a TPM and a screen, starts with its swtpm, and
+> is removed leaving both CDs for other machines. No Windows or other
+> distribution has been installed from them yet.

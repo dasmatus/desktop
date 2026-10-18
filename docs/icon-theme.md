@@ -47,10 +47,11 @@ patches (`nixos/pkgs/patches`, `gtk3/0034`, `gtk4/0005`, `qtbase/0003`,
   in. App directories still follow, and icons in an app's own resources stay
   hicolor-level fallbacks, as the icon theme specification has them.
 
-What is left: an app that loads an image file or resource by path instead of
-asking for an icon by name gets that image, since there is no name to look
-up. Chromium and Electron draw their own UI icons that way and use GTK only
-for file icons and the file chooser, which follow the theme. Flatpak apps
-run on their runtime's unpatched GTK and Qt, so one can still name its own
-theme in code; KDE runtime apps, which carry Breeze and never read
-`QT_QPA_SYSTEM_ICON_THEME` from the host, keep Breeze.
+> [!NOTE]
+> What is left: an app that loads an image file or resource by path instead of
+> asking for an icon by name gets that image, since there is no name to look
+> up. Chromium and Electron draw their own UI icons that way and use GTK only
+> for file icons and the file chooser, which follow the theme. Flatpak apps
+> run on their runtime's unpatched GTK and Qt, so one can still name its own
+> theme in code; KDE runtime apps, which carry Breeze and never read
+> `QT_QPA_SYSTEM_ICON_THEME` from the host, keep Breeze.

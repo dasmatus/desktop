@@ -52,9 +52,11 @@ does it too.
 ## Settings skipped some lines
 
 A line Settings did not understand, such as `desktop.gaps = lots`, is left
-out and that setting keeps its default; the warning names the first one. The
-next Save writes the file again from what Settings shows, without the
-skipped lines.
+out and that setting keeps its default; the warning names the first one.
+
+> [!WARNING]
+> The next Save writes the file again from what Settings shows, without the
+> skipped lines.
 
 ![Settings warning in its accent color: "Skipped 1 invalid line(s): line 1: ignored desktop.gaps = lots", and that those settings keep their defaults until the lines are fixed](images/error-settings.png)
 
@@ -73,10 +75,12 @@ The message is the installer's backend's own, from the step that failed,
 and "Show details" is its log. A disk it refused was not in its list or is
 the medium the installer booted from. A download that does not verify, in a
 network that re-signs TLS, is what a release disk is for. [The
-installer](installer.md) describes each step. Nothing is written before
-"Erase and install"; after it, a failed install leaves the disk without a
-working system, and the install can be run again from the start. tty2 has a
-root shell for looking around first.
+installer](installer.md) describes each step.
+
+> [!WARNING]
+> Nothing is written before "Erase and install"; after it, a failed install
+> leaves the disk without a working system, and the install can be run again
+> from the start. tty2 has a root shell for looking around first.
 
 ![The installer's "The install failed" page: partitioning and mounting done, "Downloading and writing the system" failed with systemd-sysupdate's exit status, and Show details open on a log ending in "SSL peer certificate or SSH remote key was not OK"](images/installer-failed.png)
 
@@ -114,8 +118,11 @@ debug shell, and `losos_extra` is any kernel arguments GRUB adds to the
 command line the release was built with ([Boot loader and boot screen](boot-loaders.md#grubs-menu)).
 On UEFI, that makes GRUB start the kernel beside the UKI, as on a BIOS,
 instead of the UKI itself, which would take arguments only in place of its
-whole command line. Only an x86_64 PC has that kernel, so an aarch64 PC has
-no recovery shell yet ([What is not done](not-done.md)).
+whole command line.
+
+> [!NOTE]
+> Only an x86_64 PC has that kernel, so an aarch64 PC has no recovery shell
+> yet ([What is not done](not-done.md)).
 
 The shell does not open anyone's home: each is its own encrypted image,
 which only its owner's password unlocks ([Where the OS lives](layout.md)). The rest of

@@ -37,10 +37,11 @@ backend fetches the release's files with aria2 onto the disk being
 installed and serves them to sysupdate under the names a channel has,
 joining split files ([The installer](installer.md)).
 
-A release is created once and never edited, so the repository can make
-releases immutable. A re-run of the same commit finds its tag taken and
-publishes nothing. There is no moving `nightly` release: GitHub refuses to
-reuse the tag of a deleted immutable release, so it could not be replaced.
+> [!NOTE]
+> A release is created once and never edited, so the repository can make
+> releases immutable. A re-run of the same commit finds its tag taken and
+> publishes nothing. There is no moving `nightly` release: GitHub refuses to
+> reuse the tag of a deleted immutable release, so it could not be replaced.
 
 A tagged release is a run of `ci` started by hand (Actions, ci, Run
 workflow) on the commit to release, with a **tag** such as `v0.1.0` and a
@@ -123,6 +124,7 @@ Every file name carries its version, so the files of the older release are
 then not found, that attempt fails, and the next timer run starts over from
 the new manifest.
 
-Systems installed from an image that names a proxy keep reading that proxy:
-the URL is part of `/usr`, so only an update from it, or a reinstall, moves
-them to GitHub Releases.
+> [!NOTE]
+> Systems installed from an image that names a proxy keep reading that proxy:
+> the URL is part of `/usr`, so only an update from it, or a reinstall, moves
+> them to GitHub Releases.

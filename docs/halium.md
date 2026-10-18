@@ -75,13 +75,14 @@ an older one.
 Every mount on the Android side is `nofail`, so a device whose Android half is
 missing or broken still reaches the login screen.
 
-The container is not a security boundary. Android's init and the vendor HALs
-run as host root with the host's whole `/dev`, every block device included,
-so the vendor partition's closed blobs are trusted as much as the kernel, and
-nothing here plays the part of the PC build's verity `/usr`. It drops
-`sys_module`, `sys_rawio`, `sys_time` and the MAC capabilities; a `/dev`
-holding only the HAL nodes would narrow it further, but which nodes those are
-differs per device, so it waits for a device to find out.
+> [!WARNING]
+> The container is not a security boundary. Android's init and the vendor HALs
+> run as host root with the host's whole `/dev`, every block device included,
+> so the vendor partition's closed blobs are trusted as much as the kernel, and
+> nothing here plays the part of the PC build's verity `/usr`. It drops
+> `sys_module`, `sys_rawio`, `sys_time` and the MAC capabilities; a `/dev`
+> holding only the HAL nodes would narrow it further, but which nodes those are
+> differs per device, so it waits for a device to find out.
 
 ## What it builds
 
@@ -132,8 +133,9 @@ devices that launched with Android 10 or later, so `losos-gsi-super` has no
 fallback for physical vendor partitions. A device without `vendor_dlkm` or
 `system_dlkm`, as on Android 12, simply skips those mounts.
 
-A device this image cannot carry is one with a 4.x or 5.4 kernel: systemd
-does not run on it, and a generic image cannot bring a newer kernel.
+> [!NOTE]
+> A device this image cannot carry is one with a 4.x or 5.4 kernel: systemd
+> does not run on it, and a generic image cannot bring a newer kernel.
 
 `nixos/pkgs/` builds `libhybris` from its upstream master and Halium's
 `android-headers` (one tree serves Halium 11 to 16).

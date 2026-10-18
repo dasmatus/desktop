@@ -6,10 +6,11 @@ Flasher link in the docs site's navigation bar: plain HTML and JavaScript in
 `website/static/flasher/`, which Docusaurus copies to `flasher/` on the site,
 with no build step and no third-party code.
 
-It needs a Chromium-based browser on a computer (Chrome, Edge, Brave), since
-only those implement WebUSB, and a phone whose bootloader can be unlocked,
-that takes GSIs, and that runs Linux 5.10 or newer (launched with Android 12
-or later).
+> [!IMPORTANT]
+> It needs a Chromium-based browser on a computer (Chrome, Edge, Brave), since
+> only those implement WebUSB, and a phone whose bootloader can be unlocked,
+> that takes GSIs, and that runs Linux 5.10 or newer (launched with Android 12
+> or later).
 
 ![The flasher's page: Prepare the phone, Connect, Unlock the bootloader and the steps after them, each a card with its button](images/web-flasher-page.png)
 
@@ -61,9 +62,10 @@ every phone.
 
 ![The flasher reads SHA256SUMS and the GSI's files from the proxy in 32 MiB ranges into the browser's private storage, hashing each, then writes vbmeta, init_boot and userdata over WebUSB; vendor_boot, super and the rest stay as they were](images/web-flasher.svg)
 
-The bootloader cannot be relocked over this: no bootloader outside Pixels takes
-another signing key, and a Pixel's would have to sign `init_boot` and vbmeta
-for LosOS. Every start shows the bootloader's unlocked warning.
+> [!WARNING]
+> The bootloader cannot be relocked over this: no bootloader outside Pixels takes
+> another signing key, and a Pixel's would have to sign `init_boot` and vbmeta
+> for LosOS. Every start shows the bootloader's unlocked warning.
 
 ## Where the files come from
 
@@ -98,6 +100,7 @@ as the repository variable `LOSOS_PROXY_URL`, `docs.yml` passes it to the
 site build, and the build writes it to `flasher/config.json`. A build without
 it (`npm start`) still installs from files on the computer.
 
-The SHA-256 check is against the `SHA256SUMS` the same proxy serves. It
-catches a broken download; it does not check the release's OpenPGP
-signature, which the browser has no key for.
+> [!NOTE]
+> The SHA-256 check is against the `SHA256SUMS` the same proxy serves. It
+> catches a broken download; it does not check the release's OpenPGP
+> signature, which the browser has no key for.

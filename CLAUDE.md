@@ -108,6 +108,10 @@ still takes time, so don't start one to check a module edit.
   which derisk's error dialogs open a section of (`docs/troubleshooting.md`). A new page in
   `docs/` goes in `website/sidebars.js` too, or both fail. Pages link each
   other as `page.md`, which GitHub, Docusaurus and the wiki all follow.
+  Callouts are GitHub's `> [!NOTE]` (also TIP, IMPORTANT, WARNING,
+  CAUTION), which GitHub and the wiki draw themselves and
+  `website/callouts.js` turns into Docusaurus admonitions; `:::` would show
+  as text on GitHub. Keep each one a paragraph a reader must not miss.
   Pictures live in `docs/images/` and pages show them as `images/<file>`;
   the diagrams there are hand-written SVG in the OS's dark theme.
   The site's root is a landing page, `website/src/pages/index.js`, which
