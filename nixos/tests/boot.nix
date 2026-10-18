@@ -59,7 +59,7 @@ in
           for unit in [
               "systemd-homed.service",
               "systemd-userdbd.socket",
-              "systemd-networkd.service",
+              "NetworkManager.service",
               "systemd-resolved.service",
               "systemd-oomd.service",
               "systemd-factory-reset.socket",
@@ -67,7 +67,7 @@ in
               "display-manager.service",
           ]:
               machine.wait_for_unit(unit)
-          machine.fail("systemctl is-active NetworkManager.service")
+          machine.fail("systemctl is-active systemd-networkd.service")
 
       with subtest("the image chose drivers from facter's report and kept NVIDIA's unloaded"):
           # QEMU's display is not an NVIDIA card, so no rule matches and the

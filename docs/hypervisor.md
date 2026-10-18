@@ -236,12 +236,11 @@ left out). It has:
   is a window of its own, `derisk-gpui`; the rest are drawn by the host's
   compositor). Flatpak is not in it but in [its own
   machine](#the-flatpak-machine);
-- **NetworkManager**, taking an address from libvirt's `default` network
-  and checking it reaches the internet against GNOME's
-  `nmcheck.gnome.org`, which apps in the machine ask through GLib or the
-  portal before they go online. resolved answers DNS, and asks the host
-  for `.local` names ([above](#names-on-the-network)). The host keeps
-  networkd ([systemd](systemd.md)).
+- **NetworkManager**, with NixOS's defaults as on the host, taking an
+  address from libvirt's `default` network. Apps in the machine ask it
+  through GLib or the portal whether they are online. resolved answers
+  DNS, and asks the host for `.local` names
+  ([above](#names-on-the-network)).
 
 `losos-guest-run`, in the guest's system profile, is what the host runs
 there through the agent:
