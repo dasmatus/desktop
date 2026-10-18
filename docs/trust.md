@@ -114,12 +114,13 @@ which check stopped it. A newer week's pull request closes the older one.
 The submodules stay where they are, since each of derisk, mcsapi and pm
 updates its own lockfiles the same way and moving a pin is a decision.
 
-The workflow opens and merges with `LOCKFILE_UPDATE_TOKEN`, a fine-grained
-token with Contents and Pull requests write. GitHub starts no workflow for
-a pull request or push made with Actions' own token, so with that token
-neither the pull request's checks nor main's run after the merge would
-start. Without the secret the branch is still pushed, and the run's summary
-links the page that opens its pull request.
+> [!IMPORTANT]
+> The workflow opens and merges with `LOCKFILE_UPDATE_TOKEN`, a fine-grained
+> token with Contents and Pull requests write. GitHub starts no workflow for
+> a pull request or push made with Actions' own token, so with that token
+> neither the pull request's checks nor main's run after the merge would
+> start. Without the secret the branch is still pushed, and the run's summary
+> links the page that opens its pull request.
 
 android_translation_layer stays a `fetchgit` pin: it is an upstream fork, off
 by default, and its tree is close to half a gigabyte, which the flake would

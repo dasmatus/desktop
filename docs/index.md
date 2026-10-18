@@ -48,8 +48,10 @@ The same OS also builds as one generic system image for Treble phones and
 tablets that take GSIs and run Linux 5.10 or newer, over
 [Halium](https://halium.org) (`nixos/halium/`): NixOS's systemd initrd as the
 phone's `init_boot` or beside its own ramdisk in `boot`, the phone's own kernel, and its vendor HALs running in an LXC container. The
-[web flasher](web-flasher.md) installs it from a browser. It has not run on a
-device yet; [Halium GSI](halium.md) says how it boots.
+[web flasher](web-flasher.md) installs it from a browser.
+
+> [!WARNING]
+> The GSI has not run on a device yet; [Halium GSI](halium.md) says how it boots.
 
 [losos](https://codeberg.org/dasmatus/losos) is the headless sibling: an
 appliance with no desktop, no graphical session and no seat management, on

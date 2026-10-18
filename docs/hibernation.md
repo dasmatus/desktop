@@ -1,10 +1,11 @@
 # Hibernation
 
-No machine running this OS hibernates. Closing a laptop's lid suspends it, and
-it stays suspended until it is opened or its battery runs out; a battery that
-reaches critical while the machine is awake powers it off. The command
-palette's Hibernate command does not show, because logind reports that the
-machine cannot hibernate.
+> [!NOTE]
+> No machine running this OS hibernates. Closing a laptop's lid suspends it, and
+> it stays suspended until it is opened or its battery runs out; a battery that
+> reaches critical while the machine is awake powers it off. The command
+> palette's Hibernate command does not show, because logind reports that the
+> machine cannot hibernate.
 
 ## Why not
 

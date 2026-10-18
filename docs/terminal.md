@@ -73,9 +73,10 @@ were written against GNU. So does `systemd-pull`'s check of an update's
 signature, which passes gpg `--import-options=merge-only`, an option the
 chameleon refuses.
 
-There is no `sudo`, `su` or `run0`, and nothing that runs a command as
-root: `pm system` manages units and updates ([pm on LosOS](pm.md#administering-the-machine)).
-The guest template keeps sudo-rs's `su`, since a guest has no pm service.
+> [!IMPORTANT]
+> There is no `sudo`, `su` or `run0`, and nothing that runs a command as
+> root: `pm system` manages units and updates ([pm on LosOS](pm.md#administering-the-machine)).
+> The guest template keeps sudo-rs's `su`, since a guest has no pm service.
 
 The image's boot test checks which of these answers `ls`, `find` and
 `gpg`, and makes a key with the chameleon, signs a file with it and verifies

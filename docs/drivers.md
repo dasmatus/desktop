@@ -50,8 +50,10 @@ files kmod and systemd already read from `/run`:
 
 Every boot rather than once at install: a card swapped in gets its driver on
 the first boot it is there, and nothing has to keep a stored report in step
-with the hardware. A USB device plugged in after boot counts from the next
-one.
+with the hardware.
+
+> [!NOTE]
+> A USB device plugged in after boot counts from the next boot.
 
 ## Services that follow the hardware
 
@@ -142,12 +144,13 @@ dropped. The cost is up to one frame of latency while the GPU keeps ahead.
 
 ## What is not tested
 
-There is no NVIDIA card where this was built. `nixos/tests/hardware.nix`
-boots a VM and checks the probe runs before coldplug and module loading, that
-NVIDIA's modules are installed and that udev would load nouveau, not them,
-for an RTX 4090's ID; then it hands `losos-hardware` a report with that card
-and checks nouveau is blacklisted, NVIDIA's module is loaded and, finding no
-GPU, refuses, and the fallback loads nouveau. A real card accepting the
-module, the compositor on it, suspend, VA-API and
-hardened_malloc under NVIDIA's libraries are untested ([What is not
-done](not-done.md)).
+> [!NOTE]
+> There is no NVIDIA card where this was built. `nixos/tests/hardware.nix`
+> boots a VM and checks the probe runs before coldplug and module loading, that
+> NVIDIA's modules are installed and that udev would load nouveau, not them,
+> for an RTX 4090's ID; then it hands `losos-hardware` a report with that card
+> and checks nouveau is blacklisted, NVIDIA's module is loaded and, finding no
+> GPU, refuses, and the fallback loads nouveau. A real card accepting the
+> module, the compositor on it, suspend, VA-API and
+> hardened_malloc under NVIDIA's libraries are untested ([What is not
+> done](not-done.md)).

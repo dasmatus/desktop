@@ -153,11 +153,12 @@ pattern reaches `find` unexpanded.
 else that resolves to whatever is newest gets no verdict, and pm refuses the
 build file before it runs.
 
-Untested beyond evaluation and the payload builder itself: both architectures
-evaluate `.#pm-payloads.<name>`, and the builder, run against nixpkgs' own
-cached static packages, produced a static `hello` and refused `gnugrep`. No pm
-build has run the steps above, and CI does not build any payload, so the first
-one of each package compiles its whole static closure.
+> [!NOTE]
+> Untested beyond evaluation and the payload builder itself: both architectures
+> evaluate `.#pm-payloads.<name>`, and the builder, run against nixpkgs' own
+> cached static packages, produced a static `hello` and refused `gnugrep`. No pm
+> build has run the steps above, and CI does not build any payload, so the first
+> one of each package compiles its whole static closure.
 
 ## Virtual machines
 
