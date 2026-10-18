@@ -19,12 +19,12 @@ and role. Each change is a `homectl` command:
 | Administrator or standard | `homectl update <user> --member-of=…`, with `wheel` added or taken out |
 | Remove | `homectl remove <user>`, which deletes their home area and every file in it |
 
-An administrator is a member of `wheel`, which is how run0, polkit and
-Flatpak know who administers the machine; first-boot setup's account is
-one. A standard user can use apps and change their own settings. homed asks
+An administrator is a member of `wheel`, which is how polkit, and through
+it `pm system` and Flatpak, know who administers the machine; first-boot
+setup's account is one. A standard user can use apps and change their own settings. homed asks
 polkit before it makes, removes or changes anyone's account, and polkit asks
 for an administrator's password through derisk's dialog
-([polkit and run0](sign-in.md#polkit-and-run0)), so a standard user can open
+([polkit and pm](sign-in.md#polkit-and-pm)), so a standard user can open
 the page and have an administrator type theirs. The page keeps one
 administrator: the last one cannot be made standard or removed, and nobody
 removes their own account from it.

@@ -74,6 +74,13 @@ let
       "reboot"
       "halt"
       "sleep"
+    ]
+    # The recovery shell's boot, which starts the kernel bios.nix puts beside
+    # the UKI as a BIOS boot does (grub.cfg's losos_extra). There is no such
+    # kernel on aarch64.
+    ++ lib.optionals (arch.name == "x86_64") [
+      "linux"
+      "probe"
     ];
   };
 
