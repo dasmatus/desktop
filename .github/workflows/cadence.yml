@@ -17,10 +17,12 @@ name: cadence
 
 on:
   schedule:
-    # Daily, at an hour no nightly is usually being built at. Weekly
-    # releases come out on Monday, monthly ones on the 1st and yearly ones
-    # on 1 January, or on the first day after that one could be built.
-    - cron: "17 5 * * *"
+    # Daily, before lockfiles.yml's Monday 03:00 update of the flake and
+    # lockfiles, so a weekly release is the week's last nightly and never
+    # the first build of a fresh nixpkgs. Weekly releases come out on
+    # Monday, monthly ones on the 1st and yearly ones on 1 January, or on
+    # the first day after that one could be built.
+    - cron: "17 2 * * *"
   workflow_dispatch:
 
 permissions:
