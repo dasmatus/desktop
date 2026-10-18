@@ -8,8 +8,8 @@
 # pm also administers the machine, as a user of its own. `pm system` asks
 # `pmd --system`, which runs as `pm` and asks polkit about each caller, and an
 # administrator authenticates as themselves before pm starts, stops or
-# restarts a unit, updates the system, or runs a command as root. That is what
-# sudo, su and run0 were for, and none of them is in the image any more
+# restarts a unit or updates the system. That is all it does: it runs no
+# command as root, which is why sudo, su and run0 are gone and not replaced
 # (accounts.nix). docs/pm.md has the commands.
 { lib, pkgs, ... }:
 
@@ -45,9 +45,6 @@
   systemd.services.pm-system = {
     description = "pm's system service";
     documentation = [ "https://github.com/losos-project/pm#administering-the-machine" ];
-    # The PATH a command run as root resolves in and inherits, the one a
-    # login shell has.
-    path = [ "/run/current-system/sw" ];
     serviceConfig = {
       Type = "dbus";
       BusName = "org.pm1.System";
@@ -56,10 +53,10 @@
       Group = "pm";
       StateDirectory = "pm";
       # Everything the daemon does, it does over the system bus, as pm: it
-      # needs no capability, no network, and nothing of the file system but
-      # the pseudo-terminals it checks the owner of and the programs it
-      # looks up on PATH.
+      # needs no capability, no network, no devices and nothing of the file
+      # system.
       CapabilityBoundingSet = "";
+      PrivateDevices = true;
       NoNewPrivileges = true;
       ProtectSystem = "strict";
       ProtectHome = true;
@@ -87,8 +84,15 @@
     ''
       // pm manages units without asking anyone: pmd --system has already
       // asked polkit about its caller (org.pm1.system.*) before it does.
+      // All but the debug shell, a root shell on tty9 with no password,
+      // which would make starting a unit a way to root. The recovery shell
+      // (docs/troubleshooting.md) starts it from the kernel's command line.
       polkit.addRule(function (action, subject) {
-        if (action.id === "org.freedesktop.systemd1.manage-units" && subject.user === "pm") {
+        if (
+          action.id === "org.freedesktop.systemd1.manage-units" &&
+          subject.user === "pm" &&
+          action.lookup("unit") !== "debug-shell.service"
+        ) {
           return polkit.Result.YES;
         }
         return polkit.Result.NOT_HANDLED;

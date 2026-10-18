@@ -91,11 +91,12 @@ until an account exists ([First-boot setup](first-boot.md)).
 
 ## No one can administer the machine
 
-A running system has one way to act as root, `pm system`
-([pm](pm.md#administering-the-machine)), and it needs an administrator who
-can sign in, pm's system service and polkit. When one of them is missing,
-the way in is a root shell for one boot, chosen at GRUB's menu by someone
-at the machine:
+A running system is administered only through `pm system`
+([pm](pm.md#administering-the-machine)), which manages units and updates and
+nothing else, and needs an administrator who can sign in, pm's system
+service and polkit. When something needs more than that, or one of them is
+missing, the way in is a root shell for one boot, chosen at GRUB's menu by
+someone at the machine. Nothing in a running system gives one:
 
 1. When the boot menu shows, press `c` for GRUB's prompt.
 2. Type `set losos_extra=systemd.debug_shell`, Enter, then
