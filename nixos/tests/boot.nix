@@ -147,12 +147,13 @@ in
           machine.fail("command -v sudo")
           machine.fail("test -e /run/wrappers/bin/su")
           # Root is never asked by polkit, so this is the daemon end to end:
-          # bus activation, polkit, the unit job, and a command run as root
-          # on a pseudo-terminal pm relays. Input is /dev/null, so pm does not
-          # relay the test driver's own console to the command.
+          # bus activation, polkit and the unit job. Units and updates are all
+          # pm does: there is no command to run one as root, and the debug
+          # shell, a root shell by another name, is not a unit pm may start.
           machine.succeed("pm system restart systemd-hostnamed")
-          machine.succeed("pm system run id -u </dev/null | tr -d '\\r' | grep -qx 0")
-          machine.succeed("test \"$(pm system run sh -c 'exit 7' </dev/null; echo $?)\" = 7")
+          machine.fail("pm system run id")
+          machine.fail("pm system start debug-shell")
+          machine.fail("systemctl is-active debug-shell.service")
           machine.succeed("ps -o user= -C pmd | grep -qx pm")
           # pkcheck: 0 authorized, 1 refused, 2 needs authentication. pm may
           # manage units unasked; alice, an administrator, may not manage them
@@ -168,8 +169,8 @@ in
               f" --process {alice}; test $? = 1"
           )
           machine.succeed(
-              "pkcheck --action-id org.pm1.system.run --detail command id"
-              f" --process {alice}; test $? = 2"
+              "pkcheck --action-id org.pm1.system.manage-units"
+              f" --detail verb restart --detail unit sshd.service --process {alice}; test $? = 2"
           )
           # Without an agent nobody is there to authenticate, so it is refused.
           machine.fail("runuser -u alice -- pm system restart systemd-hostnamed")
