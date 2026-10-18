@@ -1,5 +1,8 @@
 # The virtual machine desktop's host and its template (libvirt.nix,
-# machines.nix, docs/hypervisor.md): pm makes a machine from the template
+# machines.nix, docs/hypervisor.md), on the image's own network
+# (network.nix, adblock.nix): the host takes its address and resolver from
+# the LAN's DHCP and resolves names through the ad blocker, which blocks
+# what its list names. pm makes a machine from the template
 # the image ships, the machine boots and takes an address on libvirt's
 # network, its user pings the host and past it and NetworkManager finds it
 # online, its guest agent lists its apps, and opening one sends its window
@@ -68,8 +71,9 @@
       networking.firewall.allowedTCPPorts = [ 80 ];
     };
 
-  # The internet as far as a machine can tell: the resolver the host asks,
-  # which places GNOME's connectivity check here, and that check's page.
+  # The internet as far as a machine can tell: the router whose DHCP hands
+  # the host its address and resolver, that resolver, which places GNOME's
+  # connectivity check here, and that check's page.
   nodes.internet =
     { config, pkgs, ... }:
     {
@@ -77,7 +81,12 @@
       services.dnsmasq = {
         enable = true;
         resolveLocalQueries = false;
-        settings.address = "/nmcheck.gnome.org/${config.networking.primaryIPAddress}";
+        settings = {
+          address = "/nmcheck.gnome.org/${config.networking.primaryIPAddress}";
+          interface = "eth1";
+          # Above the addresses the test gives the other nodes.
+          dhcp-range = "192.168.1.100,192.168.1.200";
+        };
       };
       systemd.services.nmcheck = {
         wantedBy = [ "multi-user.target" ];
@@ -90,9 +99,13 @@
     };
 
   nodes.machine =
-    { nodes, pkgs, ... }:
+    { pkgs, ... }:
     {
       imports = [
+        # The image's own network: NetworkManager with resolved, the
+        # firewall, and the ad blocker's forwarder every name goes through.
+        ../modules/network.nix
+        ../modules/adblock.nix
         ../modules/libvirt.nix
         ../modules/machines.nix
         ../modules/pm.nix
@@ -102,23 +115,17 @@
       ];
       nixpkgs.overlays = [ (import ../pkgs) ];
 
-      # network.nix's packet filter, which the guests' DHCP has to get past.
-      networking.nftables.enable = true;
-      # libvirt's dnsmasq forwards the machines' questions to the host's
-      # resolver, which asks the stand-in internet.
-      networking.nameservers = [ nodes.internet.networking.primaryIPAddress ];
-
-      # And its resolver: networkd and resolved, mDNS on the LAN's link and
-      # in resolved, 5353 open. libvirt's dnsmasq passes the machines'
-      # queries to it through /etc/resolv.conf, as on the image.
-      networking.useNetworkd = true;
-      networking.useDHCP = false;
-      systemd.network.networks."40-eth1".networkConfig.MulticastDNS = true;
-      services.resolved = {
-        enable = true;
-        settings.Resolve.MulticastDNS = true;
-      };
-      networking.firewall.allowedUDPPorts = [ 5353 ];
+      # The LAN's address and resolver come from its DHCP, as on a real
+      # network, rather than the address the test driver would set, and
+      # the driver's own user-mode NIC is left out so the router is the
+      # only network there is. libvirt's dnsmasq passes the machines'
+      # queries to the host's resolved through /etc/resolv.conf, as on the
+      # image, and resolved sends them on through the ad blocker.
+      networking.interfaces.eth1.ipv4.addresses = lib.mkForce [ ];
+      virtualisation.qemu.networkingOptions = lib.mkForce [ ];
+      # One name the ad blocker blocks; the daily lists are out of reach.
+      losos.adblock.lists = lib.mkForce [ "/etc/losos-adblock/test-list" ];
+      environment.etc."losos-adblock/test-list".text = "||ads.example^\n";
 
       boot.blacklistedKernelModules = [
         "kvm_intel"
@@ -180,6 +187,24 @@
 
     start_all()
     machine.wait_for_unit("libvirt-defaults.service")
+
+    with subtest("the host resolves names through the ad blocker, which blocks"):
+        internet.wait_for_unit("dnsmasq.service")
+        machine.wait_until_succeeds("nmcli -t -f IP4.DNS device show eth1 | grep -q 192.168.1.", timeout=120)
+        # The networks' servers route nothing by themselves: the dummy link
+        # is resolved's one way out, and it is the forwarder.
+        status = machine.succeed("resolvectl status")
+        print(status)
+        assert re.search(r"Link \d+ \(adblock0\)[^L]*DNS Servers: 169\.254\.153\.53", status), status
+        internet_ip = internet.succeed("ip -4 -o addr show eth1 | awk '{print $4}' | cut -d/ -f1").strip()
+        machine.wait_until_succeeds(f"getent hosts nmcheck.gnome.org | grep -q {internet_ip}", timeout=60)
+        machine.succeed("ping -c1 -W10 nmcheck.gnome.org")
+        machine.succeed("systemctl start losos-adblock-update.service")
+        machine.wait_until_succeeds("getent ahostsv4 ads.example | grep -q '^0.0.0.0'", timeout=60)
+        # NetworkManager leaves libvirt's bridge to libvirt.
+        machine.succeed("nmcli -t -f DEVICE,STATE device | grep -qx 'virbr0:unmanaged'")
+        # network.nix turns mDNS on for every link NetworkManager hands resolved.
+        machine.succeed("resolvectl mdns eth1 | grep -q ': yes'")
 
     with subtest("libvirt is the host's control plane"):
         machine.succeed("systemctl is-active libvirtd.service")

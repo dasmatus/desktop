@@ -45,7 +45,7 @@ cannot write their record into it. Their change goes to homed's own copy of
 the record (`homectl update --offline`), which is signed by the machine and
 newer than the one in their home area, so homed writes it there at their
 next login. A new account joins the same device groups as setup's
-(`wpa_supplicant`, for Wi-Fi) and is made under the same password age policy
+(`networkmanager`, for Wi-Fi) and is made under the same password age policy
 ([Password age](sign-in.md#password-age)), so its first login has nothing to
 bring up to date.
 

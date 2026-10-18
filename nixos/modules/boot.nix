@@ -4,7 +4,7 @@
 #     (a legacy BIOS: MBR -> GRUB -> the UKI's kernel and initrd, bios.nix)
 #     -> systemd in the initrd, under Plymouth's splash (splash.nix):
 #        repart, veritysetup, gpt-auto root
-#     -> switch-root -> systemd: sysusers, tmpfiles, homed, networkd ...
+#     -> switch-root -> systemd: sysusers, tmpfiles, homed, NetworkManager ...
 #
 # What NixOS changes is where the operating system lives. In the pm tree it was
 # the root partition, replaced wholesale by sysupdate. Here it is the Nix store,
