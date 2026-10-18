@@ -14,9 +14,11 @@
 //! then checks the signature and every file's hash itself, exactly as it
 //! does for the channel, and downloads into the slots as an update would.
 //!
-//! The release is found by version, which is in every file name: the named
-//! release a person tagged by hand first, then the nightly CI tagged from the
-//! version (`20261010.175322` is `nightly-20261010T1753`).
+//! The release is found by its tag, which CI makes from the cadence the ISO
+//! was built for and its version (`20261010.175322` is
+//! `nightly-20261010T1753` for a nightly, `weekly-20261010T1753` for a
+//! weekly). Releases of two cadences can share a version, but not their
+//! files: the cadence a system follows is part of /usr.
 use std::collections::BTreeMap;
 use std::fs;
 use std::io::{self, BufRead, BufReader, Write};
@@ -49,12 +51,12 @@ pub struct Release {
     pub assets: Vec<Asset>,
 }
 
-/// The tag CI gives the nightly of `version`, or `None` when the version is
-/// not one CI writes (`<YYYYMMDD>.<HHMMSS>`).
-pub fn nightly_tag(version: &str) -> Option<String> {
+/// The tag CI gives the `channel` release of `version`, or `None` when the
+/// version is not one CI writes (`<YYYYMMDD>.<HHMMSS>`).
+pub fn release_tag(channel: &str, version: &str) -> Option<String> {
     let (date, time) = version.split_once('.')?;
     let digits = |s: &str, n| s.len() == n && s.bytes().all(|b| b.is_ascii_digit());
-    (digits(date, 8) && digits(time, 6)).then(|| format!("nightly-{date}T{}", &time[..4]))
+    (digits(date, 8) && digits(time, 6)).then(|| format!("{channel}-{date}T{}", &time[..4]))
 }
 
 /// A release as the API describes it in JSON, or `None` for a draft or
@@ -90,18 +92,6 @@ pub fn carries(release: &Release, version: &str, arch: &str) -> bool {
         && release.assets.iter().any(|a| a.name.contains(&named))
 }
 
-/// Picks `version`'s release out of a list, a tagged one before a nightly:
-/// the two carry the same files when both exist, and the tag is the name a
-/// person chose for them.
-pub fn pick(releases: Vec<Release>, version: &str, arch: &str) -> Option<Release> {
-    let mut matching: Vec<Release> = releases
-        .into_iter()
-        .filter(|r| carries(r, version, arch))
-        .collect();
-    matching.sort_by_key(|r| r.prerelease);
-    matching.into_iter().next()
-}
-
 /// The API's answer at `path` as JSON.
 fn api(path: &str, events: &Sender<Event>) -> Result<Value, String> {
     let body = command(
@@ -123,33 +113,27 @@ fn api(path: &str, events: &Sender<Event>) -> Result<Value, String> {
     serde_json::from_str(&body).map_err(|e| format!("GitHub's answer for {path}: {e}"))
 }
 
-/// Finds the release of `version` for `arch` in `repo` (`owner/name`).
+/// Finds the `channel` release of `version` for `arch` in `repo`
+/// (`owner/name`).
+///
+/// pick looked through the newest hundred releases for a tag someone chose
+/// by hand before the nightly. Every release is now tagged by CI from its
+/// cadence and version, so its tag is known and asked for directly.
 pub fn find(
     repo: &str,
+    channel: &str,
     version: &str,
     arch: &str,
     events: &Sender<Event>,
 ) -> Result<Release, String> {
-    // The newest hundred: a tagged release is cut from a recent commit, and
-    // its version's nightly is looked up by name below if it is older.
-    let listed = api(&format!("/repos/{repo}/releases?per_page=100"), events)?;
-    let releases = listed
-        .as_array()
-        .into_iter()
-        .flatten()
-        .filter_map(parse_release)
-        .collect();
-    if let Some(release) = pick(releases, version, arch) {
-        return Ok(release);
-    }
-    let tag = nightly_tag(version)
+    let tag = release_tag(channel, version)
         .ok_or_else(|| format!("{version} is not a version CI tags releases with"))?;
     api(&format!("/repos/{repo}/releases/tags/{tag}"), events)
         .ok()
         .as_ref()
         .and_then(parse_release)
         .filter(|r| carries(r, version, arch))
-        .ok_or_else(|| format!("{repo} has no release of {version} for {arch}"))
+        .ok_or_else(|| format!("{repo} has no {channel} release of {version} for {arch}"))
 }
 
 /// What the mirror answers for one name: the asset URLs to stream in order,

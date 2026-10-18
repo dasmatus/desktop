@@ -1,0 +1,93 @@
+# Cuts the weekly, monthly and yearly releases.
+#
+# A release's cadence is the prefix of its tag in GitHub Releases:
+# nightly-, weekly-, monthly- or yearly-<YYYYMMDD>T<HHMM> (ci.yml, publish).
+# Once a day this reads the releases and, for each slower cadence whose
+# newest release came out in an earlier ISO week, month or year than today,
+# or that has none yet, starts ci.yml on the newest nightly's tag for that
+# cadence. That run builds the same commit again with LOSOS_CHANNEL set to
+# the cadence, almost all of it from the cache, because the cadence a system
+# follows by default is part of /usr (docs/releases.md); then it publishes
+# the release, a yearly one as the repository's latest.
+#
+# Every nightly published is one whose build finished on both architectures,
+# so the newest nightly is the newest build to release. A cadence whose run
+# failed has no release this period yet, so the next day starts it again.
+name: cadence
+
+on:
+  schedule:
+    # Daily, before lockfiles.yml's Monday 03:00 update of the flake and
+    # lockfiles, so a weekly release is the week's last nightly and never
+    # the first build of a fresh nixpkgs. Weekly releases come out on
+    # Monday, monthly ones on the 1st and yearly ones on 1 January, or on
+    # the first day after that one could be built.
+    - cron: "17 2 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}
+  cancel-in-progress: false
+
+jobs:
+  due:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    # actions: write starts ci.yml.
+    permissions:
+      actions: write
+      contents: read
+    steps:
+      - name: Start the releases that are due
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release list --repo "$GITHUB_REPOSITORY" --limit 100000 --exclude-drafts \
+            --json tagName,publishedAt --jq '.[] | "\(.tagName) \(.publishedAt)"' > releases.txt
+          # The stamp sorts by time, whatever order the API lists them in.
+          nightly=$(awk '$1 ~ /^nightly-[0-9]{8}T[0-9]{4}$/ { print $1 }' releases.txt | sort | tail -n 1)
+          if [ -z "$nightly" ]; then
+            echo "::notice::There is no nightly to release yet."
+            exit 0
+          fi
+          stamp=${nightly#nightly-}
+          # Runs of ci.yml not finished yet, by the name ci.yml's run-name
+          # gives a cadence run, so a build that takes longer than a day is
+          # not started a second time.
+          gh run list --repo "$GITHUB_REPOSITORY" --workflow ci.yml --event workflow_dispatch \
+            --limit 100 --json displayTitle,status \
+            --jq '.[] | select(.status != "completed") | .displayTitle' > running.txt
+          failed=0
+          for cadence in weekly monthly yearly; do
+            case $cadence in
+              weekly) period=+%G-W%V ;;
+              monthly) period=+%Y-%m ;;
+              yearly) period=+%Y ;;
+            esac
+            now=$(date -u "$period")
+            newest=$(awk -v c="$cadence" '$1 ~ ("^" c "-[0-9]{8}T[0-9]{4}$") { print $2 }' releases.txt | sort | tail -n 1)
+            if [ -n "$newest" ] && [ "$(date -u -d "$newest" "$period")" = "$now" ]; then
+              echo "$cadence: released in $now already."
+              continue
+            fi
+            if grep -qx "$cadence-$stamp" <(cut -d' ' -f1 releases.txt); then
+              echo "$cadence: $nightly is the newest nightly and was released as $cadence-$stamp already."
+              continue
+            fi
+            if grep -q "^$cadence release " running.txt; then
+              echo "$cadence: a run is building one."
+              continue
+            fi
+            echo "$cadence: due for $now; building $nightly."
+            if ! gh workflow run ci.yml --repo "$GITHUB_REPOSITORY" --ref "$nightly" -f cadence="$cadence"; then
+              # A nightly built before ci.yml took a cadence cannot be
+              # started this way; the next nightly can.
+              echo "::error::Could not start the $cadence release of $nightly."
+              failed=1
+            fi
+            echo "- $cadence release of \`$nightly\` started" >> "$GITHUB_STEP_SUMMARY"
+          done
+          exit "$failed"

@@ -39,9 +39,12 @@ user adds more, one per line, in `/var/lib/losos-adblock/lists`.
 `losos-adblock-update.timer` fetches them two minutes after boot and then
 daily, with `If-None-Match` so an unchanged list is not downloaded again,
 keeping the last good copy of a list that fails, and compiles both
-halves. `losos-adblock update` does the same by hand, and
-`losos-adblock check NAME...` says whether a name is blocked and by which
-rule.
+halves.
+
+> [!TIP]
+> `losos-adblock update` does the same by hand, and
+> `losos-adblock check NAME...` says whether a name is blocked and by which
+> rule.
 
 ## Exceptions
 

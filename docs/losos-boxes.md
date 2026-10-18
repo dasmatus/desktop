@@ -123,11 +123,12 @@ losos login http://mattbox.local
 losos
 ```
 
-A box accepts only keys that were on the stick it was installed from, so
-the key has to be one of those, and the token `login` asks for comes from
-**Settings → Access tokens** in the box's admin pages. `login` shows the
-box's key in groups of four to compare with that pane before you accept
-it.
+> [!IMPORTANT]
+> A box accepts only keys that were on the stick it was installed from, so
+> the key has to be one of those, and the token `login` asks for comes from
+> **Settings → Access tokens** in the box's admin pages. `login` shows the
+> box's key in groups of four to compare with that pane before you accept
+> it.
 
 `losos` keeps keys and tokens in the Secret Service, which GNOME Keyring
 answers in the LosOS boxes machine (and in a phone's session), through

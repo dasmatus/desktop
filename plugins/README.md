@@ -161,17 +161,19 @@ never a path.
 just plugins    # nix build .#pm-plugins -o plugins/dist
 ```
 
-That leaves seven components in `dist/share/pm/plugins`: this tree's three,
-and four of pm's own — `libvirt`, `sysext`, `sysupdate` and `systemd` — built
+That leaves eight components in `dist/share/pm/plugins`: this tree's three,
+and five of pm's own — `libvirt`, `podman`, `sysext`, `sysupdate` and `systemd` — built
 from the `components/pm` submodule, the commit pm itself is built from, rather
 than copied here to drift. Three read the sysupdate transfers and sysext
 definitions `nixos/` ships and name the systemd tools a recipe calls; `libvirt` boots a
 package's own kernel through the libvirt the image runs (`docs/pm.md`, "Virtual
-machines"). pm's `zig` is left out: nothing here
+machines"); `podman` runs a person's own containers in rootless Podman
+(`pm container`), which is how Windows app support starts its Windows
+(`docs/windows-apps.md`). pm's `zig` is left out: nothing here
 builds with it. pm consults plugins in file-name order and takes the first
 verdict, so where `losos-image` and pm's `sysext` both name a tool
 (`systemd-repart`, `mkfs.erofs`), `losos-image` answers. The NixOS image carries all
-seven, unsigned, in `/run/current-system/sw/share/pm/plugins`
+eight, unsigned, in `/run/current-system/sw/share/pm/plugins`
 (`nixos/pkgs/pm-plugins.nix`).
 
 pm loads plugins only from `~/.config/pm/plugins`, and only ones signed by a

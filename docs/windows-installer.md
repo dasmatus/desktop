@@ -91,8 +91,10 @@ therefore go on an XBOOTLDR partition, which GRUB reads beside the ESP, and `upd
 there is one and the ESP otherwise. `disk.nix` matches whatever ESP the disk
 has and no longer asks for 512 MB of it: with that minimum, repart could not
 grow Windows' ESP and refused the whole disk on first boot, so the system
-never found its root. A release built before that change cannot be
-installed beside Windows.
+never found its root.
+
+> [!IMPORTANT]
+> A release built before that change cannot be installed beside Windows.
 
 ## Secure Boot, BitLocker, fast startup
 
@@ -125,8 +127,11 @@ disk IOCTLs, leaving out the firmware entry. That is how the install was
 checked: into a 64 GB image with a 100 MB ESP, an MSR, a C: and a recovery
 partition, which then booted under QEMU into the boot loader's menu with
 LosOS and Windows Boot Manager, ran first boot, and left C: and recovery
-byte-for-byte as they were. That check was made when the loader was still
-systemd-boot; with GRUB it has not been run again.
+byte-for-byte as they were.
+
+> [!NOTE]
+> That check was made when the loader was still systemd-boot; with GRUB it
+> has not been run again.
 
 What only a Windows machine can show is everything `windows.rs` does:
 shrinking C:, writing the partition table through

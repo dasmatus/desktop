@@ -84,9 +84,9 @@
       # send no ping.
       proxyUrl = builtins.getEnv "LOSOS_PROXY_URL";
 
-      # The channel CI builds for (ci.yml): `nightly`, or `stable` for a
-      # tagged release. Empty outside Actions, where options.nix's default,
-      # nightly, stands.
+      # The cadence CI builds for (ci.yml): `nightly`, or `weekly`,
+      # `monthly` or `yearly` for a run cadence.yml started. Empty outside
+      # Actions, where options.nix's default, nightly, stands.
       channel = builtins.getEnv "LOSOS_CHANNEL";
 
       # The repository CI runs in, which is the one its releases go to.
@@ -290,6 +290,11 @@
           # LosOS box lays them out, files to one and a repository to the
           # other, then again after changes (backup.nix).
           backup = pkgs.testers.runNixOSTest ./nixos/tests/backup.nix;
+          # Windows app support's containers: a person's rootless Podman from
+          # the image's subordinate IDs, a container run through WinBoat's
+          # pm and its podman plugin, and none of either for root
+          # (windows-apps.nix).
+          windows-apps = pkgs.testers.runNixOSTest ./nixos/tests/windows-apps.nix;
           installer-boot = pkgs.testers.runNixOSTest (
             import ./nixos/tests/installer-boot.nix { inherit self; }
           );

@@ -55,6 +55,12 @@ module.exports = {
       if (path.resolve(params.filePath) === path.join(__dirname, '..', 'docs', 'index.md')) {
         result.frontMatter.slug = '/overview';
       }
+      // A page that opens with a callout would otherwise be described by
+      // its marker (callouts.js).
+      const description = require('./callouts.js').description(result.content);
+      if (description && result.frontMatter.description === undefined) {
+        result.frontMatter.description = description;
+      }
       return result;
     },
   },
@@ -100,12 +106,15 @@ module.exports = {
           path: '../docs',
           routeBasePath: '/',
           sidebarPath: require.resolve('./sidebars.js'),
+          // GitHub's `> [!NOTE]` callouts as admonitions (callouts.js).
+          beforeDefaultRemarkPlugins: [require('./callouts.js')],
           editUrl:
             repository && editBranch
               ? ({ docPath }) => `${repository}/edit/${editBranch}/docs/${docPath}`
               : undefined,
         },
         blog: false,
+        theme: { customCss: require.resolve('./src/css/custom.css') },
       }),
     ],
   ],

@@ -48,8 +48,8 @@ about managing units directly and through pm (`nixos/tests/boot.nix`).
 
 ## pm's plugins
 
-`nixos/pkgs/pm-plugins.nix` builds seven components, this repository's three
-and pm's own `libvirt`, `sysext`, `sysupdate` and `systemd`, and the image
+`nixos/pkgs/pm-plugins.nix` builds eight components, this repository's three
+and pm's own `libvirt`, `podman`, `sysext`, `sysupdate` and `systemd`, and the image
 carries them in
 `/run/current-system/sw/share/pm/plugins`. pm loads plugins only from a user's
 own `~/.config/pm/plugins`, and only signed by a key that user trusts, so the
@@ -70,7 +70,7 @@ itself has no Nix and its users are systemd-homed records), the flake's
 {
   imports = [ losos-desktop.homeModules.pm ];
   programs.pm.enable = true;
-  # All seven by default; or name the ones you want:
+  # All eight by default; or name the ones you want:
   # programs.pm.plugins = [ "losos-nix" "systemd" ];
 }
 ```
@@ -153,11 +153,12 @@ pattern reaches `find` unexpanded.
 else that resolves to whatever is newest gets no verdict, and pm refuses the
 build file before it runs.
 
-Untested beyond evaluation and the payload builder itself: both architectures
-evaluate `.#pm-payloads.<name>`, and the builder, run against nixpkgs' own
-cached static packages, produced a static `hello` and refused `gnugrep`. No pm
-build has run the steps above, and CI does not build any payload, so the first
-one of each package compiles its whole static closure.
+> [!NOTE]
+> Untested beyond evaluation and the payload builder itself: both architectures
+> evaluate `.#pm-payloads.<name>`, and the builder, run against nixpkgs' own
+> cached static packages, produced a static `hello` and refused `gnugrep`. No pm
+> build has run the steps above, and CI does not build any payload, so the first
+> one of each package compiles its whole static closure.
 
 ## Virtual machines
 
@@ -172,7 +173,7 @@ administrator's password.
 pm boots a package that ships its own kernel (`kernel(...)` in its recipe, see
 pm's README) in a virtual machine. On its own it starts QEMU itself, as you.
 With pm's `libvirt` plugin installed and signed (as above; it is one of the
-seven), it asks libvirt instead:
+eight), it asks libvirt instead:
 
 ```
 pm run hello.cpkg          # through libvirt, when the plugin is installed

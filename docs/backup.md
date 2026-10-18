@@ -146,10 +146,12 @@ has no machines and reaches the box by its name, through resolved's mDNS.
 The two secrets are in a file rather than the Secret Service, unlike
 `losos`'s keys: the timer runs with nobody at the screen, and a locked
 keyring would ask for its password in a window. The home they are in is
-encrypted by systemd-homed whenever its owner is signed out. Signing out of
-LosOS cloud on the Backups page revokes its app password on the box; a
-LosOS Git token can only be deleted with the password, in the account's
-settings there.
+encrypted by systemd-homed whenever its owner is signed out.
+
+> [!NOTE]
+> Signing out of LosOS cloud on the Backups page revokes its app password on
+> the box; a LosOS Git token can only be deleted with the password, in the
+> account's settings there.
 
 ## Tested
 

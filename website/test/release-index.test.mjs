@@ -52,16 +52,26 @@ test("a channel's index names each file once, its parts in order", () => {
   assert.match(out["nightly/aarch64"].text, /^SHA256SUMS 11 .*SHA256SUMS-aarch64$/m);
 });
 
-test("the newest release of each channel wins, drafts and odd prereleases never", () => {
+test("the newest release of each cadence wins, drafts and other tags never", () => {
+  const signed = [["SHA256SUMS-x86_64", 1], ["SHA256SUMS-x86_64.gpg", 1]];
   const older = release("nightly-20261015T0529", { prerelease: true, files: NIGHTLY.assets.map((a) => [a.name, 1]) });
-  const stable = release("v0.1.0", { files: [["SHA256SUMS-x86_64", 1], ["SHA256SUMS-x86_64.gpg", 1]] });
-  const draft = release("nightly-20261017T0000", { prerelease: true, draft: true, files: [["SHA256SUMS-x86_64", 1], ["SHA256SUMS-x86_64.gpg", 1]] });
-  const beta = release("v0.2.0-rc1", { prerelease: true, files: [["SHA256SUMS-x86_64", 1], ["SHA256SUMS-x86_64.gpg", 1]] });
-  const out = pick([draft, beta, NIGHTLY, older, stable]);
+  const weekly = release("weekly-20261016T1200", { files: signed });
+  const yearly = release("yearly-20261015T0529", { files: signed });
+  const byHand = release("v0.1.0", { files: signed });
+  const draft = release("nightly-20261017T0000", { prerelease: true, draft: true, files: signed });
+  const beta = release("v0.2.0-rc1", { prerelease: true, files: signed });
+  const unknown = release("hourly-20261017T0100", { files: signed });
+  const out = pick([draft, beta, unknown, weekly, NIGHTLY, older, yearly, byHand]);
   assert.equal(out["nightly/x86_64"].tag, "nightly-20261016T1200");
-  assert.equal(out["stable/x86_64"].tag, "v0.1.0");
-  // v0.1.0 carries no aarch64, so the stable channel has none.
-  assert.equal(out["stable/aarch64"], undefined);
+  assert.equal(out["weekly/x86_64"].tag, "weekly-20261016T1200");
+  assert.equal(out["yearly/x86_64"].tag, "yearly-20261015T0529");
+  // Nothing monthly yet, and the weekly carries no aarch64.
+  assert.equal(out["monthly/x86_64"], undefined);
+  assert.equal(out["weekly/aarch64"], undefined);
+  assert.deepEqual(
+    Object.keys(out).map((k) => k.split("/")[0]).filter((c) => !["nightly", "weekly", "yearly"].includes(c)),
+    [],
+  );
 });
 
 test("a release without a signed manifest serves nothing", () => {

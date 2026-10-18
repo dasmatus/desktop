@@ -13,12 +13,13 @@ the PC LosOS expects rather than the least it boots on:
 | Disk | 64 GB, sparse |
 | Graphics | virtio GPU with GL (virgl) |
 
-The firmware has to be UEFI with Secure Boot off for the reasons in
-[Boot loader and boot screen](boot-loaders.md): GRUB chainloads a UKI
-nobody has signed. Only a UEFI boot goes through systemd-stub, which
-measures the UKI into the TPM, so with the TPM the
-[security report](security-report.md) finds both and the VM is the machine a
-laptop would be. Like every machine it never [hibernates](hibernation.md).
+> [!IMPORTANT]
+> The firmware has to be UEFI with Secure Boot off for the reasons in
+> [Boot loader and boot screen](boot-loaders.md): GRUB chainloads a UKI
+> nobody has signed. Only a UEFI boot goes through systemd-stub, which
+> measures the UKI into the TPM, so with the TPM the
+> [security report](security-report.md) finds both and the VM is the machine a
+> laptop would be. Like every machine it never [hibernates](hibernation.md).
 
 The disk is what first boot lays out ([Where the OS lives](layout.md)): the
 ESP, two 8 GB `/usr` slots with their verity halves, root from 8 GB, `/home`
@@ -46,10 +47,12 @@ The first start creates the disk and boots [the installer](installer.md),
 which installs the channel's newest release over the network. quickemu
 attaches the ISO only while the disk is still empty, so every later start
 boots the installed system. On an aarch64 host, use
-`losos-desktop-aarch64.conf` and the aarch64 ISO the same way. quickemu
-will also run it on an x86_64 host, emulated, but that is too slow to
-install from: tried that way, the installer's initrd gave up waiting for its
-CD after 90 seconds.
+`losos-desktop-aarch64.conf` and the aarch64 ISO the same way.
+
+> [!WARNING]
+> quickemu will also run it on an x86_64 host, emulated, but that is too
+> slow to install from: tried that way, the installer's initrd gave up
+> waiting for its CD after 90 seconds.
 
 The TPM only counts if the firmware can use it too. quickemu takes OVMF
 from the host, and nixpkgs builds the one quickemu picks with Secure Boot off
@@ -67,13 +70,15 @@ pkgs.quickemu.override {
 With that, `bootctl status` reads `TPM2 Support: yes`, `Measured UKI: yes`
 and `Measured OS: yes`.
 
-GL needs a host that has it, under quickemu's default GTK window or
-`--display sdl` or `spice-app`. On a host without it QEMU refuses to start,
-saying `OpenGL is not supported by display backend`; `gl="off"` in the
-config starts it with a plain virtio GPU, and the desktop draws with
-llvmpipe instead.
+> [!TIP]
+> GL needs a host that has it, under quickemu's default GTK window or
+> `--display sdl` or `spice-app`. On a host without it QEMU refuses to start,
+> saying `OpenGL is not supported by display backend`; `gl="off"` in the
+> config starts it with a plain virtio GPU, and the desktop draws with
+> llvmpipe instead.
 
-A network that re-signs TLS with its own authority, as some corporate ones
-do, fails the download. The installer then installs from a `LOSOS-RELEASE`
-disk instead ([The installer](installer.md)), attached with
-`--extra_args "-drive if=virtio,format=raw,readonly=on,file=/path/to/release.img"`.
+> [!TIP]
+> A network that re-signs TLS with its own authority, as some corporate ones
+> do, fails the download. The installer then installs from a `LOSOS-RELEASE`
+> disk instead ([The installer](installer.md)), attached with
+> `--extra_args "-drive if=virtio,format=raw,readonly=on,file=/path/to/release.img"`.

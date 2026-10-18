@@ -11,6 +11,15 @@
   `explain`), and the boot test checks it is installed, but a recipe written
   for an FHS host does not build on it. For the same reason seven of pm's test targets
   are skipped in the nix build (the list is in `nixos/pkgs/pm.nix`).
+- **The Agent's tools** ([The Agent](agent.md)). The image carries neither
+  Claude Code, which nixpkgs marks unfree, nor the Rust toolchain the
+  Agent's previews build with, so a chat needs `claude` and a preview needs
+  `cargo` with the `wasm32-wasip2` target installed by the person first.
+- **A default for text files.** Since Sonne left, nothing claims text and
+  source files as their default for `xdg-open`, so Files opens them in
+  whatever app happens to list their type, if any: derisk's Text Editor
+  cannot be handed a file, its desktop entry living inside the
+  derisk binary with no file argument and no types.
 - **Searching what is in every file.** `derisk-index` reads plain text
   only: a file with a NUL byte in its first 8 KiB counts as binary and is
   found by its name alone, so PDFs, office documents and pictures' text
@@ -43,9 +52,16 @@
   file, its drivers and its first sign-in have only been checked for what
   they say, not run; nor has the Linux tools CD's `setup.sh` run in any
   distribution. The desktop does not yet show a machine's own screen by
-  itself (`virt-viewer --attach` does) or frame WinApps' windows in the
-  machine's colour: FreeRDP's RemoteApp windows are X11's, drawn through
-  the session's one xwayland-satellite, which belongs to no machine.
+  itself (`virt-viewer --attach` does).
+- **Windows app support**
+  ([Windows app support](windows-apps.md)). No Windows has been set up by
+  it on a real PC yet: the setup, `pm container` and rootless Podman ran
+  here, but dockur's Windows needs KVM, which the sessions this was built
+  in lack. Its windows are FreeRDP's, which are X11's drawn through the
+  session's one xwayland-satellite, so the desktop does not frame them in
+  a colour of their own. It has no GPU: Windows draws and encodes its
+  apps' H.264 in software. USB passthrough, which WinBoat does only with
+  Docker, is not offered. Windows is not activated.
 - **No hosted proxy.** GitHub Pages serves files only, so of what `proxy/`
   did ([Binary cache](binary-cache.md)), updates moved to GitHub Releases
   through an index on the documentation site and a service on each machine
@@ -60,6 +76,13 @@
   cache locally. Systems installed from an image built with a proxy URL
   keep asking that proxy for updates until they are reinstalled or it
   serves them one more update.
+- **A cadence picked on a machine that updates from a proxy.** An image
+  built with `LOSOS_PROXY_URL` names the proxy's
+  `/updates/<cadence>/<arch>/` for its own cadence in its sysupdate
+  transfers, which are part of `/usr`. Settings still lists the cadences
+  there, but `losos-update-channel` only exists where updates come from
+  GitHub Releases, so the page says the choice is not available
+  ([Releases](releases.md#choosing-a-cadence)).
 - **A complete image build.** CI builds release images within its runner time
   budget; local image builds may take longer.
 - **Hibernation.** No machine hibernates: the locked-down kernel refuses

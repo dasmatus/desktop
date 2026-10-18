@@ -68,14 +68,12 @@ in
   # virt-viewer shows a machine's own screen, which a machine that installs
   # from a CD has for its installer and a Windows machine for its whole
   # desktop; derisk starts it attached through libvirt, on the machine's
-  # labelled socket. WinApps opens a Windows machine's apps as windows of
-  # their own instead, over RDP through FreeRDP, which it brings; Windows
-  # machines are x86-64 only (pm's libvirt plugin).
+  # labelled socket. Windows' apps as windows of their own are Windows app
+  # support's, which runs a Windows of its own (windows-apps.nix).
   environment.systemPackages = [
     pkgs.waypipe
     pkgs.virt-viewer
-  ]
-  ++ lib.optional pkgs.stdenv.hostPlatform.isx86_64 pkgs.winapps;
+  ];
 
   # Who may manage machines on qemu:///system. NixOS grants it to the libvirtd
   # group, but people here are systemd-homed records the module system never

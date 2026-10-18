@@ -75,6 +75,8 @@ pub struct Plan {
 pub struct GitHub {
     /// `owner/name`.
     pub repo: String,
+    /// The cadence the ISO was built for, `losos.channel`.
+    pub channel: String,
     /// The version the ISO was built as, `losos.version`.
     pub version: String,
     /// The architecture's name in release file names.
@@ -223,7 +225,13 @@ fn download(plan: &Plan, disk: &str, events: &Sender<Event>) -> Result<(), Strin
             sysupdate(plan, events)?;
         }
         (Some(url), _, Some(release)) => {
-            match github::find(&release.repo, &release.version, &release.arch, events) {
+            match github::find(
+                &release.repo,
+                &release.channel,
+                &release.version,
+                &release.arch,
+                events,
+            ) {
                 Ok(found) => {
                     let _ = events.send(Event::Line(format!(
                         "Installing {} from the GitHub release {} of {}",

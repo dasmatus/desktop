@@ -108,6 +108,10 @@ still takes time, so don't start one to check a module edit.
   which derisk's error dialogs open a section of (`docs/troubleshooting.md`). A new page in
   `docs/` goes in `website/sidebars.js` too, or both fail. Pages link each
   other as `page.md`, which GitHub, Docusaurus and the wiki all follow.
+  Callouts are GitHub's `> [!NOTE]` (also TIP, IMPORTANT, WARNING,
+  CAUTION), which GitHub and the wiki draw themselves and
+  `website/callouts.js` turns into Docusaurus admonitions; `:::` would show
+  as text on GitHub. Keep each one a paragraph a reader must not miss.
   Pictures live in `docs/images/` and pages show them as `images/<file>`;
   the diagrams there are hand-written SVG in the OS's dark theme.
   The site's root is a landing page, `website/src/pages/index.js`, which
@@ -163,16 +167,16 @@ in a few minutes, so run `nix fmt` before pushing any `.nix` edit, including
 one made in GitHub's web editor. `push` uploads it to
 GHCR. It is the only job holding `packages: write` beside release files, and
 it checks out no code. `publish` moves the `images:nightly-<arch>` tag that
-`proxy/` serves updates from, creates that run's own prerelease,
-`nightly-<YYYYMMDD>T<HHMM>`, with both architectures' files, and starts
+`proxy/` serves updates from, creates that run's own release,
+`<cadence>-<YYYYMMDD>T<HHMM>` (a prerelease for a nightly), with both
+architectures' files and a name such as "Quiet Queue", and starts
 `docs.yml` so the site's release index follows it; a run started by hand
-with a `tag` and `title` publishes a release under those instead
-(`docs/releases.md`).
-`proxy` tests the proxy and deploys nothing. `lockfiles.yml` runs
-`tools/update-lockfiles` every Monday and opens a pull request that merges
-itself when every check passes (`docs/trust.md`, "Keeping the pins
-current"); `tools/nix-refresh-hashes` is also how to find a `cargoHash` a
-submodule bump moved. `ci` is the check branch
+takes a `cadence` and an optional `title` (`docs/releases.md`).
+`cadence.yml` runs daily, reads the GitHub releases' tags
+(`nightly-`, `weekly-`, `monthly-`, `yearly-`) and starts `ci` on the newest
+nightly's tag for each cadence due a release; only a yearly release is marked
+latest (`docs/releases.md`, "Release cadences").
+`proxy` tests the proxy and deploys nothing. `ci` is the check branch
 protection reads. `docs.yml` builds the site and the wiki pages on a pull
 request, and from main deploys the site to Pages and pushes the wiki.
 

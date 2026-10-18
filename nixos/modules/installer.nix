@@ -139,11 +139,11 @@ let
       { nixpkgs.pkgs = pkgs; }
     ];
     specialArgs.losos = {
-      inherit (cfg) version;
+      inherit (cfg) version channel;
       inherit (cfg.update) baseUrl pubring;
       # Where the backend reads which assets make up the channel's files,
       # when baseUrl is losos-update-source's address (update-source.nix).
-      updateIndex = config.services.losos-update-source.index;
+      updateIndex = config.services.losos-update-source.defaultIndex;
       releaseRepo = cfg.release.repository;
       docsUrl = cfg.docs.url;
       inherit esp repartDefinitions sysupdateTemplates;

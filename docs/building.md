@@ -1,8 +1,9 @@
 # Building
 
-Clone with `git clone --recurse-submodules`: derisk, mcsapi and pm are git
-submodules under `components/` ([What this trusts from
-outside](trust.md#the-components-submodules)).
+> [!IMPORTANT]
+> Clone with `git clone --recurse-submodules`: derisk, mcsapi and pm are git
+> submodules under `components/` ([What this trusts from
+> outside](trust.md#the-components-submodules)).
 
 The flake reads a few environment variables for what an image updates from,
 so pass `--impure` when building an image, installer, QCOW2, release, UKI,
@@ -27,10 +28,11 @@ the project's cache ([Binary cache](binary-cache.md)). The image is built by `sy
 the build sandbox; it needs no loop device, no root and no KVM. Only the VM
 tests need KVM.
 
-CI builds every other check first and boots the VM tests last. A VM test
-that fails there is a warning and a line in the run's summary, not a red
-run, so a boot that breaks under the runner's KVM does not hold back the
-nightly. Run `nix flake check` locally to see one fail for real.
+> [!WARNING]
+> CI builds every other check first and boots the VM tests last. A VM test
+> that fails there is a warning and a line in the run's summary, not a red
+> run, so a boot that breaks under the runner's KVM does not hold back the
+> nightly. Run `nix flake check` locally to see one fail for real.
 
 `just` has short names for the same commands. `just plugins` builds pm's
 plugin components into `plugins/dist/share/pm/plugins`, for a pm installed

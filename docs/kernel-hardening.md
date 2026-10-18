@@ -80,9 +80,10 @@ memory.
   short while after the kernel freed and reused it. The cost is throughput on
   links much faster than a desktop's.
 
-A virtual machine has an IOMMU only if its hypervisor emulates one (QEMU's
-`-device intel-iommu`), so the report's IOMMU row fails in most VMs whatever the
-image sets.
+> [!NOTE]
+> A virtual machine has an IOMMU only if its hypervisor emulates one (QEMU's
+> `-device intel-iommu`), so the report's IOMMU row fails in most VMs whatever the
+> image sets.
 
 ## BPF
 

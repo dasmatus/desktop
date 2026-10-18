@@ -11,7 +11,7 @@ lets GDM and ordinary account lookups see systemd-homed users through
 Everything the overlay builds itself links with
 [mold](https://github.com/rui314/mold) instead of nixpkgs' default
 `ld.bfd`: derisk, pm and its plugins, `losos-installer`, `losos-security`,
-`losos-swap`, `losos-adblock`, the LosOS client `losos`, Danube, [Sonne](sonne.md), `x2mcsapi`, libhybris and the
+`losos-swap`, `losos-adblock`, the LosOS client `losos`, Danube, `x2mcsapi`, libhybris and the
 Android Translation Layer, as
 well as the patched GTK and Qt. The overlay calls them through one helper,
 `callWithMold`, which gives a package nixpkgs' stdenv and a `rustPlatform`
