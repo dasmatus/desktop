@@ -36,7 +36,14 @@ stdenv.mkDerivation (finalAttrs: {
 
   patches = [ "${finalAttrs.src}/packages/winapps/setup.patch" ];
 
+  # Every session, an app's window or the whole desktop, over RDP's graphics
+  # pipeline in H.264 at full colour (AVC444), which the Windows tools CD
+  # tells Windows to prefer (guest-tools/windows/setup.cmd). These are the
+  # defaults a person's winapps.conf can still set otherwise.
   postPatch = ''
+    substituteInPlace bin/winapps \
+      --replace-fail 'RDP_FLAGS_WINDOWS=""' 'RDP_FLAGS_WINDOWS="/gfx:AVC444"' \
+      --replace-fail 'RDP_FLAGS_NON_WINDOWS=""' 'RDP_FLAGS_NON_WINDOWS="/gfx:AVC444"'
     substituteAllInPlace bin/winapps
     substituteAllInPlace setup.sh
     patchShebangs install/inquirer.sh

@@ -43,6 +43,20 @@
   and do not move again. Flatpak apps inside the machine draw in software,
   like the rest of its apps, so a game from Flathub is slower than it was
   on the host.
+- **Machines on the host's GPU**
+  ([On the host's GPU](hypervisor.md#on-the-hosts-gpu)). No machine has run
+  with VirGL yet: what decides it (`gl`, `rendernode`) and the guest's
+  choice of `--no-gpu` were checked without a GPU, where both stay off, but
+  no app has drawn on a GPU in a machine and sent its buffers through
+  waypipe. VirGL is OpenGL only; Venus, virtio-gpu's Vulkan, needs QEMU's
+  `blob` and `hostmem`, memory shared with a memfd and `udmabuf` on the
+  host, and quickemu has no setting for any of them, so Vulkan apps in a
+  machine draw in software. A Windows machine has no GPU at all (VirGL has
+  no Windows driver, and nothing passes a real GPU through), so its apps
+  render in software and only their delivery, as H.264, is lighter; that
+  path has not run either, as no Windows has been installed in a machine.
+  WinApps still has to be given the Windows account and machine name by
+  hand.
 - **Windows and other distributions in machines**
   ([Machines from an installer CD](hypervisor.md#machines-from-an-installer-cd)).
   No Windows has been installed from the Windows tools CD yet, so its answer

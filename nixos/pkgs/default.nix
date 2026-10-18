@@ -147,6 +147,12 @@ in
   # with, where it is not setuid and cannot make a tap device; the setuid
   # copy is under /run/wrappers (quickemu.nix). quickemu has no setting for
   # the helper, so its one bridge line names it.
+  #
+  # A machine's GPU (VirGL) renders on the render node quickemu hard-codes
+  # as renderD128, whether or not that node is there or its owner may open
+  # it. pm's quickemu plugin writes the node it found into the .conf as
+  # `rendernode`, which quickemu sources before this line, and renderD128
+  # stays the default for a .conf without one.
   quickemu =
     (plain.quickemu.override {
       OVMF = plain.OVMF.override { tpmSupport = true; };
@@ -156,6 +162,9 @@ in
           substituteInPlace quickemu \
             --replace-fail 'args+=(-nic bridge,br=''${network},' \
               'args+=(-nic bridge,br=''${network},helper=/run/wrappers/bin/qemu-bridge-helper,'
+          substituteInPlace quickemu \
+            --replace-fail 'egl-headless,rendernode=/dev/dri/renderD128' \
+              'egl-headless,rendernode=''${rendernode:-/dev/dri/renderD128}'
         '';
       });
   # libsecret too. Only its test suite reaches the patched GTK, through gjs,

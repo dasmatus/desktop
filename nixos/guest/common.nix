@@ -190,26 +190,27 @@ in
     # The guest's display: a waypipe server whose socket, wayland-0 in the
     # user's runtime directory, every app connects to as if it were a
     # compositor. Each connection becomes a vsock stream to the host (address
-    # 2, port 7350), where the desktop's gate takes it. --no-gpu, because the
-    # guest has no GPU and its apps draw into shared memory (llvmpipe and
-    # lavapipe below), which is what waypipe then carries.
+    # 2, port 7350), where the desktop's gate takes it.
+    #
+    # On a host with a GPU the machine has one too, VirGL's (pm's quickemu
+    # plugin turns it on), and its apps render OpenGL on the host's GPU into
+    # GPU buffers; waypipe carries those over (on the render node here,
+    # through Vulkan or else libgbm) and the host's waypipe hands them to the
+    # desktop as GPU buffers again. Without one, --no-gpu: the apps draw into
+    # shared memory (llvmpipe and lavapipe below), which is what waypipe then
+    # carries.
     systemd.user.services.waypipe = {
       description = "Show this machine's apps on the host's desktop";
       wantedBy = [ "default.target" ];
       serviceConfig = {
-        ExecStart = lib.escapeShellArgs [
-          (lib.getExe pkgs.waypipe)
-          "--vsock"
-          "--socket"
-          "2:7350"
-          "--no-gpu"
-          "--display"
-          "wayland-0"
-          "server"
-          "--"
-          "${pkgs.coreutils}/bin/sleep"
-          "infinity"
-        ];
+        ExecStart = pkgs.writeShellScript "losos-guest-waypipe" ''
+          gpu=--no-gpu
+          for node in /dev/dri/renderD*; do
+            [ -r "$node" ] && [ -w "$node" ] && { gpu="--drm-node=$node"; break; }
+          done
+          exec ${lib.getExe pkgs.waypipe} --vsock --socket 2:7350 "$gpu" \
+            --display wayland-0 server -- ${pkgs.coreutils}/bin/sleep infinity
+        '';
         Restart = "always";
       };
     };
@@ -218,8 +219,10 @@ in
     systemd.user.settings.Manager.DefaultEnvironment =
       "WAYLAND_DISPLAY=wayland-0 XDG_SESSION_TYPE=wayland";
 
-    # Mesa's software renderers, OpenGL and Vulkan: the guest has no GPU, and
-    # derisk's GPUI apps need Vulkan.
+    # Mesa: VirGL's OpenGL driver where the host gave the machine a GPU, and
+    # the software renderers, OpenGL and Vulkan, everywhere else. VirGL has no
+    # Vulkan, so derisk's GPUI apps, which need it, always draw on lavapipe
+    # (docs/not-done.md).
     hardware.graphics.enable = true;
 
     # A portal for the apps' dialogs (open a file, pick an app), which GTK's
@@ -240,8 +243,8 @@ in
 
     environment.systemPackages = [
       guestRun
-      # The host's terminal, without the rest of derisk. With no GPU in the
-      # machine it draws in software into the shared memory waypipe carries.
+      # The host's terminal, without the rest of derisk. It is a GPUI app, so
+      # it draws on lavapipe, into the shared memory waypipe carries.
       pkgs.derisk.terminal
       pkgs.adwaita-icon-theme
     ];

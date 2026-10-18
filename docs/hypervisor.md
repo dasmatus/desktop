@@ -190,6 +190,29 @@ on its socket in the machine's folder, to run the guest's `losos-guest-run`
 with the app's desktop file ID, and that starts it as the guest's user
 under waypipe.
 
+### On the host's GPU
+
+A machine draws on the host's GPU when the host has one. pm's quickemu
+plugin writes each Linux machine's `.conf` to look for a render node
+(`/dev/dri/renderD*`) the owner can open each time the machine starts; if
+it finds one, the machine gets `gl='on'` and that node, quickemu gives it
+VirGL's `virtio-vga-gl` and renders through `egl-headless` on that node,
+and the guest sees a GPU of its own. Its apps then render OpenGL on the
+host's GPU into GPU buffers, the guest's waypipe server carries those
+(through Vulkan where the guest has it, libgbm otherwise), and the host's
+`waypipe client` hands them to the compositor as GPU buffers again
+(`zwp_linux_dmabuf_v1`, which machines' sockets are offered like any
+other). quickemu itself always took `renderD128`, whether or not it is
+there or the owner may open it; the image's quickemu takes the node pm
+found instead (`nixos/pkgs/default.nix`). A host without
+a render node leaves `gl='off'`, the guest's waypipe runs with `--no-gpu`,
+and apps draw in software as before.
+
+VirGL gives a guest OpenGL only. Vulkan apps, derisk's GPUI ones among
+them, still draw on lavapipe in the guest. Windows machines never get
+VirGL, which has no Windows driver; their windows come over RDP instead
+([Windows](#windows)).
+
 ## On the desktop
 
 Besides the Machines app, machines are a step away wherever the desktop
@@ -282,13 +305,15 @@ left out). It has:
   (`nixos/modules/home-folders.nix`: the XDG base and user directories with
   `user-dirs.dirs`, and the fonts, icons and derisk folders Danube shows);
 - **a waypipe server** in that manager, `waypipe --vsock --socket 2:7350
-  --no-gpu --display wayland-0 server`. Every app the user runs finds it as
+  --display wayland-0 server`. Every app the user runs finds it as
   `WAYLAND_DISPLAY=wayland-0`, and each app's connection becomes a vsock
-  stream to the host's desktop, port 7350. There is no GPU in a machine, so
-  apps draw with Mesa's llvmpipe and lavapipe into shared memory, which is
-  what waypipe carries;
-- **apps**: derisk's Terminal (`derisk-terminal`, drawing in software, as
-  there is no GPU), Danube, derisk's Calculator (the one derisk core app that
+  stream to the host's desktop, port 7350. With VirGL's GPU in the machine
+  ([On the host's GPU](#on-the-hosts-gpu)) it runs on that render node and
+  carries GPU buffers; without one it runs with `--no-gpu`, apps draw with
+  Mesa's llvmpipe and lavapipe into shared memory, and that is what it
+  carries;
+- **apps**: derisk's Terminal (`derisk-terminal`, drawing on lavapipe, as
+  VirGL has no Vulkan), Danube, derisk's Calculator (the one derisk core app that
   is a window of its own, `derisk-gpui`; the rest are drawn by the host's
   compositor). Flatpak is not in it but in [its own
   machine](#the-flatpak-machine);
@@ -456,7 +481,12 @@ the name Windows gave the machines' DHCP, which Settings > System > About
 shows; [Names on the network](#names-on-the-network)), and `RDP_USER` and
 `RDP_PASS` the Windows account; then `winapps-setup --user` lists the
 machine's apps into the app grid. The machine has to be running for them
-to open. Remote Desktop needs Windows' Pro edition or above. WinApps'
+to open. Each window comes over RDP's graphics pipeline as H.264 in full
+colour (AVC444): the image's WinApps passes FreeRDP `/gfx:AVC444` unless
+`winapps.conf` sets `RDP_FLAGS_NON_WINDOWS` (or, for the whole desktop,
+`RDP_FLAGS_WINDOWS`) itself, and the tools CD's `setup.cmd` sets the
+policy that makes Windows prefer it. Windows encodes it in software, as
+the machine has no GPU; the host decodes it with OpenH264 or FFmpeg. Remote Desktop needs Windows' Pro edition or above. WinApps'
 libvirt flavour, which found the machine through `virsh`, went with
 libvirt.
 
