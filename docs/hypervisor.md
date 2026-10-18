@@ -60,11 +60,11 @@ machine or per person:
   for the machines' windows.
 - **waypipe is installed.** The desktop runs `waypipe client` for each
   running machine to turn what comes out of the guest back into Wayland.
-- **remote-viewer and WinApps are installed** for machines that install
-  from a CD ([below](#machines-from-an-installer-cd)): remote-viewer shows
-  a machine's own screen, and WinApps opens a Windows machine's apps as
-  windows of their own. quickemu starts swtpm, the TPM a Windows machine
-  is given, itself. WinApps only on x86-64, where Windows machines are.
+- **remote-viewer is installed** for machines that install from a CD
+  ([below](#machines-from-an-installer-cd)): it shows a machine's own
+  screen. quickemu starts swtpm, the TPM a Windows machine is given,
+  itself. Windows apps as windows of their own are
+  [Windows app support](windows-apps.md)'s, which runs its own Windows.
 
 Nobody is asked for a password to manage a machine: a person's own
 machines, run as them, need nobody's permission.
@@ -145,8 +145,9 @@ distributions is Avahi multicasting on `virbr0` alone.
 The host finds the machines the other way round. Each machine names itself
 in its DHCP request, and dnsmasq answers that name under `.machines`
 (`fedora.machines`) for itself, never passing such a question on; the
-host's resolved sends `.machines` names to it and nothing else. That is
-how WinApps reaches a Windows machine ([Windows](#windows)).
+host's resolved sends `.machines` names to it and nothing else, so the
+host reaches a Windows machine's Remote Desktop by the name Windows gave
+itself (`DESKTOP-ABC123.machines`).
 
 `nixos/tests/machines.nix` checks it: a machine made from the template
 finds `lanbox.local`, a test machine on the host's LAN that answers only
@@ -461,8 +462,7 @@ starts with:
 4. It offers a local account as well as a Microsoft one.
 5. At the first sign-in, `losos\setup.cmd` from the CD installs the rest
    of virtio's drivers and the QEMU guest agent (virtio-win's guest tools),
-   then runs WinApps' own Windows setup: Remote Desktop on, RemoteApp for
-   every program, and its firewall rule.
+   and nothing else.
 
 What Setup still asks: the language, the product key or edition, and the
 account. quickemu answers the firmware's "Press any key to boot from CD"
@@ -471,24 +471,11 @@ Windows CD is in; if that misses it, the prompt is the person's to answer
 on the machine's screen, and a machine left at the firmware's boot menu
 offers it again when started again.
 
-**WinApps** ([winapps-org/winapps](https://github.com/winapps-org/winapps),
-`nixos/pkgs/winapps.nix`) then opens the machine's Windows apps as windows
-of their own on the desktop, each a FreeRDP RemoteApp session. It is set up
-as its own documentation says for its manual flavour, in
-`~/.config/winapps/winapps.conf`: `WAFLAVOR="manual"`, `RDP_IP` the
-machine's computer name followed by `.machines` (`DESKTOP-ABC123.machines`:
-the name Windows gave the machines' DHCP, which Settings > System > About
-shows; [Names on the network](#names-on-the-network)), and `RDP_USER` and
-`RDP_PASS` the Windows account; then `winapps-setup --user` lists the
-machine's apps into the app grid. The machine has to be running for them
-to open. Each window comes over RDP's graphics pipeline as H.264 in full
-colour (AVC444): the image's WinApps passes FreeRDP `/gfx:AVC444` unless
-`winapps.conf` sets `RDP_FLAGS_NON_WINDOWS` (or, for the whole desktop,
-`RDP_FLAGS_WINDOWS`) itself, and the tools CD's `setup.cmd` sets the
-policy that makes Windows prefer it. Windows encodes it in software, as
-the machine has no GPU; the host decodes it with OpenH264 or FFmpeg. Remote Desktop needs Windows' Pro edition or above. WinApps'
-libvirt flavour, which found the machine through `virsh`, went with
-libvirt.
+A Windows machine shows its whole desktop in remote-viewer. Its apps as
+windows of their own are [Windows app support](windows-apps.md)'s, which
+installs a Windows of its own in a rootless container rather than using a
+machine. WinApps, which opened a Windows machine's apps once a person had
+described the machine to it by hand, went with that change.
 
 ### Other distributions
 

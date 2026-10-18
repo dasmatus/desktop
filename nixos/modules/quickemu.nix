@@ -57,10 +57,7 @@ in
       # its whole desktop: quickemu's SPICE on the Unix socket in the
       # machine's folder.
       pkgs.virt-viewer
-    ]
-    # WinApps opens a Windows machine's apps as windows of their own, over
-    # RDP through FreeRDP, which it brings. Windows machines are x86-64 only.
-    ++ lib.optional pkgs.stdenv.hostPlatform.isx86_64 pkgs.winapps;
+    ];
 
     # virtio-vsock's host side: the device each machine gets through its
     # .conf's extra_args, and the transport derisk's gate listens on for the
@@ -95,9 +92,9 @@ in
           # machines installed from a CD, which multicast for themselves.
           MulticastDNS = true;
           # And the machines' dnsmasq for `.machines` names, the names
-          # machines gave its DHCP, and nothing else: WinApps reaches a
-          # Windows machine by its computer name (docs/hypervisor.md,
-          # "Windows"), where libvirt's flavour of it asked virsh.
+          # machines gave its DHCP, and nothing else, so the host reaches a
+          # machine by the name it calls itself (docs/hypervisor.md, "Names
+          # on the network").
           DNS = [ "192.168.122.1" ];
           Domains = [ "~machines" ];
           DNSDefaultRoute = false;

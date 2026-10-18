@@ -1,5 +1,5 @@
 # pm's plugins as WebAssembly components, and what `just plugins` builds: this
-# repository's three and the four from pm's own tree that this OS needs
+# repository's three and the five from pm's own tree that this OS needs
 # (plugins/README.md, "Building", says which and why).
 #
 # Installed under share/pm/plugins and deliberately nowhere pm loads from. pm
@@ -47,6 +47,9 @@ let
   # (modules/quickemu.nix): without libvirt in the image, it has nothing to
   # drive, and pm boots a package's kernel with its own QEMU instead.
   fromPm = [
+    # Each person's containers, rootless, for Windows app support
+    # (windows-app-support.nix).
+    "podman"
     "quickemu"
     "sysext"
     "sysupdate"

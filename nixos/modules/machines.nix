@@ -51,8 +51,7 @@ let
   # The CD a Windows machine is made with (docs/hypervisor.md, "Windows"),
   # where pm looks for it: virtio's disk and network drivers for Windows 10
   # and 11 and the answer file that has Setup load them, then the rest of
-  # virtio's drivers, the QEMU guest agent and WinApps' Windows half at the
-  # first sign-in. Only what that needs from virtio-win, not its drivers for
+  # virtio's drivers and the QEMU guest agent at the first sign-in. Only what that needs from virtio-win, not its drivers for
   # every Windows since XP, which would be most of a GiB in /usr.
   windowsTools =
     let
@@ -80,7 +79,7 @@ let
       );
       answers = pkgs.replaceVars ../guest-tools/windows/autounattend.xml { inherit driverPaths; };
       tree = pkgs.runCommand "losos-windows-tools-tree" { } ''
-        mkdir -p $out/losos/winapps
+        mkdir -p $out/losos
         cp ${answers} $out/autounattend.xml
         cp ${pkgs.virtio-win}/virtio-win-guest-tools.exe ${pkgs.virtio-win}/virtio-win_license.txt $out/
         ${lib.concatMapStrings (
@@ -93,13 +92,6 @@ let
         # A batch file with Unix line ends can lose its labels and the
         # line after a `call`; cmd reads CRLF as written.
         sed 's/$/\r/' ${../guest-tools/windows/setup.cmd} > $out/losos/setup.cmd
-        # WinApps' own Windows setup, as its repository has it (CRLF
-        # and UTF-16 already), less Container.reg, which is for its
-        # docker flavour and would set Windows' clock to UTC under a
-        # machine whose clock is local time.
-        for file in install.bat RDPApps.reg TimeSync.ps1 NetProfileCleanup.ps1; do
-          cp ${pkgs.winapps.src}/oem/$file $out/losos/winapps/
-        done
       '';
     in
     cd "windows-tools.iso" "LOSOS_WINTOOLS" tree;

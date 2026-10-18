@@ -55,28 +55,33 @@
   no Windows driver, and nothing passes a real GPU through), so its apps
   render in software and only their delivery, as H.264, is lighter; that
   path has not run either, as no Windows has been installed in a machine.
-  WinApps still has to be given the Windows account and machine name by
-  hand.
 - **Windows and other distributions in machines**
   ([Machines from an installer CD](hypervisor.md#machines-from-an-installer-cd)).
   No Windows has been installed from the Windows tools CD yet, so its answer
   file, its drivers and its first sign-in have only been checked for what
   they say, not run; nor has the Linux tools CD's `setup.sh` run in any
-  distribution. The desktop does not frame WinApps' windows in the
-  machine's colour: FreeRDP's RemoteApp windows are X11's, drawn through
-  the session's one xwayland-satellite, which belongs to no machine.
+  distribution.
   quickemu always gives a machine SPICE's agent channel and its WebDAV
   channel, so a guest that runs `spice-vdagent` shares the clipboard with
   the machine's screen window, and remote-viewer can share a host folder
   with it when asked; libvirt's machines had neither.
+- **Windows app support**
+  ([Windows app support](windows-apps.md)). No Windows has been set up by
+  it on a real PC yet: the setup, `pm container` and rootless Podman ran
+  here, but dockur's Windows needs KVM, which the sessions this was built
+  in lack. Its windows are FreeRDP's, which are X11's drawn through the
+  session's one xwayland-satellite, so the desktop does not frame them in
+  a colour of their own. It has no GPU: Windows draws and encodes its
+  apps' H.264 in software. USB passthrough, which WinBoat does only with
+  Docker, is not offered. Windows is not activated.
 - **Machines are each person's, their network is everyone's**
   ([Virtual machine desktop](hypervisor.md)). Every person's machines are
   on `virbr0` and ask one dnsmasq, so they reach each other's addresses,
   and one person's running LosOS boxes machine names the boxes for
   everyone's machines ([LosOS boxes](losos-boxes.md#from-the-other-machines)).
   A `.machines` name is whatever a machine asked the DHCP server for, so
-  one machine can ask for a name another uses, and WinApps would then
-  reach whichever machine dnsmasq answers with. Templates are copied into
+  one machine can ask for a name another uses, and the host then reaches
+  whichever machine dnsmasq answers with. Templates are copied into
   each person's own machines, so every person who signs in holds a copy
   of the Flatpak machine's template, and of each other template they
   make a machine from, in their home. Machines made while libvirt ran

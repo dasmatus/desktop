@@ -115,14 +115,14 @@
       <OOBE>
         <HideEULAPage>true</HideEULAPage>
       </OOBE>
-      <!-- The rest of virtio's drivers, the QEMU guest agent and WinApps'
-           Windows half, from this CD's losos\setup.cmd, at the first sign-in
-           of the account Setup made. -->
+      <!-- The rest of virtio's drivers and the QEMU guest agent, from this
+           CD's losos\setup.cmd, at the first sign-in of the account Setup
+           made. -->
       <FirstLogonCommands>
         <SynchronousCommand wcm:action="add">
           <Order>1</Order>
           <CommandLine>cmd /c for %d in (D E F G H I J K) do @if exist %d:\losos\setup.cmd call %d:\losos\setup.cmd</CommandLine>
-          <Description>Install virtio's drivers, the guest agent and WinApps' Windows half</Description>
+          <Description>Install virtio's drivers and the guest agent</Description>
           <RequiresUserInput>false</RequiresUserInput>
         </SynchronousCommand>
       </FirstLogonCommands>

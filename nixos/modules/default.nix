@@ -15,6 +15,7 @@
     ./nvidia.nix
     ./quickemu.nix
     ./machines.nix
+    ./windows-apps.nix
     ./flatpak-machine.nix
     ./allocator.nix
     ./image.nix

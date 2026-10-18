@@ -43,6 +43,7 @@ module.exports = {
         'sonne',
         'choice-screens',
         'losos-boxes',
+        'windows-apps',
         'backup',
       ],
     },
