@@ -40,6 +40,7 @@ module.exports = {
         'danube',
         'adblock',
         'terminal',
+        'assistant',
         'store',
         'agent',
         'choice-screens',

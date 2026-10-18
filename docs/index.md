@@ -33,7 +33,10 @@ or, where there is none, in software. [The Agent](agent.md), on the PC
 image, runs Claude Code in a window of its own, with live previews of the
 apps it builds, and derisk's palette hands it whatever it was asked. derisk's command palette finds files by name and by
 what is in them, with the line that matched, from an index of each person's
-home that `derisk-index.service` keeps up to date as files change.
+home that `derisk-index.service` keeps up to date as files change. It
+also takes requests in plain words: [Ask derisk](assistant.md) carries out
+the ones its rules don't follow with a small language model that runs on
+the computer, through Ollama.
 
 derisk moves the way the launch film does, and quickens as each person gets
 used to it. It counts the time they spend at the desktop, unlocked and not
