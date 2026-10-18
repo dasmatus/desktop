@@ -72,8 +72,8 @@ let
       plugins=$XDG_CONFIG_HOME/pm/plugins
       plugin=${pm-plugins}/share/pm/plugins/podman.wasm
       if ! cmp -s "$plugin" "$plugins/podman.wasm"; then
-        mkdir -p -m 0700 "$state"
         mkdir -p "$plugins"
+        chmod 0700 "$state"
         # WinBoat asks several things at once; one of them sets this up.
         (
           flock 9
