@@ -4,7 +4,8 @@
 # it: the same core apps as GPUI windows, and the portal's consent dialog
 # (`derisk-gpui ask`), which xdg-desktop-portal-derisk runs instead of GTK's
 # access dialog when it finds the binary next to `derisk` (docs/index.md).
-# `derisk.terminal` is the desktop's terminal, a package of its own.
+# `derisk.terminal` is the desktop's terminal, a package of its own, and
+# `derisk.index` the user service indexing home for the palette.
 #
 # Pinned by the components/derisk submodule and moved by hand, like pm, because both derisk and the
 # mcsapi it builds against are moving fast. mcsapi comes in through
@@ -171,6 +172,40 @@ let
       mainProgram = "derisk-terminal";
     };
   };
+  # derisk-index, the user service that indexes the names and text of the
+  # files under home for the palette (docs/index.md), as a build of its own
+  # like the terminal: derisk links only its client, and a build of both
+  # would unify their features and link the search engine into derisk too.
+  index = rustPlatform.buildRustPackage {
+    pname = "derisk-index";
+    inherit version src cargoHash;
+    cargoDepsName = "derisk-${version}";
+
+    cargoBuildFlags = [
+      "-p"
+      "derisk-index"
+    ];
+    cargoTestFlags = [
+      "-p"
+      "derisk-index"
+    ];
+
+    # derisk-index.socket and derisk-index.service, calling the binary by
+    # its store path.
+    postInstall = ''
+      install -Dm644 -t $out/lib/systemd/user crates/derisk-index/data/systemd/user/*
+      substituteInPlace $out/lib/systemd/user/derisk-index.service \
+        --replace-fail "ExecStart=derisk-index" "ExecStart=$out/bin/derisk-index"
+    '';
+
+    meta = {
+      description = "derisk's file index: the names and text of the files under home, for the command palette";
+      homepage = "https://github.com/dasmatus/derisk";
+      license = lib.licenses.gpl3Only;
+      platforms = lib.platforms.linux;
+      mainProgram = "derisk-index";
+    };
+  };
 in
 
 rustPlatform.buildRustPackage {
@@ -263,7 +298,7 @@ rustPlatform.buildRustPackage {
       --replace-fail "ExecStart=xdg-desktop-portal-derisk" "ExecStart=$out/bin/xdg-desktop-portal-derisk"
   '';
 
-  passthru = { inherit gpui terminal; };
+  passthru = { inherit gpui terminal index; };
 
   meta = {
     description = "Adaptive, agent-first Wayland desktop environment built on mcsapi";
