@@ -97,9 +97,10 @@ in
   losos = callWithMold ./losos.nix { };
   # Finds those boxes over mDNS and offers each one as an application.
   losos-boxes = callWithMold ./losos-boxes.nix { };
-  # WinApps, for a Windows machine's apps (libvirt.nix); a shell script,
-  # nothing to link.
-  winapps = final.callPackage ./winapps.nix { };
+  # Windows app support (windows-apps.nix): WinBoat, from nixpkgs' own set
+  # since it runs on an Electron that would link the patched GTK, renamed
+  # and with the setup that installs Windows without asking anything.
+  windows-app-support = final.callPackage ./windows-app-support.nix { inherit (plain) winboat; };
   # This repository's documentation, for reading offline; built by Node, so
   # nothing to link.
   losos-docs = final.callPackage ./losos-docs.nix { };

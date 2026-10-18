@@ -43,9 +43,16 @@
   file, its drivers and its first sign-in have only been checked for what
   they say, not run; nor has the Linux tools CD's `setup.sh` run in any
   distribution. The desktop does not yet show a machine's own screen by
-  itself (`virt-viewer --attach` does) or frame WinApps' windows in the
-  machine's colour: FreeRDP's RemoteApp windows are X11's, drawn through
-  the session's one xwayland-satellite, which belongs to no machine.
+  itself (`virt-viewer --attach` does).
+- **Windows app support**
+  ([Windows app support](windows-apps.md)). No Windows has been set up by
+  it on a real PC yet: the setup, `pm container` and rootless Podman ran
+  here, but dockur's Windows needs KVM, which the sessions this was built
+  in lack. Its windows are FreeRDP's, which are X11's drawn through the
+  session's one xwayland-satellite, so the desktop does not frame them in
+  a colour of their own. It has no GPU: Windows draws and encodes its
+  apps' H.264 in software. USB passthrough, which WinBoat does only with
+  Docker, is not offered. Windows is not activated.
 - **No hosted proxy.** GitHub Pages serves files only, so of what `proxy/`
   did ([Binary cache](binary-cache.md)), updates moved to GitHub Releases
   through an index on the documentation site and a service on each machine
