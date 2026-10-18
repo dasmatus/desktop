@@ -168,7 +168,11 @@ it checks out no code. `publish` moves the `images:nightly-<arch>` tag that
 `docs.yml` so the site's release index follows it; a run started by hand
 with a `tag` and `title` publishes a release under those instead
 (`docs/releases.md`).
-`proxy` tests the proxy and deploys nothing. `ci` is the check branch
+`proxy` tests the proxy and deploys nothing. `lockfiles.yml` runs
+`tools/update-lockfiles` every Monday and opens a pull request that merges
+itself when every check passes (`docs/trust.md`, "Keeping the pins
+current"); `tools/nix-refresh-hashes` is also how to find a `cargoHash` a
+submodule bump moved. `ci` is the check branch
 protection reads. `docs.yml` builds the site and the wiki pages on a pull
 request, and from main deploys the site to Pages and pushes the wiki.
 
