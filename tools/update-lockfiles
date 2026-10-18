@@ -1,0 +1,69 @@
+#!/usr/bin/env bash
+# Move every lockfile this repository owns to what its manifests allow now,
+# and re-pin the fixed-output hashes that follow from them. The `lockfiles`
+# workflow runs it weekly and proposes the result (docs/trust.md, "Keeping
+# the pins current").
+#
+#   tools/update-lockfiles > summary.md
+#
+# - flake.lock: every input, nixpkgs and Home Manager (`nix flake update`).
+# - Every Cargo.lock outside components/: `cargo update`, which stays within
+#   the versions each Cargo.toml allows, so no manifest changes.
+# - Every package-lock.json: `npm update --package-lock-only`, the same.
+# - Then tools/nix-refresh-hashes, for losos-docs' npm deps and anything
+#   else whose fetch the above changed.
+#
+# components/ is left alone: each submodule's commit is a pin someone moves
+# on purpose, and its own repository updates its lockfiles. cargo and npm come
+# from the updated nixpkgs, so a lock is resolved by the toolchain that will
+# build it. Progress goes to stderr; stdout is a Markdown summary.
+set -euo pipefail
+
+[ $# = 0 ] || { sed -n 's/^#   //p' "$0" >&2; exit 2; }
+cd "$(git rev-parse --show-toplevel)"
+
+work=$(mktemp -d)
+trap 'rm -rf "$work"' EXIT
+
+echo "Listing the pinned fixed outputs before anything moves" >&2
+tools/nix-refresh-hashes --list > "$work/before"
+
+nix flake update 2>&1 | tee "$work/flake" >&2
+
+# `nix shell` evaluates the newly locked nixpkgs, so this runs after the
+# flake update.
+PATH=$(nix shell --inputs-from . nixpkgs#cargo nixpkgs#nodejs -c printenv PATH)
+git ls-files ':(glob)**/Cargo.lock' ':!:components/' | while read -r lock; do
+  echo "cargo update in ${lock%/*}" >&2
+  cargo update --manifest-path "$(dirname "$lock")/Cargo.toml" < /dev/null
+done
+git ls-files ':(glob)**/package-lock.json' ':!:components/' | while read -r lock; do
+  echo "npm update in ${lock%/*}" >&2
+  (cd "$(dirname "$lock")" && npm update --package-lock-only --ignore-scripts --no-fund --no-audit < /dev/null) >&2
+done
+
+tools/nix-refresh-hashes "$work/before" | tee "$work/hashes" >&2
+
+# What a reviewer reads first: which inputs moved, how many crates and npm
+# packages each lock changed, and which pins were rewritten.
+echo "### flake.lock"
+echo
+# nix prints each input as its name, the old URL and date, then "→" and
+# the new URL and date; the dates are what a reader wants.
+awk -F"'" '
+  /^• Updated input/ { name = $2; from = ""; next }
+  name != "" && from == "" { from = $NF; next }
+  name != "" { to = $NF; gsub(/[ ()]/, "", from); gsub(/[ ()]/, "", to)
+               printf "- `%s`: %s to %s\n", name, from, to; name = "" }
+' "$work/flake"
+grep -q "Updated input" "$work/flake" || echo "No input moved."
+echo
+echo "### Cargo.lock and package-lock.json"
+echo
+git diff --numstat -- ':(glob)**/Cargo.lock' ':(glob)**/package-lock.json' |
+  awk '{ printf "- `%s`: +%s -%s lines\n", $3, $1, $2 }'
+git diff --quiet -- ':(glob)**/Cargo.lock' ':(glob)**/package-lock.json' && echo "No lock moved."
+echo
+echo "### Pinned hashes"
+echo
+grep ' -> ' "$work/hashes" | sed 's/^/- /' || echo "None needed rewriting."
