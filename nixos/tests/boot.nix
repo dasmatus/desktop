@@ -143,6 +143,37 @@ in
           machine.succeed("pm --help")
           machine.succeed("pm source-path https://example.org/x-1.0.tar.xz | grep -q x-1.0.tar.xz")
 
+      with subtest("pm administers the machine as its own user, and nothing else does"):
+          machine.fail("command -v sudo")
+          machine.fail("test -e /run/wrappers/bin/su")
+          # Root is never asked by polkit, so this is the daemon end to end:
+          # bus activation, polkit, the unit job, and a command run as root
+          # on a pseudo-terminal pm relays. Input is /dev/null, so pm does not
+          # relay the test driver's own console to the command.
+          machine.succeed("pm system restart systemd-hostnamed")
+          machine.succeed("pm system run id -u </dev/null | tr -d '\\r' | grep -qx 0")
+          machine.succeed("test \"$(pm system run sh -c 'exit 7' </dev/null; echo $?)\" = 7")
+          machine.succeed("ps -o user= -C pmd | grep -qx pm")
+          # pkcheck: 0 authorized, 1 refused, 2 needs authentication. pm may
+          # manage units unasked; alice, an administrator, may not manage them
+          # herself, which is what kept run0 and `systemctl restart` from her,
+          # and is asked to authenticate before pm does it for her.
+          machine.succeed(
+              "pkcheck --action-id org.freedesktop.systemd1.manage-units"
+              " --process $(pgrep -x pmd | head -1)"
+          )
+          alice = "$(pgrep -u alice -f 'derisk session' | head -1)"
+          machine.succeed(
+              "pkcheck --action-id org.freedesktop.systemd1.manage-units"
+              f" --process {alice}; test $? = 1"
+          )
+          machine.succeed(
+              "pkcheck --action-id org.pm1.system.run --detail command id"
+              f" --process {alice}; test $? = 2"
+          )
+          # Without an agent nobody is there to authenticate, so it is refused.
+          machine.fail("runuser -u alice -- pm system restart systemd-hostnamed")
+
       with subtest("the terminal is derisk-terminal, with a Nerd Font, and foot is gone"):
           machine.succeed("command -v derisk-terminal")
           machine.succeed("test -e /run/current-system/sw/share/applications/org.derisk.terminal.desktop")
@@ -152,10 +183,9 @@ in
 
       # Every command above ran through the system profile, so they already
       # ran uutils; this names which tool answers.
-      with subtest("the shell's tools are uutils, sudo-rs's su and Sequoia's gpg"):
+      with subtest("the shell's tools are uutils and Sequoia's gpg"):
           machine.succeed("ls --version | grep -q uutils")
           machine.succeed("find --version | grep -q Rust")
-          machine.succeed("/run/wrappers/bin/su --version | grep -q su-rs")
           machine.succeed("gpg --version | grep -q 'Sequoia Chameleon'")
           machine.succeed("command -v sq")
           # A key, a signature and its check, through GnuPG's agent, as git

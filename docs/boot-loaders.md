@@ -170,6 +170,11 @@ started from (on a BIOS, only those with a kernel beside them), and offers:
 3. on UEFI, Windows Boot Manager when it is on the same disk, and the
    firmware's own settings when the firmware can be asked to open them.
 
+Kernel arguments typed at GRUB's prompt into `losos_extra`, and exported,
+are added to whichever entry starts next, on x86_64 under UEFI as on a BIOS.
+That is the recovery shell ([When something goes
+wrong](troubleshooting.md#no-one-can-administer-the-machine)).
+
 ## Boot counting
 
 sysupdate installs a UKI with three tries in its name,
