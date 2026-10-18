@@ -140,8 +140,11 @@ in
           make -C "$NIX_BUILD_TOP/nvidia-open" -j"$NIX_BUILD_CORES" modules ${nvidiaFlags}
         '';
         postInstall = (old.postInstall or "") + ''
+          # INSTALL_MOD_PATH, not MODLIB: the kernel derives MODLIB from it,
+          # and depmod.sh gets its -b root only from INSTALL_MOD_PATH, so
+          # with MODLIB alone depmod searched the build's /lib/modules.
           make -C "$NIX_BUILD_TOP/nvidia-open" modules_install ${nvidiaFlags} \
-            MODLIB="$modules/lib/modules/${prev.kernel.modDirVersion}" \
+            INSTALL_MOD_PATH="$modules" \
             INSTALL_MOD_STRIP=1
           # modules_install signs an out-of-tree module with `|| true`, so a
           # failed signature would pass unnoticed until the module failed to
