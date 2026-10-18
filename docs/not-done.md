@@ -192,6 +192,12 @@
   but swap is found by its partition label, `losos-swap`
   (`disk.nix`, `hibernate.nix`), so with two LosOS disks in one machine
   swap may be the other disk's.
+- **A recovery shell on an aarch64 PC.** The boot menu's root shell for a
+  machine nobody can administer ([When something goes
+  wrong](troubleshooting.md#no-one-can-administer-the-machine)) starts the
+  kernel kept beside the UKI for a BIOS boot, which only x86_64 images
+  carry. An aarch64 PC's GRUB can only chainload its UKI, which takes
+  kernel arguments only in place of its whole command line.
 - **sysext.** Extensions merge into `/usr`, which here holds little but the
   Nix store, so an extension can add a program and cannot replace one.
 - **Android apps.** `nixos/modules/atl.nix` has two options, both off by

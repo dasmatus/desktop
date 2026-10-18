@@ -36,11 +36,11 @@ let
 in
 rustPlatform.buildRustPackage {
   pname = "pm";
-  version = "0.1.0-unstable-2026-10-08";
+  version = "0.1.0-unstable-2026-10-18";
 
   inherit src;
 
-  cargoHash = "sha256-hlu4nmBoGjoQS//eYtd4dKSa4+lVJ5BhBJsTmrFUCeE=";
+  cargoHash = "sha256-wpRprURXtN98dCeyivy7Jd57H99sQKWWSDOWQL20d0Q=";
 
   # build.rs builds the plugins for wasm32-unknown-unknown. nixpkgs' rustc
   # carries that target's std but links it with `lld` from PATH rather than
@@ -83,6 +83,17 @@ rustPlatform.buildRustPackage {
     [source.pm-plugins-vendored]
     directory = "${pluginsDeps}/source-registry-0"
     EOF
+  '';
+
+  # What `pmd --system` needs installed beside it: the D-Bus policy that lets
+  # only the pm user own org.pm1.System, the file that has the bus start it
+  # through pm-system.service, and the polkit actions, which name pm as their
+  # owner. nixos/modules/pm.nix adds the user, the unit and the rules.
+  postInstall = ''
+    install -Dm644 -t $out/share/dbus-1/system.d data/dbus-1/system.d/org.pm1.System.conf
+    install -Dm644 -t $out/share/dbus-1/system-services \
+      data/dbus-1/system-services/org.pm1.System.service
+    install -Dm644 -t $out/share/polkit-1/actions data/polkit-1/actions/org.pm1.system.policy
   '';
 
   passthru = { inherit pluginsDeps; };

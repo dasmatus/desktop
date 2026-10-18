@@ -1,5 +1,46 @@
 # pm on LosOS
 
+## Administering the machine
+
+There is no sudo, su or run0. An administrator changes the system with
+`pm system`, and pm does the work as a user of its own, `pm`:
+
+| Command | What it does |
+| --- | --- |
+| `pm system start\|stop\|restart\|reload <unit>` | the same to a system unit; a bare name is a service |
+| `pm system update [--reboot]` | installs the newest version for the next boot (`systemd-sysupdate.service`), and reboots into it if asked and there was one |
+| `pm system run <command>` | runs one command as root |
+| `pm system run` | root's shell |
+
+`pm` asks `pmd --system`, a service the system bus starts on the first call
+(`pm-system.service`, `nixos/modules/pm.nix`), and it asks polkit whether the
+caller may. polkit asks an administrator, a member of `wheel`, to
+authenticate as themselves: in derisk's dialog ([polkit and pm](sign-in.md#polkit-and-pm)),
+or on the terminal through `pkttyagent` when the session has no agent. A
+password typed for `start`, `stop`, `restart`, `reload` or `update` is good
+for a few minutes; one for `run` is asked every time. Only then does the
+daemon act, as `pm`, through systemd. A command run as root runs in a unit of
+its own, `pm-run-<pid>-<n>.service`, on a pseudo-terminal the daemon checks
+belongs to the caller, with the caller's terminal relayed to it; `pm` leaves
+with its exit status, and the journal records who ran what.
+
+The `pm` user owns nothing and holds no capability. What it may do comes from
+one polkit rule, which lets it manage units without asking. A second rule,
+evaluated last, refuses unit management to everyone else: without it an
+administrator could still `systemctl restart` a service, or use the run0
+that systemd itself carries, and become root past pm. Root is never asked, so
+the system's own services and the test driver are unaffected, and narrower
+rules before it still answer first, such as the one that lets an
+administrator ask for a factory reset from Settings (`nixos/modules/disk.nix`).
+Everything else polkit governs is as it was: accounts through homed, the
+network through NetworkManager, updates from Settings through `sysupdated`,
+and Flatpak.
+
+The image's boot test runs `pm system restart` and `pm system run` as root,
+checks the daemon runs as `pm`, and asks polkit what it says to `pm` and to
+an administrator about managing units directly and about `pm system run`
+(`nixos/tests/boot.nix`).
+
 ## pm's plugins
 
 `nixos/pkgs/pm-plugins.nix` builds seven components, this repository's three

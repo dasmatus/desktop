@@ -10,7 +10,8 @@ Which systemd component does which job:
 | Read-only `/usr` | the Nix store on a dm-verity partition, with its root hash on the UKI's command line; `systemd-sysext` and `systemd-confext` add layers on top |
 | Updates | `systemd-sysupdate` with A/B slots, and `fwupd` for firmware |
 | Factory reset | `FactoryReset=` on root and `/home`, and systemd's reset Varlink API |
-| Accounts | `systemd-homed`, `systemd-userdbd`, `pam_systemd_home`, `run0` |
+| Accounts | `systemd-homed`, `systemd-userdbd`, `pam_systemd_home` |
+| Administration | pm's system service as its own `pm` user, driving units through the system manager's D-Bus API ([pm on LosOS](pm.md#administering-the-machine)) |
 | Session | derisk as the display manager, with its lock screen as the login screen, `systemd-logind` seats, and the user manager driving `derisk-session.target` and `graphical-session.target` |
 | File search | `derisk-index.service`, a user service started on its socket, `derisk-index.socket`, at idle priority and with home read-only, indexing the names and text of each person's files for the command palette |
 | Network | `systemd-networkd`, `systemd-resolved`, `systemd-timesyncd` |
@@ -35,7 +36,8 @@ NixOS requires one:
   login to open the home area rather than succeed and find it locked.
 
 Replaced by the systemd equivalent where NixOS would otherwise pick something
-else: `run0` instead of sudo (with a `sudo` alias that refuses sudo's flags);
+else: pm's system service, which drives systemd as its own user, instead of
+sudo, su or run0;
 networkd instead of NetworkManager, which GNOME turns on by default; resolved's
 mDNS instead of avahi; `systemd-sysusers` instead of the perl user script; the
 `/etc` overlay instead of activation scripts writing files; first-boot setup

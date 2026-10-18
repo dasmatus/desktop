@@ -88,3 +88,36 @@ fails is usually the account: homed refuses a user name that is taken or not
 a valid name, and a password its quality check rejects. Back returns to the
 account page. Setup runs again on every boot
 until an account exists ([First-boot setup](first-boot.md)).
+
+## No one can administer the machine
+
+A running system has one way to act as root, `pm system`
+([pm](pm.md#administering-the-machine)), and it needs an administrator who
+can sign in, pm's system service and polkit. When one of them is missing,
+the way in is a root shell for one boot, chosen at GRUB's menu by someone
+at the machine:
+
+1. When the boot menu shows, press `c` for GRUB's prompt.
+2. Type `set losos_extra=systemd.debug_shell`, Enter, then
+   `export losos_extra`, Enter.
+3. Press Escape to go back to the menu, and Enter to start the newest
+   version.
+4. Once the login screen shows, press Ctrl+Alt+F9. tty9 is a root shell,
+   with no password.
+
+From there, for instance, `homectl create <name> --member-of=wheel` makes
+a new administrator, and `journalctl -u pm-system -b` says why pm's service
+did not start. The arguments last one boot, and the shell stays open while
+the system runs, so `systemctl reboot` when done. The shell is systemd's
+debug shell, and `losos_extra` is any kernel arguments GRUB adds to the
+command line the release was built with ([Boot loader and boot screen](boot-loaders.md#grubs-menu)).
+On UEFI, that makes GRUB start the kernel beside the UKI, as on a BIOS,
+instead of the UKI itself, which would take arguments only in place of its
+whole command line. Only an x86_64 PC has that kernel, so an aarch64 PC has
+no recovery shell yet ([What is not done](not-done.md)).
+
+The shell does not open anyone's home: each is its own encrypted image,
+which only its owner's password unlocks ([Where the OS lives](layout.md)). The rest of
+the disk, the system and its state, is not encrypted, so the shell gives
+someone at the machine nothing another operating system started from a
+stick would not.
