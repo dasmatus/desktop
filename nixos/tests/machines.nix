@@ -195,7 +195,8 @@
         # is resolved's one way out, and it is the forwarder.
         status = machine.succeed("resolvectl status")
         print(status)
-        assert re.search(r"Link \d+ \(adblock0\)[^L]*DNS Servers: 169\.254\.153\.53", status), status
+        adblock = [link for link in status.split("\nLink ") if "(adblock0)" in link]
+        assert adblock and "DNS Servers: 169.254.153.53" in adblock[0], status
         internet_ip = internet.succeed("ip -4 -o addr show eth1 | awk '{print $4}' | cut -d/ -f1").strip()
         machine.wait_until_succeeds(f"getent hosts nmcheck.gnome.org | grep -q {internet_ip}", timeout=60)
         machine.succeed("ping -c1 -W10 nmcheck.gnome.org")
