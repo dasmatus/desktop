@@ -1,0 +1,66 @@
+/* Callouts (callouts.js) in the colours GitHub gives the same five kinds,
+   with the OS's lime for a tip, as on the landing page. Each is a tinted
+   panel with a bar down its left edge and a small heading in its colour;
+   the text stays the page's own colour so it reads like the prose around it.
+   Light mode takes darker shades of each colour so the heading keeps its
+   contrast on a white page. rgb triplets rather than color-mix(), which the
+   WebKit that opens the offline copy may not have. */
+
+:root {
+  --callout-note: 37, 99, 235;
+  --callout-tip: 77, 124, 15;
+  --callout-important: 126, 34, 206;
+  --callout-warning: 180, 83, 9;
+  --callout-caution: 185, 28, 28;
+}
+
+[data-theme='dark'] {
+  --callout-note: 96, 165, 250;
+  --callout-tip: 163, 230, 53;
+  --callout-important: 192, 132, 252;
+  --callout-warning: 251, 191, 36;
+  --callout-caution: 248, 113, 113;
+}
+
+.theme-admonition-note { --callout: var(--callout-note); }
+.theme-admonition-tip { --callout: var(--callout-tip); }
+.theme-admonition-important { --callout: var(--callout-important); }
+.theme-admonition-warning { --callout: var(--callout-warning); }
+.theme-admonition-caution { --callout: var(--callout-caution); }
+
+.theme-admonition.alert {
+  --ifm-alert-background-color: rgba(var(--callout), 0.08);
+  --ifm-alert-background-color-highlight: rgba(var(--callout), 0.16);
+  --ifm-alert-border-color: rgb(var(--callout));
+  --ifm-alert-foreground-color: var(--ifm-font-color-base);
+  --ifm-alert-border-width: 0;
+  --ifm-alert-border-left-width: 4px;
+  --ifm-alert-border-radius: 8px;
+  --ifm-alert-padding-vertical: 0.85rem;
+  --ifm-alert-padding-horizontal: 1.1rem;
+  box-shadow: none;
+}
+
+.theme-admonition.alert > :first-child {
+  color: rgb(var(--callout));
+  font-size: 0.8rem;
+  letter-spacing: 0.06em;
+}
+
+.theme-admonition.alert > :first-child svg {
+  fill: rgb(var(--callout));
+  height: 1.35em;
+  width: 1.35em;
+}
+
+/* Links inside take the callout's colour rather than the site's blue, so a
+   link in a red warning does not read as a second, unrelated accent. */
+.theme-admonition.alert a {
+  color: rgb(var(--callout));
+  text-decoration-color: rgba(var(--callout), 0.5);
+}
+
+.theme-admonition.alert code {
+  background-color: rgba(var(--callout), 0.12);
+  border-color: transparent;
+}

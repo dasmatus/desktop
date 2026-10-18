@@ -144,8 +144,11 @@ Danube's sandbox, so it reaches the network and `~/Downloads` and nothing
 else of the home. Danube talks to it over JSON-RPC on a loopback port,
 with a random secret that aria2 reads from a file only the user can read,
 in the sandbox's private `/tmp`, removed once aria2 answers, and never sees
-on its command line. aria2 stops with Danube (`--stop-with-process`), and
-a download Danube had not finished is removed with it.
+on its command line.
+
+> [!WARNING]
+> aria2 stops with Danube (`--stop-with-process`), and a download Danube had
+> not finished is removed with it.
 
 WebKit keeps the downloads aria2 should not take: a POST's answer, a
 `blob:` or `data:` URL, an extension's own pages. It also takes over any
@@ -337,8 +340,9 @@ for JavaScript and DOM objects; everything else it allocates through
 Tracking prevention (WebKit's ITP) is on, and there is no keyring for
 WebKit to save passwords in.
 
-The sandboxes need unprivileged user namespaces, which NixOS's kernel
-allows. A phone's own kernel may not: see [what is not done](not-done.md).
+> [!WARNING]
+> The sandboxes need unprivileged user namespaces, which NixOS's kernel
+> allows. A phone's own kernel may not: see [what is not done](not-done.md).
 
 ## Settings
 
@@ -365,7 +369,9 @@ and a rebranding script for a build CI could only compile in rounds
 (`uranium.yml`), a Flatpak of it served from the proxy, and `uranium-tabs`, a
 native messaging host that mirrored its tabs into derisk's menus. Chromium
 draws its own interface with its own toolkit, so it could never be an
-mcsapi window or follow derisk's theme, and it is not coming back. Profiles
-do not carry over: Danube starts with a new one in `~/.local/share/danube`,
-and a user's own `~/.config/mimeapps.list` that names `uranium.desktop`
-has to name `org.losos.Danube.desktop` instead.
+mcsapi window or follow derisk's theme, and it is not coming back.
+
+> [!IMPORTANT]
+> Profiles do not carry over: Danube starts with a new one in
+> `~/.local/share/danube`, and a user's own `~/.config/mimeapps.list` that
+> names `uranium.desktop` has to name `org.losos.Danube.desktop` instead.

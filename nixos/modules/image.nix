@@ -70,6 +70,7 @@ in
     # Compressed with LZ4HC, because every release has to fit the fixed
     # update slot an installed disk already has (losos.usrSize, 8G): the
     # store had reached 7.7G uncompressed, and Sonne's 0.9G took it past.
+    # Sonne has left since; the compression stays as the slot's headroom.
     # LZ4 decompresses faster than the disk reads, and the kernel's erofs
     # carries it (CONFIG_EROFS_FS_ZIP); a sample of the store came out at
     # 53% of its size.

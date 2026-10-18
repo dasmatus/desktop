@@ -37,10 +37,11 @@ backend fetches the release's files with aria2 onto the disk being
 installed and serves them to sysupdate under the names a channel has,
 joining split files ([The installer](installer.md)).
 
-A release is created once and never edited, so the repository can make
-releases immutable. A re-run of the same commit finds its tag taken and
-publishes nothing. There is no moving `nightly` release: GitHub refuses to
-reuse the tag of a deleted immutable release, so it could not be replaced.
+> [!NOTE]
+> A release is created once and never edited, so the repository can make
+> releases immutable. A re-run of the same commit finds its tag taken and
+> publishes nothing. There is no moving `nightly` release: GitHub refuses to
+> reuse the tag of a deleted immutable release, so it could not be replaced.
 
 ## Release cadences
 

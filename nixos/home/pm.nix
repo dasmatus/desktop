@@ -102,8 +102,8 @@ in
       ];
       description = ''
         Plugins from `pluginPackage` to install into pm's plugin directory.
-        All seven by default: LosOS's three and pm's own `libvirt`, `sysext`,
-        `sysupdate` and `systemd`.
+        All eight by default: LosOS's three and pm's own `libvirt`, `podman`,
+        `sysext`, `sysupdate` and `systemd`.
       '';
     };
 

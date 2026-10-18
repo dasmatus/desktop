@@ -1,0 +1,85 @@
+#!/usr/bin/env bash
+# Re-fetch the fixed outputs this repository pins whose inputs changed, and
+# write the hash each one really has back into the .nix file that pins it.
+#
+# A pinned hash (a cargoHash, losos-docs' npm deps, a source archive) goes
+# stale when what it is fetched from changes: website/package-lock.json, a
+# submodule's Cargo.lock, or nixpkgs' own fetcher. Nix does not notice on a
+# machine that still has the old output, because the old hash names the same
+# store path, so the build reuses it. Main went red that way once already
+# (pm's plugins vendor hash). This compares the fixed-output derivations
+# before and after a change: one whose derivation is new is built again with
+# --rebuild, which re-runs the fetch even when the output was substituted,
+# and the hash it reports replaces the pinned one.
+#
+#   tools/nix-refresh-hashes --list > before.txt
+#   (update flake.lock, the Cargo.locks, the package-locks)
+#   tools/nix-refresh-hashes before.txt
+#
+# Only this machine's architecture is evaluated, since its builders can run
+# only its own fetches. Every pinned hash a lockfile moves is fetched on both
+# architectures alike, so the x86_64 release covers them; what only aarch64
+# fetches (the GSI's sources) is pinned to archives no lockfile moves.
+# Prints each rewritten file. A fetch that fails for another reason is a
+# warning, not a failure, so one unreachable upstream does not stop the rest.
+set -euo pipefail
+
+usage() {
+  sed -n 's/^#   //p' "$0" >&2
+  exit 2
+}
+
+# "<derivation> <hash>" for every fixed-output derivation in this
+# architecture's release whose hash is written in one of this repository's
+# own .nix files (components/ has its own).
+list() {
+  local system drv
+  system=$(nix eval --raw --impure --expr builtins.currentSystem)
+  drv=$(nix eval --raw ".#packages.$system.release.drvPath")
+  git ls-files -z '*.nix' ':!:components/' |
+    xargs -0 grep -oh 'sha256-[A-Za-z0-9+/]\{43\}=' | sort -u > "$work/pinned"
+  nix derivation show -r "$drv" |
+    jq -r '.derivations | to_entries[]
+      | select(.value.outputs.out.hash? != null)
+      | "/nix/store/\(.key) \(.value.outputs.out.hash)"' |
+    awk 'NR == FNR { pinned[$1]; next } $2 in pinned' "$work/pinned" - | sort
+}
+
+work=$(mktemp -d)
+trap 'rm -rf "$work"' EXIT
+
+case "${1:-}" in
+  --list) list; exit 0 ;;
+  "" | -*) usage ;;
+esac
+before=$1
+
+list > "$work/after"
+: > "$work/rewritten"
+changed=0
+while read -r drv hash; do
+  grep -qxF "$drv $hash" "$before" && continue
+  # Several derivations can share one pinned hash; the first fixes it.
+  grep -qxF "$hash" "$work/rewritten" && continue
+  echo "Fetching $drv again"
+  # Built first so a substituted output can be checked, then rebuilt: a
+  # fixed-output rebuild runs the fetch again and compares it with the hash.
+  if nix build --no-link "$drv^out" < /dev/null 2> "$work/log" &&
+    nix build --no-link --rebuild "$drv^out" < /dev/null 2> "$work/log"; then
+    continue
+  fi
+  got=$(sed -n 's/^ *got: *\(sha256-[A-Za-z0-9+/]*=\)$/\1/p' "$work/log" | tail -1)
+  if [ -z "$got" ]; then
+    tail -n 20 "$work/log" >&2
+    echo "::warning::Could not fetch $drv again, so its hash $hash is unchecked."
+    continue
+  fi
+  git ls-files -z '*.nix' ':!:components/' | xargs -0 grep -lF "$hash" |
+    while read -r file; do
+      sed -i "s|$hash|$got|g" "$file"
+      echo "$file: $hash -> $got"
+    done
+  echo "$hash" >> "$work/rewritten"
+  changed=$((changed + 1))
+done < "$work/after"
+echo "$changed pinned hash(es) rewritten."

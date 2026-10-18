@@ -52,9 +52,10 @@ substituters = https://cache.nixos.org/ https://<proxy>/   # or http://127.0.0.1
 trusted-public-keys = cache.nixos.org-1:6NCHdD59X431o0gWypbMrAURkbJ16ZPMQFGspcDShjY= <the public half of NIX_CACHE_SIGNING_KEY>
 ```
 
-Keep cache.nixos.org in the substituter list when adding the project cache.
-Without the optional project cache, Nix's default cache.nixos.org remains
-enabled.
+> [!IMPORTANT]
+> Keep cache.nixos.org in the substituter list when adding the project cache.
+> Without the optional project cache, Nix's default cache.nixos.org remains
+> enabled.
 
 What has to be set up once, outside the repository:
 
@@ -98,10 +99,11 @@ What has to be set up once, outside the repository:
    only ever trusts the key it shipped with, so a lost key means every
    installed machine stops taking updates until it is reinstalled.
 
-Before setting `LOSOS_PROXY_URL`, check the public deployment without a
-Vercel login: `/nix-cache-info` must return the cache metadata, an absent
-store hash must return 404 rather than `502 token: 403`, and a published
-release's `/updates/<channel>/<arch>/SHA256SUMS` must be readable. A ready
-deployment alone does not prove GHCR access works. The variable also changes
-the pm image's update source, so leave it unset while the registry is
-inaccessible. Vercel deployment protection must allow anonymous clients.
+> [!WARNING]
+> Before setting `LOSOS_PROXY_URL`, check the public deployment without a
+> Vercel login: `/nix-cache-info` must return the cache metadata, an absent
+> store hash must return 404 rather than `502 token: 403`, and a published
+> release's `/updates/<channel>/<arch>/SHA256SUMS` must be readable. A ready
+> deployment alone does not prove GHCR access works. The variable also changes
+> the pm image's update source, so leave it unset while the registry is
+> inaccessible. Vercel deployment protection must allow anonymous clients.
