@@ -81,8 +81,10 @@ in
           pkgs.curl
         ];
 
-        # network.nix's mDNS: networkd and resolved, MulticastDNS on the
-        # link and in resolved, 5353 open.
+        # network.nix's mDNS: resolved with MulticastDNS on the link and in
+        # resolved, 5353 open. networkd stands in for NetworkManager here,
+        # because it keeps the test network's static address as it is; the
+        # machines test checks that NetworkManager turns mDNS on per link.
         networking.useNetworkd = true;
         systemd.network.networks."40-eth1".networkConfig.MulticastDNS = true;
         services.resolved = {

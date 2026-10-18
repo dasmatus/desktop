@@ -2,16 +2,18 @@
 //! it lets anything through.
 //!
 //! `danube captive-watch` runs in each session (a user service from
-//! nixos/modules/danube.nix). Whenever systemd-networkd's state changes it
-//! fetches [`CHECK_URL`] over plain HTTP, which a portal intercepts. An
+//! nixos/modules/danube.nix). Whenever NetworkManager reports a change and
+//! says the machine is connected, it fetches [`CHECK_URL`] over plain HTTP, which a portal intercepts. An
 //! answer other than [`EXPECT`] means a portal is in the way, and it opens
 //! `danube --captive-portal`: one window, no tabs, a throwaway profile and
 //! no content blockers, which closes by itself once the check passes. The
 //! desktop entry's "Sign in to network" action opens the same window by
 //! hand.
 
-use std::io::{Read, Write};
+use std::io::{BufRead, BufReader, Read, Write};
 use std::net::{TcpStream, ToSocketAddrs};
+use std::process::{Command, Stdio};
+use std::sync::mpsc;
 use std::time::Duration;
 
 /// GNOME's check, as NetworkManager's GNOME setup uses; each check sends
@@ -96,33 +98,74 @@ pub fn check() -> Verdict {
     judge(&response)
 }
 
-/// The networkd state file, rewritten on every change of state.
-const NETWORK_STATE: &str = "/run/systemd/netif/state";
+/// Whether `nmcli -t -g STATE general` says the machine is connected:
+/// `connected`, or `connected (site only)` or `(local only)`, which is what
+/// a portal that answers nothing but its own page can look like.
+fn connected(state: &str) -> bool {
+    state.trim().starts_with("connected")
+}
+
+fn network_state() -> String {
+    Command::new("nmcli")
+        .args(["-t", "-g", "STATE", "general"])
+        .stderr(Stdio::null())
+        .output()
+        .map(|out| String::from_utf8_lossy(&out.stdout).into_owned())
+        .unwrap_or_default()
+}
 
 /// Watches for network changes and opens the sign-in window when a portal
 /// is in the way. Runs until killed.
+///
+/// `nmcli monitor` prints a line for every change NetworkManager makes,
+/// and a join prints several in a row; they are read on a thread of their
+/// own so the burst can be let settle, and checked once. networkd's state
+/// file was polled here before, and went with networkd (network.nix).
 pub fn watch(danube: &std::path::Path) -> ! {
-    let mut last = None;
     loop {
-        let state = std::fs::read_to_string(NETWORK_STATE).ok();
-        if state != last {
-            last = state.clone();
-            let routable = state
-                .as_deref()
-                .is_some_and(|s| s.contains("OPER_STATE=routable"));
-            // A just-joined network may take a moment to hand out DNS.
+        let (changes, changed) = mpsc::channel();
+        let monitor = Command::new("nmcli")
+            .arg("monitor")
+            .stdout(Stdio::piped())
+            .stderr(Stdio::null())
+            .spawn();
+        let mut monitor = match monitor {
+            Ok(child) => child,
+            Err(error) => {
+                tracing::warn!(%error, "cannot watch NetworkManager");
+                std::thread::sleep(Duration::from_secs(30));
+                continue;
+            }
+        };
+        if let Some(stdout) = monitor.stdout.take() {
+            std::thread::spawn(move || {
+                for line in BufReader::new(stdout).lines() {
+                    if line.is_err() || changes.send(()).is_err() {
+                        return;
+                    }
+                }
+            });
+        }
+        // Once at the start, for the network the session began on, then
+        // after every change.
+        loop {
+            // A just-joined network may take a moment to hand out DNS, and
+            // the rest of the burst comes meanwhile.
             std::thread::sleep(Duration::from_secs(2));
-            if routable && check() == Verdict::Portal {
+            while changed.try_recv().is_ok() {}
+            if connected(&network_state()) && check() == Verdict::Portal {
                 tracing::info!("a captive portal is in the way; opening the sign-in window");
-                match std::process::Command::new(danube)
-                    .arg("--captive-portal")
-                    .status()
-                {
+                match Command::new(danube).arg("--captive-portal").status() {
                     Ok(_) => {}
                     Err(error) => tracing::warn!(%error, "cannot open the sign-in window"),
                 }
             }
+            // nmcli ended: NetworkManager restarted, or went away.
+            if changed.recv().is_err() {
+                break;
+            }
         }
+        let _ = monitor.wait();
         std::thread::sleep(Duration::from_secs(3));
     }
 }
@@ -145,6 +188,15 @@ mod tests {
             judge(b"HTTP/1.1 200 OK\r\n\r\n<html>Log in</html>"),
             Verdict::Portal
         );
+    }
+
+    #[test]
+    fn reads_networkmanagers_state() {
+        assert!(connected("connected\n"));
+        assert!(connected("connected (site only)"));
+        assert!(!connected("connecting"));
+        assert!(!connected("disconnected"));
+        assert!(!connected(""));
     }
 
     #[test]

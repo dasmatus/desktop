@@ -127,20 +127,11 @@ in
 
     services.qemuGuest.enable = true;
 
-    # NetworkManager, unlike the host's networkd: it takes the address and the
-    # host's resolver from libvirt's default network by DHCP, and asks
-    # GNOME's check, nmcheck.gnome.org, whether that reaches the internet, the
-    # same check Danube makes on the host (captive.rs). Apps a person
-    # installs here ask it whether they are online, through GLib or the
-    # portal. resolved still answers DNS, as on the host.
-    networking.networkmanager = {
-      enable = true;
-      dns = "systemd-resolved";
-      settings.connectivity = {
-        uri = "http://nmcheck.gnome.org/check_network_status.txt";
-        response = "NetworkManager is online";
-      };
-    };
+    # NetworkManager with NixOS's defaults, as on the host (network.nix): it
+    # takes the address and the host's resolver from libvirt's default
+    # network by DHCP and hands DNS to resolved. Apps a person installs here
+    # ask it whether they are online, through GLib or the portal.
+    networking.networkmanager.enable = true;
     services.resolved.enable = true;
     # A machine has one virtio network card and no Wi-Fi or modem, which the
     # NetworkManager module would otherwise bring wpa_supplicant and

@@ -44,9 +44,9 @@
 
   # /etc is an overlay of the generated tree rather than files written by an
   # activation script, which is what lets it be assembled without perl and
-  # makes it read the same on every boot. Mutable, because networkd, homed and
-  # hostnamed all keep state under /etc and the root partition is where state
-  # lives here.
+  # makes it read the same on every boot. Mutable, because NetworkManager,
+  # homed and hostnamed all keep state under /etc and the root partition is
+  # where state lives here.
   system.etc.overlay = {
     enable = true;
     mutable = true;
