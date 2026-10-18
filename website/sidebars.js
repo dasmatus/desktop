@@ -41,7 +41,7 @@ module.exports = {
         'adblock',
         'terminal',
         'store',
-        'sonne',
+        'agent',
         'choice-screens',
         'losos-boxes',
         'windows-apps',

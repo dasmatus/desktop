@@ -125,7 +125,5 @@ android_translation_layer stays a `fetchgit` pin: it is an upstream fork, off
 by default, and its tree is close to half a gigabyte, which the flake would
 otherwise copy on every evaluation.
 
-[Sonne](sonne.md), the code editor, is a `fetchgit` pin too, for the same
-reason: it is a fork of Zed, and its tree is the size of Zed's. The LosOS
-client is a sparse one, its repository being
+The LosOS client is a sparse `fetchgit` pin, its repository being
 about 140 MB, of which the client needs 3.

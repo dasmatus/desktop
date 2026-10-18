@@ -11,6 +11,15 @@
   `explain`), and the boot test checks it is installed, but a recipe written
   for an FHS host does not build on it. For the same reason seven of pm's test targets
   are skipped in the nix build (the list is in `nixos/pkgs/pm.nix`).
+- **The Agent's tools** ([The Agent](agent.md)). The image carries neither
+  Claude Code, which nixpkgs marks unfree, nor the Rust toolchain the
+  Agent's previews build with, so a chat needs `claude` and a preview needs
+  `cargo` with the `wasm32-wasip2` target installed by the person first.
+- **A default for text files.** Since Sonne left, nothing claims text and
+  source files as their default for `xdg-open`, so Files opens them in
+  whatever app happens to list their type, if any: derisk's Text Editor
+  cannot be handed a file, its desktop entry living inside the
+  derisk binary with no file argument and no types.
 - **Searching what is in every file.** `derisk-index` reads plain text
   only: a file with a NUL byte in its first 8 KiB counts as binary and is
   found by its name alone, so PDFs, office documents and pictures' text

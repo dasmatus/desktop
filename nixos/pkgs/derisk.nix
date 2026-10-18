@@ -4,8 +4,10 @@
 # it: the same core apps as GPUI windows, and the portal's consent dialog
 # (`derisk-gpui ask`), which xdg-desktop-portal-derisk runs instead of GTK's
 # access dialog when it finds the binary next to `derisk` (docs/index.md).
-# `derisk.terminal` is the desktop's terminal, a package of its own, and
-# `derisk.index` the user service indexing home for the palette.
+# `derisk.terminal` is the desktop's terminal, a package of its own,
+# `derisk.index` the user service indexing home for the palette, and
+# `derisk.agent` the Agent, the window that runs Claude Code on the desktop
+# (docs/agent.md).
 #
 # Pinned by the components/derisk submodule and moved by hand, like pm, because both derisk and the
 # mcsapi it builds against are moving fast. mcsapi comes in through
@@ -53,7 +55,7 @@ let
     src = lib.cleanSource ../../components/derisk;
   };
 
-  cargoHash = "sha256-s7lITMC04ogStn41fQqEcQ3wUn7ekQsx+Cbkl9zUKso=";
+  cargoHash = "sha256-f2BCyHQ8U6Q2wybTvDtuOP2Xx2E9lXeljge0cOmq2HM=";
 
   # derisk-gpui, as a cargo build of its own. It cannot share derisk's: the
   # portal talks to xdg-desktop-portal through ashpd on tokio, and Sonne's
@@ -206,6 +208,61 @@ let
       mainProgram = "derisk-index";
     };
   };
+  # derisk-agent, the Agent: Sonne's agent window, moved into derisk when
+  # Sonne left the image (docs/agent.md). A build of its own like the
+  # terminal: it links wasmtime with WASI for its previews, which derisk's
+  # own wasmtime deliberately goes without, and cargo would unify the two.
+  agent = rustPlatform.buildRustPackage {
+    pname = "derisk-agent";
+    inherit version src cargoHash;
+    cargoDepsName = "derisk-${version}";
+
+    cargoBuildFlags = [
+      "-p"
+      "derisk-agent"
+    ];
+    cargoTestFlags = [
+      "-p"
+      "derisk-agent"
+    ];
+
+    # mcsapi-ui brings Smithay's xkbcommon bindings, which link libxkbcommon
+    # through pkg-config, as x2mcsapi's do.
+    nativeBuildInputs = [ pkg-config ];
+    buildInputs = [ libxkbcommon ];
+
+    # Its desktop entry claims the derisk-agent: links the palette opens.
+    postInstall = ''
+      install -Dm644 -t $out/share/applications crates/derisk-agent/data/org.derisk.agent.desktop
+      substituteInPlace $out/share/applications/org.derisk.agent.desktop \
+        --replace-fail "Exec=derisk-agent" "Exec=$out/bin/derisk-agent"
+    '';
+
+    # eframe draws through winit and glutin, which dlopen what they draw
+    # with, as the terminal's do.
+    postFixup = ''
+      patchelf --add-rpath ${
+        lib.makeLibraryPath [
+          wayland
+          libxkbcommon
+          libGL
+          libxcb
+          libx11
+          libxcursor
+          libxi
+          libxrandr
+        ]
+      } $out/bin/derisk-agent
+    '';
+
+    meta = {
+      description = "derisk's Agent: build apps, change the desktop and run routines with Claude Code";
+      homepage = "https://github.com/dasmatus/derisk";
+      license = lib.licenses.gpl3Only;
+      platforms = lib.platforms.linux;
+      mainProgram = "derisk-agent";
+    };
+  };
 in
 
 rustPlatform.buildRustPackage {
@@ -298,7 +355,14 @@ rustPlatform.buildRustPackage {
       --replace-fail "ExecStart=xdg-desktop-portal-derisk" "ExecStart=$out/bin/xdg-desktop-portal-derisk"
   '';
 
-  passthru = { inherit gpui terminal index; };
+  passthru = {
+    inherit
+      gpui
+      terminal
+      index
+      agent
+      ;
+  };
 
   meta = {
     description = "Adaptive, agent-first Wayland desktop environment built on mcsapi";

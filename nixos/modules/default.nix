@@ -28,7 +28,7 @@
     ./update-source.nix
     ./installer.nix
     ./windows-installer.nix
-    ./sonne.nix
+    ./agent.nix
     # testing.nix is gone: its losos-selftest unit sat in every boot's
     # transaction and sometimes kept losos-grub-bless from running, and its
     # losos-ota-test could install an unverified release. Tests wait for the

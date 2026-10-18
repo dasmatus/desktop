@@ -147,11 +147,9 @@ in
   # Backups to a LosOS box (docs/backup.md).
   losos-backup = callWithMold ./losos-backup.nix { };
   x2mcsapi = callWithMold ./x2mcsapi.nix { };
-  # Sonne, the code editor (sonne.nix, docs/sonne.md), on the PC image. Its
-  # libwebrtc comes from nixpkgs' own package set, so it substitutes: from
-  # this one, its FFmpeg and SDL would reach the patched GTK through
-  # libdecor, and CI would compile WebRTC and FFmpeg.
-  sonne = callWithMold ./sonne.nix { inherit (plain) livekit-libwebrtc; };
+  # sonne.nix is gone: Sonne, the project's fork of Zed, took about half a
+  # gigabyte of /usr for an editor, and its agent, the part the OS wanted,
+  # is derisk's Agent now (derisk.nix, docs/agent.md).
   # Not a package: every package in nixpkgs, as a pm package's contents.
   pm-payloads = import ./pm-payloads.nix { inherit (final) lib pkgsStatic runCommand; };
 
