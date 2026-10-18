@@ -29,9 +29,9 @@ GTK's covers the file chooser and the rest. The web browser is
 [ad blocking](adblock.md) from filter lists covers every app. The terminal
 is [derisk's own](terminal.md), `derisk-terminal`: the theme's monospace font through its
 Nerd Font build, so the icons prompts and TUIs print show, drawn on the GPU
-or, where there is none, in software. The code editor is
-[Sonne](sonne.md), the project's fork of Zed, which opens text and source
-files on the PC image. derisk's command palette finds files by name and by
+or, where there is none, in software. [The Agent](agent.md), on the PC
+image, runs Claude Code in a window of its own, with live previews of the
+apps it builds, and derisk's palette hands it whatever it was asked. derisk's command palette finds files by name and by
 what is in them, with the line that matched, from an index of each person's
 home that `derisk-index.service` keeps up to date as files change.
 
