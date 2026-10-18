@@ -31,7 +31,7 @@ let
     name = "pm-plugins";
     inherit src;
     sourceRoot = "${src.name}/plugins";
-    hash = "sha256-yw0SU/f1wGETARbaiNDN6lNZv2cG2kNkFggDHKutDEk=";
+    hash = "sha256-XSqlt2sie/SyONHcqZ1dK8prtxOXqjXt24K7zxBuB5s=";
   };
 in
 rustPlatform.buildRustPackage {
