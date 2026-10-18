@@ -51,7 +51,7 @@ let
     src = lib.cleanSource ../../components/derisk;
   };
 
-  cargoHash = "sha256-FcBlepqFRT06QDStBUiSGbO1R3VuqSMGGadvvqxhh/A=";
+  cargoHash = "sha256-6kkxQsMsUOsC+unCl9uYvUOeN1l5943YMGijOwfemWE=";
 
   # derisk-gpui, as a cargo build of its own. It cannot share derisk's: the
   # portal talks to xdg-desktop-portal through ashpd on tokio, and Sonne's
