@@ -140,9 +140,9 @@ in
           make -C "$NIX_BUILD_TOP/nvidia-open" -j"$NIX_BUILD_CORES" modules ${nvidiaFlags}
         '';
         postInstall = (old.postInstall or "") + ''
-          # INSTALL_MOD_PATH, as nixpkgs passes it for the kernel's own
-          # modules: depmod builds its directory from it, not from MODLIB,
-          # and without it looks in /lib/modules, which the sandbox lacks.
+          # INSTALL_MOD_PATH, not MODLIB: the kernel derives MODLIB from it,
+          # and depmod.sh gets its -b root only from INSTALL_MOD_PATH, so
+          # with MODLIB alone depmod searched the build's /lib/modules.
           make -C "$NIX_BUILD_TOP/nvidia-open" modules_install ${nvidiaFlags} \
             INSTALL_MOD_PATH="$modules" \
             INSTALL_MOD_STRIP=1
