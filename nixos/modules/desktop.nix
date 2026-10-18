@@ -104,8 +104,17 @@ in
   security.pam.services.derisk-login.startSession = true;
   security.pam.services.derisk-greeter.startSession = true;
 
-  # derisk-session.target, derisk-agent.socket and derisk-agent.service.
-  systemd.packages = [ pkgs.derisk ];
+  # derisk-session.target, derisk-agent.socket and derisk-agent.service,
+  # and derisk-index's socket and service. The index starts with the
+  # graphical session, so home is indexed by the time the palette asks;
+  # the units' [Install] sections mean nothing to NixOS, so the wants are
+  # here. Not derisk-session.target: nothing requires it, so it stops
+  # itself as soon as it is reached and would take the index with it.
+  systemd.packages = [
+    pkgs.derisk
+    pkgs.derisk.index
+  ];
+  systemd.user.services.derisk-index.wantedBy = [ "graphical-session.target" ];
 
   # Generate the PAM stack used by derisk's lock screen. With homed enabled,
   # NixOS includes pam_systemd_home in this service.
@@ -129,6 +138,8 @@ in
   environment.systemPackages = [
     pkgs.derisk
     pkgs.derisk.terminal
+    # `derisk-index search ...` asks the index from a terminal.
+    pkgs.derisk.index
     pkgs.papirus-icon-theme
     # derisk starts it to learn when nobody uses the session (above).
     pkgs.swayidle

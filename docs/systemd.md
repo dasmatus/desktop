@@ -12,6 +12,7 @@ Which systemd component does which job:
 | Factory reset | `FactoryReset=` on root and `/home`, and systemd's reset Varlink API |
 | Accounts | `systemd-homed`, `systemd-userdbd`, `pam_systemd_home`, `run0` |
 | Session | derisk as the display manager, with its lock screen as the login screen, `systemd-logind` seats, and the user manager driving `derisk-session.target` and `graphical-session.target` |
+| File search | `derisk-index.service`, a user service started on its socket, `derisk-index.socket`, at idle priority and with home read-only, indexing the names and text of each person's files for the command palette |
 | Network | `systemd-networkd`, `systemd-resolved`, `systemd-timesyncd` |
 | Memory | `systemd-oomd`, zswap in front of a RAM-sized encrypted swap partition, and GrapheneOS's hardened_malloc as every process's allocator on PCs |
 | Sleep | `systemd-sleep` suspends on a laptop's lid; nothing hibernates under the locked-down kernel ([Hibernation](hibernation.md)) |
