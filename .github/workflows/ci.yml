@@ -419,6 +419,9 @@ jobs:
           if [ -s prebuilt/paths.txt ]; then
             zstd -dc prebuilt/paths.nar.zst | sudo "$(command -v nix-store)" --import > /dev/null
           fi
+          # The stream is a second copy of paths now in the store. The cache
+          # push writes another copy, and that is what filled the disk.
+          rm -f prebuilt/paths.nar.zst
           echo "Imported $(wc -l < prebuilt/paths.txt) path(s)."
 
       # The check that the split saves anything. Once `prebuild` built all of
@@ -445,11 +448,15 @@ jobs:
       # `prebuild` already pushed.
       - *note-prebuilt
 
+      # One derivation at a time, as in prebuild. This job compiles whatever
+      # that one did not finish, and WPE WebKit beside an LTO link filled the
+      # runner's 16 GB until the service took it away (exit 143) before the
+      # cache push, so a run that died here kept nothing for the next one.
       - name: Build the release
         id: build
         run: |
           set +e
-          timeout --signal=INT 300m nix build --impure -L --keep-going --out-link release .#release \
+          timeout --signal=INT 300m nix build --impure -L --keep-going --max-jobs 1 --out-link release .#release \
             2>&1 | tee build.log
           status=${PIPESTATUS[0]}
           set -e
@@ -489,7 +496,7 @@ jobs:
           {
             sed "s|^|.#checks.$system.|" builds.txt
             sed "s|^|.#checks.$system.|; s|$|.driver|" vm-tests.txt
-          } | xargs nix build --impure -L --keep-going --no-link
+          } | xargs nix build --impure -L --keep-going --max-jobs 1 --no-link
           echo "system=$system" >> "$GITHUB_OUTPUT"
 
       # The VM tests boot the image under QEMU (KVM on x86_64; aarch64 has
@@ -515,7 +522,7 @@ jobs:
           status=124
           if [ "$left" -gt 0 ]; then
             set +e
-            timeout --signal=INT --kill-after=2m "$left" nix build --impure -L --keep-going --no-link "${tests[@]}"
+            timeout --signal=INT --kill-after=2m "$left" nix build --impure -L --keep-going --max-jobs 1 --no-link "${tests[@]}"
             status=$?
             set -e
           fi
