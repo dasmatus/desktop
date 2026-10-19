@@ -16,8 +16,9 @@
 #   tools/nix-cache-push --repository ... --secret-key-file ... --all \
 #       --exclude-from store-before-build.txt
 #
-# Other options: --jobs N (parallel pushes, 8), --batch N (paths staged at a
-# time, 200), --staging DIR (keep the signed file cache there), --dry-run.
+# Other options: --jobs N (parallel pushes, 8), --batch N (at most this many
+# paths staged at a time, 200; a batch also stops at a quarter of the free
+# disk), --staging DIR (keep the signed file cache there), --dry-run.
 #
 # Needs `nix` and `oras` on PATH, with `oras` already logged in. The secret key
 # stays on this host. nix signs each narinfo as it writes it, and the signature
@@ -166,18 +167,58 @@ export -f push_one
 
 # A runner's disk holds the store once, with no room for a compressed copy of
 # all of it, so the work goes in batches: copy, push, delete the NARs, then the
-# next batch. zstd is fast to write on a runner that is also building, and nix
-# reads it natively. --no-recursive because the list already holds exactly the
+# next batch. Counting to --batch is not enough. After a finished image, 200
+# paths were a second copy of the biggest outputs and the runner's disk filled
+# (aarch64, "No space left on device") before the release could be uploaded.
+# Each batch also stops at a quarter of the free space, measured again after
+# the NARs are deleted. One path bigger than that is a batch by itself: the
+# image has to be copied whole or not at all. zstd is what nix writes and
+# reads natively. --no-recursive because the list already holds exactly the
 # paths to send, in an order that satisfies each one's references.
+# Sizes come back in the same order as the paths. A mismatch means a path
+# went away mid-run, and copying it would fail less clearly later.
+xargs -d '\n' -n 100 nix-store --query --size < "$work/missing" > "$work/sizes"
+if [ "$(wc -l < "$work/sizes")" -ne "$todo" ]; then
+  echo "nix-cache-push: could not read a size for every path" >&2
+  exit 1
+fi
+paste "$work/sizes" "$work/missing" > "$work/sized"
+
+# df's avail is 1 KiB blocks. A quarter of it is the most this batch may
+# stage; the rest stays free for the copy's own scratch.
+batch_cap() {
+  local avail
+  avail=$(df -P --output=avail "$staging" | awk 'NR == 2 { print $1 }')
+  [ -n "$avail" ] || { echo "nix-cache-push: could not read free space on $staging" >&2; exit 1; }
+  echo $((avail * 1024 / 4))
+}
+
 pushed=0
-split -l "$batch" "$work/missing" "$work/batch."
-for chunk in "$work"/batch.*; do
-  nix copy --no-recursive --stdin --to "$to" < "$chunk"
+: > "$work/chunk"
+chunk_bytes=0
+chunk_n=0
+cap=$(batch_cap)
+flush_chunk() {
+  [ "$chunk_n" -gt 0 ] || return 0
+  nix copy --no-recursive --stdin --to "$to" < "$work/chunk"
   # shellcheck disable=SC2016 # expanded by the inner bash, not here
-  xargs -r -n1 basename < "$chunk" | cut -c1-32 \
+  xargs -r -n1 basename < "$work/chunk" | cut -c1-32 \
     | REPO=$repository DRY_RUN=$dry_run xargs -r -P "$jobs" -I{} bash -c 'push_one "$1" "$2"' _ "$staging" {}
   rm -rf "$staging/nar"
-  pushed=$((pushed + $(wc -l < "$chunk")))
+  pushed=$((pushed + chunk_n))
   echo "nix-cache-push: pushed $pushed/$todo"
-done
+  : > "$work/chunk"
+  chunk_bytes=0
+  chunk_n=0
+  cap=$(batch_cap)
+}
+while read -r size path; do
+  if [ "$chunk_n" -gt 0 ] && { [ "$chunk_n" -ge "$batch" ] || [ $((chunk_bytes + size)) -gt "$cap" ]; }; then
+    flush_chunk
+  fi
+  printf '%s\n' "$path" >> "$work/chunk"
+  chunk_bytes=$((chunk_bytes + size))
+  chunk_n=$((chunk_n + 1))
+done < "$work/sized"
+flush_chunk
 echo "nix-cache-push: pushed $todo path(s)"
