@@ -26,6 +26,18 @@
 }:
 
 let
+  # The machine's package set. libvirt builds without its Xen (libxl)
+  # driver: the machines run inside the host and never manage a hypervisor
+  # of their own, but their derisk still links libvirt for the Machines
+  # app's bindings, and libvirt's x86_64 default carries Xen, whose chain
+  # (ipxe, syslinux) ships perl-shebang scripts, which guest/service.nix's
+  # perlless profile refuses. The host's libvirt keeps its default.
+  machinesPkgs = pkgs.extend (
+    final: prev: {
+      libvirt = prev.libvirt.override { enableXen = false; };
+    }
+  );
+
   libvirt = config.virtualisation.libvirtd.package;
   stateDir = name: "/var/lib/losos-service-machines/${name}";
   # The same UUID at every definition: libvirt takes a definition without
@@ -49,7 +61,7 @@ let
         machine.module
         {
           losos.service.name = name;
-          nixpkgs.pkgs = pkgs;
+          nixpkgs.pkgs = machinesPkgs;
           # The image's own kernel, so host and machines share one in /usr.
           boot.kernelPackages = lib.mkForce config.boot.kernelPackages;
         }
