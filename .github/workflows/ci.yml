@@ -996,6 +996,7 @@ jobs:
         uses: ./.github/actions/nix-build-failure
         with:
           target: .#networkTests.x86_64-linux.android-apps.driver
+
       - name: Boot the image, set Android up in it and open an app
         run: |
           # The driver's QEMU runs as the runner's user, and the Pixel's
