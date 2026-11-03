@@ -89,7 +89,7 @@ let
   # copies the vendored source into the build tree before postPatch runs.
   cargoPatch = ''
     for d in "$cargoDepsCopy"/rten-gemm-*; do
-      patch -p1 --directory="$d" < ${./rten-gemm-no-vnni.patch}
+      patch -p1 --directory="$d" < ${../patches/rten-gemm-no-vnni.patch}
     done
   '';
 
