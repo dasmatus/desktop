@@ -95,6 +95,54 @@ let
     CARGO_PROFILE_WASM_PLUGIN_LTO = "off";
   };
 
+  # rten-gemm (rten 0.26.0) does not compile against nixpkgs rustc 1.98 on
+  # x86_64: `intrinsic signature mismatch for llvm.x86.avx512.vpdpbusd.512`,
+  # which rustc wants in an older shape than the one its own std declares.
+  # This rewrites the vendored crate's `_mm512_dpbusd_epi32` into inline asm,
+  # e.g. the workaround NUR ships as rten-gemm-no-vnni-intrinsic. The cargo
+  # setup hook has, by patch time, copied the vendored source into the build
+  # tree, where $cargoDepsCopy reaches it — but the crates sit nested in that
+  # tree, not at its top level, so `find` locates them, and a miss fails the
+  # build: stdenv's `shopt -s nullglob` would otherwise run the loop zero
+  # times in silence, which is what the first CI wiring lost to. Every build
+  # below attaches it: the lock's derisk-redact pulls in rten, and cargo
+  # unifies features across these builds, so any one of them may pull
+  # rten-gemm's x86 code in; where it does not, the patch merely edits
+  # vendored source that nothing compiles. The crate's own code is the only
+  # x86_64 part here (aarch64 never compiles the AVX-512VNNI path), so the
+  # patch applies on x86_64-linux alone.
+  rten-gemm-postPatch =
+    lib.optionalString (stdenv.hostPlatform.isx86_64 && stdenv.hostPlatform.isLinux)
+      ''
+        rtenGemmDirs=$(find "$cargoDepsCopy" -type d -name "rten-gemm-*") || exit 1
+        if [ -z "$rtenGemmDirs" ]; then
+          echo "no rten-gemm-* crate found in \$cargoDepsCopy=$cargoDepsCopy; the rten-gemm patch cannot apply" >&2
+          exit 1
+        fi
+        for d in $rtenGemmDirs; do
+          patch -p1 --directory="$d" < ${../patches/rten-gemm-no-vnni.patch}
+          # The patch removes this intrinsic's use line and its call in
+          # src/i8dot.rs, so a build that would hit the signature mismatch is
+          # gone. (The patch's own added comment still names the intrinsic,
+          # so the checks look for the value line and the use with the
+          # paren'ed call, not the bare name.)
+          if grep -rqF 'use std::arch::x86_64::_mm512_dpbusd_epi32' "$d"; then
+            echo "rten-gemm at $d still uses the _mm512_dpbusd_epi32 intrinsic after patching" >&2
+            exit 1
+          fi
+          if grep -rqE '_mm512_dpbusd_epi32 *\(' "$d"; then
+            echo "rten-gemm at $d still calls _mm512_dpbusd_epi32 after patching" >&2
+            exit 1
+          fi
+          # The replacement is inline asm of this instruction; its absence
+          # would mean the patch does not apply to this crate version.
+          if ! grep -qF 'vpdpbusd {result}, {a}, {b}' "$d/src/i8dot.rs"; then
+            echo "rten-gemm at $d shows no vpdpbusd inline asm after patching" >&2
+            exit 1
+          fi
+        done
+      '';
+
   # derisk-gpui, as a cargo build of its own. It cannot share derisk's: the
   # portal talks to xdg-desktop-portal through ashpd on tokio, and Sonne's
   # GPUI through the same ashpd on async-io, and cargo unifies features
@@ -106,6 +154,7 @@ let
     pname = "derisk-gpui";
     inherit version src cargoHash;
     env = cargoEnv;
+    postPatch = rten-gemm-postPatch;
     cargoDepsName = "derisk-${version}";
 
     # `gpui` is what makes it a binary at all: the crate is otherwise only
@@ -171,6 +220,7 @@ let
     pname = "derisk-terminal";
     inherit version src cargoHash;
     env = cargoEnv;
+    postPatch = rten-gemm-postPatch;
     cargoDepsName = "derisk-${version}";
 
     cargoBuildFlags = [
@@ -222,6 +272,7 @@ let
     pname = "derisk-index";
     inherit version src cargoHash;
     env = cargoEnv;
+    postPatch = rten-gemm-postPatch;
     cargoDepsName = "derisk-${version}";
 
     cargoBuildFlags = [
@@ -257,6 +308,7 @@ let
     pname = "derisk-agent";
     inherit version src cargoHash;
     env = cargoEnv;
+    postPatch = rten-gemm-postPatch;
     cargoDepsName = "derisk-${version}";
 
     cargoBuildFlags = [
@@ -311,51 +363,7 @@ rustPlatform.buildRustPackage {
   pname = "derisk";
   inherit version src cargoHash;
   env = cargoEnv;
-
-  # rten-gemm (rten 0.26.0) does not compile against nixpkgs rustc 1.98:
-  # `intrinsic signature mismatch for llvm.x86.avx512.vpdpbusd.512`, which
-  # rustc wants in an older shape than the one it declares itself. This
-  # rewrites the vendored crate's `_mm512_dpbusd_epi32` into inline asm, e.g.
-  # the workaround NUR ships as rten-gemm-no-vnni-intrinsic. The cargo setup
-  # hook has by now copied the vendored source into the build tree, where
-  # postPatch reaches it through $cargoDepsCopy — but the crates are nested
-  # in that tree, not at its top level, so the crate is found with `find`,
-  # and a miss fails the build: stdenv's `shopt -s nullglob` makes a glob
-  # that matches nothing run its loop zero times without a word, which
-  # called an unpatched rten-gemm and left CI with the same intrinsic error.
-  # The crate's own code is the only x86_64 part here (aarch64 never
-  # compiles the AVX-512VNNI path), so the patch applies there alone.
-  postPatch =
-    lib.optionalString (stdenv.hostPlatform.isx86_64 && stdenv.hostPlatform.isLinux)
-      ''
-        rtenGemmDirs=$(find "$cargoDepsCopy" -type d -name "rten-gemm-*") || exit 1
-        if [ -z "$rtenGemmDirs" ]; then
-          echo "derisk: no rten-gemm-* crate found in \$cargoDepsCopy=$cargoDepsCopy; the rten-gemm patch cannot apply" >&2
-          exit 1
-        fi
-        for d in $rtenGemmDirs; do
-          patch -p1 --directory="$d" < ${../patches/rten-gemm-no-vnni.patch}
-          # The patch removes this intrinsic's use line and its call in
-          # src/i8dot.rs, so a build that would hit the signature mismatch is
-          # gone. (The patch's own added comment still names the intrinsic,
-          # so the checks look for the value line and the use with the
-          # paren'ed call, not the bare name.)
-          if grep -rqF 'use std::arch::x86_64::_mm512_dpbusd_epi32' "$d"; then
-            echo "derisk: rten-gemm at $d still uses the _mm512_dpbusd_epi32 intrinsic after patching" >&2
-            exit 1
-          fi
-          if grep -rqE '_mm512_dpbusd_epi32 *\(' "$d"; then
-            echo "derisk: rten-gemm at $d still calls _mm512_dpbusd_epi32 after patching" >&2
-            exit 1
-          fi
-          # The replacement is inline asm of this instruction; its absence
-          # would mean the patch does not apply to this crate version.
-          if ! grep -qF 'vpdpbusd {result}, {a}, {b}' "$d/src/i8dot.rs"; then
-            echo "derisk: rten-gemm at $d shows no vpdpbusd inline asm after patching" >&2
-            exit 1
-          fi
-        done
-      '';
+  postPatch = rten-gemm-postPatch;
 
   # derisk and its portal backend, xdg-desktop-portal-derisk. `host` is the
   # compositor; without it the binary has only the headless commands. It is
