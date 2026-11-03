@@ -140,6 +140,7 @@ jobs:
     # As in `flake`: packages: write reaches only the cache push step.
     permissions:
       contents: read
+      issues: write
       packages: write
     env: &nix-env
       # With LOSOS_PROXY_URL set, the images update from that proxy and ping
@@ -324,8 +325,9 @@ jobs:
         id: build
         run: |
           set +e
+          set -o pipefail
           timeout --signal=INT 300m nix build --impure -L --keep-going --no-link --max-jobs 1 --stdin < "$RUNNER_TEMP/plan.txt" \
-            2>&1 | tee build.log
+            2>&1 | tee build.log "$RUNNER_TEMP/nix-build.log"
           status=${PIPESTATUS[0]}
           set -e
           if [ "$status" = 0 ]; then
@@ -337,6 +339,12 @@ jobs:
             grep -A20 "^error: builder for .* failed" build.log | head -80 || true
             exit 1
           fi
+
+      - name: file an issue for the failed nix build
+        if: failure() && steps.build.outcome == 'failure'
+        uses: ./.github/actions/nix-build-failure
+        with:
+          target: targets of tools/nix-prebuild-plan
 
       # Saved after a run that ran out of time too, so the next run starts
       # from every object this one compiled. Split because GHCR refuses a
@@ -468,6 +476,7 @@ jobs:
     # which runs no build code at all.
     permissions:
       contents: read
+      issues: write
       packages: write
     env: *nix-env
     steps:
@@ -555,8 +564,9 @@ jobs:
         id: build
         run: |
           set +e
+          set -o pipefail
           timeout --signal=INT 300m nix build --impure -L --keep-going --max-jobs 1 --out-link release .#release \
-            2>&1 | tee build.log
+            2>&1 | tee build.log "$RUNNER_TEMP/nix-build.log"
           status=${PIPESTATUS[0]}
           set -e
           if [ "$status" = 0 ]; then
@@ -568,6 +578,12 @@ jobs:
             grep -A20 "^error: builder for .* failed" build.log | head -80 || true
             exit 1
           fi
+
+      - name: file an issue for the failed nix build
+        if: failure() && steps.build.outcome == 'failure'
+        uses: ./.github/actions/nix-build-failure
+        with:
+          target: .#release
 
       # As in `prebuild`.
       - *setup-oras
@@ -957,6 +973,9 @@ jobs:
     if: needs.changes.outputs.android-desktop == 'true'
     runs-on: ubuntu-24.04
     timeout-minutes: 300
+    permissions:
+      contents: read
+      issues: write
     env: *nix-env
     steps:
       - *free-disk
@@ -965,10 +984,19 @@ jobs:
       - *serve-cache
       - *serve-cache-start
       - name: Build the test and the image it boots
+        id: build-driver
         run: |
+          set -o pipefail
           echo "Nested KVM on the runner: $(cat /sys/module/kvm_*/parameters/nested)"
           nix build --impure -L --max-jobs 1 --out-link android-desktop \
-            .#networkTests.x86_64-linux.android-apps.driver
+            .#networkTests.x86_64-linux.android-apps.driver 2>&1 | tee "$RUNNER_TEMP/nix-build.log"
+
+      - name: file an issue for the failed nix build
+        if: failure() && steps.build-driver.outcome == 'failure'
+        uses: ./.github/actions/nix-build-failure
+        with:
+          target: .#networkTests.x86_64-linux.android-apps.driver
+
       - name: Boot the image, set Android up in it and open an app
         run: |
           # The driver's QEMU runs as the runner's user, and the Pixel's
@@ -996,6 +1024,9 @@ jobs:
     if: needs.changes.outputs.docs == 'true'
     runs-on: ubuntu-24.04
     timeout-minutes: 30
+    permissions:
+      contents: read
+      issues: write
     env:
       NIX_VERSION: "2.34.8"
       NIX_INSTALLER_SHA256: "96c10e102c88809dd9ec0bee89200c4a51eae4c9f6d8698c26b16788d131e078"
@@ -1012,7 +1043,16 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with: { persist-credentials: false, submodules: true }
       - name: Build the offline documentation
-        run: nix build -L --no-link .#legacyPackages.x86_64-linux.losos-docs
+        id: build-docs
+        run: |
+          set -o pipefail
+          nix build -L --no-link .#legacyPackages.x86_64-linux.losos-docs 2>&1 | tee "$RUNNER_TEMP/nix-build.log"
+
+      - name: file an issue for the failed nix build
+        if: failure() && steps.build-docs.outcome == 'failure'
+        uses: ./.github/actions/nix-build-failure
+        with:
+          target: .#legacyPackages.x86_64-linux.losos-docs
 
   # The one check branch protection looks for, so a cancelled job, or one
   # skipped that `changes` said should run, never reads as green.
