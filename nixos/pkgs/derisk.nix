@@ -81,6 +81,18 @@ let
 
   cargoHash = "sha256-C2KKSvXym5lF9Po/7bDV8Y1//fgArG65tRFvQ3E7i5Y=";
 
+  # rten-gemm (rten 0.26.0) fails to build on nixpkgs rustc 1.98 with
+  # `intrinsic signature mismatch for llvm.x86.avx512.vpdpbusd.512`. This
+  # swaps the intrinsic for inline asm in the vendored crate (how others
+  # worked around the same rustc/LLVM pairing, e.g. NUR's
+  # rten-gemm-no-vnni-intrinsic patch, which this is). The cargo setup hook
+  # copies the vendored source into the build tree before postPatch runs.
+  cargoPatch = ''
+    for d in "$cargoDepsCopy"/rten-gemm-*; do
+      patch -p1 --directory="$d" < ${./rten-gemm-no-vnni.patch}
+    done
+  '';
+
   # Fat LTO (Cargo.toml: lto = true) compiles every dependency as bitcode
   # (-C linker-plugin-lto) and links it in one rustc. That link is killed on
   # a 4GB machine, and stripping -C lto only from the final rustc then leaves
@@ -308,6 +320,7 @@ rustPlatform.buildRustPackage {
   pname = "derisk";
   inherit version src cargoHash;
   env = cargoEnv;
+  inherit cargoPatch;
 
   # derisk and its portal backend, xdg-desktop-portal-derisk. `host` is the
   # compositor; without it the binary has only the headless commands. It is
