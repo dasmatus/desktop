@@ -33,7 +33,7 @@ buildNpmPackage {
   npmRoot = "website";
   npmDeps = fetchNpmDeps {
     src = "${src}/website";
-    hash = "sha256-Kp1k80QDntfJ3CasfdzhmxiRAXD24Q0ROuL8lZZdQxo=";
+    hash = "sha256-VzJh2Z40tNMGUyFCSbSL+UfRiM7ykOI8fmamdySqLEs=";
   };
 
   env.DOCS_OFFLINE = "1";
