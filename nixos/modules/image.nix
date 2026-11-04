@@ -68,7 +68,7 @@ in
     # device with /usr unmounted. A later -b wins over repart's own.
     #
     # Compressed, because every release has to fit the fixed update slot an
-    # installed disk already has (losos.usrSize, 8G; releaseArtifacts
+    # installed disk already has (losos.usrSize, 16G; releaseArtifacts
     # refuses a /usr that does not). LZ4HC did until the store grew past it:
     # the 23 October 2026 nightly's /usr was 8.24G, 11.7G uncompressed.
     # The same store as Zstandard level 3 in 128K physical clusters (-C) is
@@ -78,9 +78,15 @@ in
     # compressed qcow2 that nothing here shrinks. The kernel's erofs reads
     # Zstandard (CONFIG_EROFS_FS_ZIP_ZSTD, on in nixpkgs from 6.10); it has
     # no LZMA.
+    #
+    # Level 9 rather than 3 since the store kept growing: the 3 November
+    # 2026 x86_64 build's /usr was 8.16G, past the 8G slot that level 3's
+    # 7.32G once left room in. Level 9's 2% (about 160M of this store) is
+    # the margin that fits again, and its four-times-longer mkfs is minutes
+    # of a build that takes hours.
     mkfsOptions.erofs = [
       "-b4096"
-      "-zzstd,level=3"
+      "-zzstd,level=9"
       "-C131072"
     ];
 
@@ -96,9 +102,9 @@ in
         };
       };
 
-      # Fixed at 128M rather than minimised: the hash tree of an 8G /usr is
-      # about 64M, and slot A's verity partition cannot grow later because
-      # slot A's data partition sits directly behind it.
+      # Fixed at 256M rather than minimised: the hash tree of a 16G /usr is
+      # 128M, and slot A's verity partition cannot grow later because slot
+      # A's data partition sits directly behind it.
       ${partitionIds.store-verity}.repartConfig = {
         Label = "${id}_${version}";
         # repart defaults verity blocks to the image's 512-byte sector size,
@@ -107,8 +113,8 @@ in
         VerityDataBlockSizeBytes = 4096;
         VerityHashBlockSizeBytes = 4096;
         Minimize = lib.mkForce "off";
-        SizeMinBytes = "128M";
-        SizeMaxBytes = "128M";
+        SizeMinBytes = "256M";
+        SizeMaxBytes = "256M";
       };
 
       # The label carries the version because that is where systemd-sysupdate

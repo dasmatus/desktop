@@ -279,7 +279,7 @@ let
           # Set: connections leave Tor through the edge (losos-edge-chain
           # in the gateway), and nowhere while it cannot be reached.
           edge=none
-          [ -e ${edge.hostDir}/${edge.file} ] && edge=set
+          [ -e ${edge.hostDir}/${edge.file} ] && edge="set"
           echo "edge=$edge"
           ;;
         *)
