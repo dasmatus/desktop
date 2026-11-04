@@ -78,9 +78,15 @@ in
     # compressed qcow2 that nothing here shrinks. The kernel's erofs reads
     # Zstandard (CONFIG_EROFS_FS_ZIP_ZSTD, on in nixpkgs from 6.10); it has
     # no LZMA.
+    #
+    # Level 9 rather than 3 since the store kept growing: the 3 November
+    # 2026 x86_64 build's /usr was 8.16G, past the 8G slot that level 3's
+    # 7.32G once left room in. Level 9's 2% (about 160M of this store) is
+    # the margin that fits again, and its four-times-longer mkfs is minutes
+    # of a build that takes hours.
     mkfsOptions.erofs = [
       "-b4096"
-      "-zzstd,level=3"
+      "-zzstd,level=9"
       "-C131072"
     ];
 

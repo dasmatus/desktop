@@ -31,7 +31,8 @@ let
   # of their own, but their derisk still links libvirt for the Machines
   # app's bindings, and libvirt's x86_64 default carries Xen, whose chain
   # (ipxe, syslinux) ships perl-shebang scripts, which guest/service.nix's
-  # perlless profile refuses. The host's libvirt keeps its default.
+  # perlless profile refuses. The host's libvirt builds the same way
+  # (libvirt.nix), so both are one store path, not two libvirts.
   machinesPkgs = pkgs.extend (
     final: prev: {
       libvirt = prev.libvirt.override { enableXen = false; };

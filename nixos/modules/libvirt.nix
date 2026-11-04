@@ -26,6 +26,13 @@ in
 {
   virtualisation.libvirtd = {
     enable = true;
+    # libvirt without its Xen (libxl) driver, the same build the service
+    # machines get (service-machines.nix), so both are one store path rather
+    # than two libvirts. The host runs its machines on KVM through QEMU and
+    # never manages a Xen hypervisor of its own, so the Xen chain (xen,
+    # ipxe, syslinux) is dead weight /usr has to fit in its update slot
+    # (losos.usrSize) for nothing.
+    package = pkgs.libvirt.override { enableXen = false; };
     # QEMU for the host's own architecture. The default, pkgs.qemu, emulates
     # every target QEMU has, which is most of its size and nothing a desktop's
     # machines run.
