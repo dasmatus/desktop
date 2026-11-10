@@ -99,6 +99,30 @@ in
           machine.screenshot("desktop")
 
       with subtest("the network reaches Google"):
+          # sys-net answers DNS at 10.139.0.1 as the forwarder; anywhere
+          # it does not, this carries the bridge state and sys-net's own
+          # console (netd's log) into the output to say why.
+          print(machine.execute(
+              "ip -br link; ip -br addr;"
+              " ip route show table 254; ip route show table 100;"
+              " ip rule; ping -c1 -W2 10.139.0.1 || true;"
+              " nft list table bridge losos-machine-labels || true;"
+              " virsh domstate sys-net 2>&1;"
+              " timeout 5 virsh domstats sys-net --cpu 2>&1 | grep cpu_time"
+              " || echo 'domstats hung: the machine's monitor is not answering';"
+              " timeout 5 virsh qemu-monitor-command sys-net --hmp 'info status' 2>&1"
+              " || echo 'the monitor command hung too';"
+              " ps -C qemu-system-x86_64 -o pid,pcpu,etime,args 2>&1 | grep sys-net | cut -c1-80;"
+              " journalctl -k --no-pager 2>&1 | grep -aE 'Unhandled|kvm:|svm:' | tail -n 8;"
+              " timeout 5 losos-vm-call call nmcli -t -f GENERAL.DEVICE device show 2>&1"
+              " || echo 'the vsock call to sys-net answered nothing';"
+              " cat /var/log/libvirt/qemu/sys-net.log 2>&1;"
+              " virsh dumpxml sys-net 2>&1 | sed -n '/<os>/,/<\\/os>/p';"
+              " ls /var/lib/losos-service-machines/sys-net/ 2>&1;"
+              " journalctl --no-pager -n 60 -u libvirtd -u systemd-machined"
+              " -u 'qemu-1-sys-net' -u losos-service-machine-sys-net-start"
+              " -u losos-service-machine-sys-net-graph 2>&1 | tail -n 60",
+          )[1])
           machine.wait_until_succeeds(
               "curl -fsS -o /dev/null https://dl.google.com/android/repository/repository2-3.xml",
               timeout=300,

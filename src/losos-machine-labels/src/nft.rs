@@ -81,35 +81,41 @@ delete table bridge {TABLE}
 table bridge {TABLE} {{
 {sets}  set gateway4 {{ type ipv4_addr; }}
   set gateway6 {{ type ipv6_addr; }}
-map macs {{ type ifname : ether_addr; }}
-map arp4 {{ type ifname : ipv4_addr; }}
+map macs {{ type ifname . ether_addr : verdict; }}
+map arp4 {{ type ifname . ether_addr . ipv4_addr : verdict; }}
 
   # What a machine sends into the bridge, to the host, past it or to
   # another machine. A trusted card's is left to libvirt and the host;
   # the rest is red's or unknown, and gets the host's DHCP and DNS and
-  # the internet, and nothing else.
+  # the internet, and nothing else. The maps carry a port's registered
+  # MAC, and its current lease's address, and their verdict-typed
+  # elements let a rule look a packet's sender up in them: only a
+  # sender whose pair is the one registered for its port goes through,
+  # wherever else the rule would have let it.
   chain prerouting {{
     type filter hook prerouting priority filter; policy accept;
     meta ibrname != \"{BRIDGE}\" accept
     iifname != @mac_bound drop
-    iifname map @macs != ether saddr drop
     icmpv6 type nd-neighbor-advert drop
-    icmpv6 type nd-neighbor-solicit ip6 saddr :: accept
+    icmpv6 type nd-neighbor-solicit ip6 saddr :: iifname . ether saddr vmap @macs accept
     icmpv6 type nd-neighbor-solicit drop
-{marks}    iifname map @macs == ether saddr iifname map @macs == arp saddr ether iifname map @arp4 == arp saddr ip accept
-    iifname map @macs == ether saddr iifname map @macs == arp saddr ether arp saddr ip 0.0.0.0 accept
+{marks}    # ARP answers only for the sender its lease gave the port; a
+    # sender still without an address carries the port's MAC anyway.
+    iifname . ether saddr . arp saddr ip vmap @arp4 accept
+    arp saddr ip != 0.0.0.0 drop
+    arp saddr ip 0.0.0.0 iifname . ether saddr vmap @macs accept
     ether type arp drop
     iifname @trusted accept
-    udp sport 68 udp dport 67 ip daddr @gateway4 accept
-    udp sport 68 udp dport 67 ip daddr 255.255.255.255 accept
-    ip daddr @gateway4 udp dport 53 accept
-    ip daddr @gateway4 tcp dport 53 accept
-    icmpv6 type nd-router-solicit accept
-    ip6 daddr @gateway6 udp dport 53 accept
-    ip6 daddr @gateway6 tcp dport 53 accept
+    ip daddr @gateway4 udp dport 53 iifname . ether saddr vmap @macs accept
+    ip daddr @gateway4 tcp dport 53 iifname . ether saddr vmap @macs accept
+    icmpv6 type nd-router-solicit iifname . ether saddr vmap @macs accept
+    ip6 daddr @gateway6 udp dport 53 iifname . ether saddr vmap @macs accept
+    ip6 daddr @gateway6 tcp dport 53 iifname . ether saddr vmap @macs accept
+    udp sport 68 udp dport 67 ip daddr @gateway4 iifname . ether saddr vmap @macs accept
+    udp sport 68 udp dport 67 ip daddr 255.255.255.255 iifname . ether saddr vmap @macs accept
     ip daddr {{ {PRIVATE4} }} drop
     ip6 daddr {{ {PRIVATE6} }} drop
-    ether type {{ ip, ip6 }} accept
+    ether type {{ ip, ip6 }} iifname . ether saddr vmap @macs accept
     drop
   }}
 
@@ -140,19 +146,25 @@ map arp4 {{ type ifname : ipv4_addr; }}
 }
 
 /// Takes `ports` out of every set they are in, which a port of a machine
-/// gone since may still be: libvirt names the next machine's card the same.
-fn forget(script: &mut String, ports: &[String]) {
+/// gone since may still be: libvirt names the next machine's card the
+/// same. Their entries in the maps go too, by the exact `pairs` a check
+/// of the table's elements holds — concat keys cannot be destroyed
+/// partly (`nft -c` accepts the shortened form, running nft does not).
+/// The IPv4 ownership map needs no destroy here: its refreshes flush and
+/// rebuild it from live ports, and a port no packet can enter on does
+/// nothing until then.
+fn forget(script: &mut String, ports: &[String], pairs: &[(String, String)]) {
     for port in ports {
         for set in LABELS.iter().chain(OTHER_SETS.iter()) {
             script.push_str(&format!(
                 "destroy element bridge {TABLE} {set} {{ \"{port}\" }}\n"
             ));
         }
-        for map in ["macs", "arp4"] {
-            script.push_str(&format!(
-                "destroy element bridge {TABLE} {map} {{ \"{port}\" }}\n"
-            ));
-        }
+    }
+    for (port, mac) in pairs {
+        script.push_str(&format!(
+            "destroy element bridge {TABLE} macs {{ \"{port}\" . {mac} }}\n"
+        ));
     }
 }
 
@@ -188,7 +200,7 @@ pub fn mac_bindings(machine: &Machine) -> String {
             "add element bridge {TABLE} mac_bound {{ \"{port}\" }}\n"
         ));
         script.push_str(&format!(
-            "add element bridge {TABLE} macs {{ \"{port}\" : {mac} }}\n"
+            "add element bridge {TABLE} macs {{ \"{port}\" . {mac} : accept }}\n"
         ));
     }
     script
@@ -197,8 +209,17 @@ pub fn mac_bindings(machine: &Machine) -> String {
 /// Removes any previous policy and address binding for a machine's ports.
 pub fn unassign(machine: &Machine) -> String {
     let mut script = String::new();
-    forget(&mut script, &machine.ports);
+    forget(&mut script, &machine.ports, &machine_pairs(machine));
     script
+}
+
+/// A machine's port-and-MAC pairs, as the maps are keyed.
+fn machine_pairs(machine: &Machine) -> Vec<(String, String)> {
+    machine
+        .macs
+        .iter()
+        .map(|(mac, port)| (port.clone(), mac.clone()))
+        .collect()
 }
 
 /// The current port-to-MAC map, as nftables prints it.
@@ -217,7 +238,15 @@ pub fn port_macs(listing: &str) -> Vec<(String, String)> {
                 .trim_end_matches('}')
                 .trim();
             for element in elements.split(',') {
-                if let Some((port, mac)) = element.split_once(" : ") {
+                // A verdict-typed map prints every element's verdict
+                // after its key, and this one's key is a port with the
+                // MAC registered for it.
+                let Some((key, _verdict)) = element.split_once(" : ") else {
+                    continue;
+                };
+                let mut words = key.trim().split(" . ");
+                let (port, mac) = (words.next(), words.next());
+                if let (Some(port), Some(mac)) = (port, mac) {
                     let port = port.trim().trim_matches('"');
                     let mac = mac.trim().to_ascii_lowercase();
                     if crate::domain::is_port(port) && is_mac(&mac) {
@@ -257,7 +286,7 @@ pub fn arp_owners(ports: &[(String, String)], leases: &[(String, std::net::Ipv4A
     for (port, mac) in ports {
         if let Some(address) = leases.get(mac) {
             script.push_str(&format!(
-                "add element bridge {TABLE} arp4 {{ \"{port}\" : {address} }}\n"
+                "add element bridge {TABLE} arp4 {{ \"{port}\" . {mac} . {address} : accept }}\n"
             ));
         }
     }
@@ -271,7 +300,7 @@ pub fn arp_bindings(machine: &Machine, leases: &[(String, std::net::Ipv4Addr)]) 
     for (mac, port) in &machine.macs {
         if let Some(address) = leases.get(mac) {
             script.push_str(&format!(
-                "add element bridge {TABLE} arp4 {{ \"{port}\" : {address} }}\n"
+                "add element bridge {TABLE} arp4 {{ \"{port}\" . {mac} . {address} : accept }}\n"
             ));
         }
     }
@@ -296,7 +325,7 @@ pub fn current_port_macs() -> std::io::Result<Vec<(String, String)>> {
 /// The changes for `machine` having stopped.
 pub fn stopped(machine: &Machine) -> String {
     let mut script = String::new();
-    forget(&mut script, &machine.ports);
+    forget(&mut script, &machine.ports, &machine_pairs(machine));
     script
 }
 
@@ -345,7 +374,13 @@ pub fn forget_gone() -> String {
         .filter(|port| !std::path::Path::new("/sys/class/net").join(port).exists())
         .collect();
     let mut script = String::new();
-    forget(&mut script, &gone);
+    // The pairs the table still holds for the gone ports, by which their
+    // entries in the two maps are destroyed; the sets go by port alone.
+    let pairs: Vec<(String, String)> = port_macs(&String::from_utf8_lossy(&listing.stdout))
+        .into_iter()
+        .filter(|(port, _)| gone.contains(port))
+        .collect();
+    forget(&mut script, &gone, &pairs);
     script
 }
 
@@ -436,30 +471,42 @@ mod tests {
     #[test]
     fn arp_and_dhcp_allowances_are_narrow() {
         let table = table();
-        assert!(table.contains("iifname map @macs == arp saddr ether"));
-        assert!(table.contains("iifname map @arp4 == arp saddr ip accept"));
-        assert!(table.contains("udp sport 68 udp dport 67 ip daddr @gateway4 accept"));
-        assert!(table.contains("udp sport 68 udp dport 67 ip daddr 255.255.255.255 accept"));
+        assert!(table.contains("iifname . ether saddr . arp saddr ip vmap @arp4 accept"));
+        assert!(table.contains("arp saddr ip != 0.0.0.0 drop"));
+        assert!(table.contains("arp saddr ip 0.0.0.0 iifname . ether saddr vmap @macs accept"));
+        assert!(table.contains(
+            "udp sport 68 udp dport 67 ip daddr @gateway4 iifname . ether saddr vmap @macs accept"
+        ));
+        assert!(table.contains(
+            "udp sport 68 udp dport 67 ip daddr 255.255.255.255 iifname . ether saddr vmap @macs accept"
+        ));
         assert!(!table.contains("udp dport 67 accept"));
     }
 
     #[test]
     fn ownership_and_label_checks_precede_protocol_allowances() {
         let table = table();
-        let source_mac = table.find("iifname map @macs != ether saddr drop").unwrap();
-        let arp = table.find("iifname map @macs == arp saddr ether").unwrap();
+        let arp_lease = table
+            .find("iifname . ether saddr . arp saddr ip vmap @arp4 accept")
+            .unwrap();
+        let arp_mismatch = table.find("arp saddr ip != 0.0.0.0 drop").unwrap();
         let advertisement = table.find("icmpv6 type nd-neighbor-advert drop").unwrap();
         let dad = table
-            .find("icmpv6 type nd-neighbor-solicit ip6 saddr :: accept")
+            .find("icmpv6 type nd-neighbor-solicit ip6 saddr :: iifname . ether saddr vmap @macs accept")
             .unwrap();
         let solicitation = table.find("icmpv6 type nd-neighbor-solicit drop").unwrap();
-        let router_solicitation = table.find("icmpv6 type nd-router-solicit accept").unwrap();
-        assert!(table.find("iifname != @mac_bound drop").unwrap() < source_mac);
-        assert!(source_mac < arp);
+        let router_solicitation = table
+            .find("icmpv6 type nd-router-solicit iifname . ether saddr vmap @macs accept")
+            .unwrap();
+        assert!(table.find("iifname != @mac_bound drop").unwrap() < arp_lease);
+        assert!(arp_lease < arp_mismatch);
+        assert!(arp_mismatch < table.find("ether type arp drop").unwrap());
+        assert!(advertisement < dad);
         assert!(advertisement < table.find("iifname @trusted accept").unwrap());
         assert!(dad < solicitation);
         assert!(solicitation < table.find("iifname @trusted accept").unwrap());
-        assert!(solicitation < router_solicitation);
+        assert!(solicitation < arp_lease);
+        assert!(table.find("iifname @trusted accept").unwrap() < router_solicitation);
 
         let blue_drop = table
             .find("meta mark & 0xffff0000 == 0x4c060000 drop")
@@ -484,7 +531,7 @@ mod tests {
         let script = started(&red);
         assert!(script.contains("add element bridge losos-machine-labels red { \"vnet1\" }"));
         assert!(!script.contains("add element bridge losos-machine-labels trusted"));
-        assert!(script.contains("macs { \"vnet1\" : 52:54:00:00:00:01 }"));
+        assert!(script.contains("macs { \"vnet1\" . 52:54:00:00:00:01 : accept }"));
         assert!(script.contains("mac_bound { \"vnet1\" }"));
         // Whatever the port was in before goes first.
         assert!(script.find("destroy element").unwrap() < script.find("add element").unwrap());
@@ -530,10 +577,81 @@ mod tests {
         assert!(script.starts_with("flush set"));
     }
 
+    /// The table, one machine in it and its parts in every element shape
+    /// the hook writes, is nft's to accept: nftables' parser has rejected
+    /// the forms used here before (#359's table did not parse at all).
+    /// Skipped where nft is not in the environment; the errors that come
+    /// only from being unprivileged to touch the kernel's tables are not
+    /// the parser's.
+    #[test]
+    fn nft_accepts_the_table_and_every_element_it_writes() {
+        let have_nft = Command::new("nft")
+            .args(["--version"])
+            .output()
+            .map(|output| output.status.success())
+            .unwrap_or(false);
+        if !have_nft {
+            return;
+        }
+        let machine = Machine {
+            group: Group::Label("blue"),
+            ports: vec!["vnet1".into()],
+            macs: vec![("52:54:00:00:00:01".into(), "vnet1".into())],
+        };
+        let leases = vec![(
+            "52:54:00:00:00:01".to_string(),
+            "192.168.122.11".parse().unwrap(),
+        )];
+        let mut script = table();
+        script.push_str(&mac_bindings(&machine));
+        script.push_str(&arp_bindings(&machine, &leases));
+        script.push_str(&arp_owners(
+            &machine
+                .macs
+                .iter()
+                .map(|(mac, port)| (port.clone(), mac.clone()))
+                .collect::<Vec<_>>(),
+            &leases,
+        ));
+        let mut forgotten = String::new();
+        forget(
+            &mut forgotten,
+            &machine.ports,
+            &machine
+                .macs
+                .iter()
+                .map(|(mac, port)| (port.clone(), mac.clone()))
+                .collect::<Vec<_>>(),
+        );
+        script.push_str(&forgotten);
+        let mut nft = Command::new("nft")
+            .args(["-c", "-f", "-"])
+            .stdin(Stdio::piped())
+            .stdout(Stdio::null())
+            .stderr(Stdio::piped())
+            .spawn()
+            .expect("nft is here and takes its script on stdin");
+        nft.stdin
+            .take()
+            .expect("stdin is piped")
+            .write_all(script.as_bytes())
+            .expect("nft reads its script");
+        let output = nft.wait_with_output().expect("nft is waited for");
+        let errors = String::from_utf8_lossy(&output.stderr);
+        // The only complaint an unprivileged `nft -c` may make is its
+        // cache against the kernel's tables; everything else is the
+        // parser's, and the table must parse wherever the hook runs it.
+        let rejected: Vec<&str> = errors
+            .lines()
+            .filter(|line| !line.contains("cache initialization"))
+            .filter(|line| !line.starts_with("netlink:"))
+            .collect();
+        assert!(rejected.is_empty(), "nft rejected the table:\n{errors}");
+    }
     #[test]
     fn binds_live_dhcp_addresses_to_their_ports() {
         let ports = port_macs(
-            "map macs {\n type ifname : ether_addr\n elements = { \"vnet0\" : 52:54:00:00:00:01 }\n}",
+            "map macs {\n type ifname . ether_addr : verdict\n elements = { \"vnet0\" . 52:54:00:00:00:01 : accept }\n}",
         );
         assert_eq!(ports, [("vnet0".into(), "52:54:00:00:00:01".into())]);
         let leases = leases(
@@ -542,7 +660,7 @@ mod tests {
         );
         let script = arp_owners(&ports, &leases);
         assert!(script.contains("flush map bridge losos-machine-labels arp4"));
-        assert!(script.contains("\"vnet0\" : 192.168.122.11"));
+        assert!(script.contains("\"vnet0\" . 52:54:00:00:00:01 . 192.168.122.11 : accept"));
         assert!(!script.contains("192.168.122.12"));
     }
 }
