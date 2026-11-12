@@ -1,10 +1,10 @@
-# LosOS admin/panes web export (Expo web), from the LosOS appliance repo.
+# LosOS admin/panes web export, from the LosOS appliance repo.
 # Nothing in nixos/modules installs this yet; the overlay entry is for
 # follow-up wiring and `nix build .#losos-admin-panes`.
 #
-# Pinned to losos #628 (TV/Skia/Windows/visionOS admin UI); sparse-checkout
-# admin-ui/app only, as the full tree is far larger than a web export needs
-# (docs/trust.md, losos.nix).
+# Pinned to channel/daily (latest cut on that branch). Before Expo export,
+# channel/daily still runs `bun run build` into dist/. Sparse-checkout
+# admin-ui/app only (docs/trust.md, losos.nix).
 {
   lib,
   stdenvNoCC,
@@ -13,11 +13,11 @@
 }:
 
 let
-  lososRev = "af65c6a0f8c78a38d445d8729bf5a1e40807d9d1";
+  lososRev = "2d36b250037b2e97bc1daca3fd5258f465bf3bda";
   src = fetchgit {
     url = "https://github.com/dasmatus/losos";
     rev = lososRev;
-    hash = "sha256-feumfi/Sy8x2oRqrTLkmQsyXuAkyNhhhInQJvCoCEf0=";
+    hash = "sha256-jPRu9LY2Wjjb4Gzz3tpyFp1vikoY0u+RpCqenxAp8T0=";
     sparseCheckout = [ "admin-ui/app" ];
   };
 in
@@ -34,7 +34,7 @@ stdenvNoCC.mkDerivation {
     export HOME=$TMPDIR
     cd admin-ui/app
     bun install --frozen-lockfile --ignore-scripts || bun install --ignore-scripts
-    bun run build:web
+    bun run build
     runHook postBuild
   '';
 
@@ -47,7 +47,7 @@ stdenvNoCC.mkDerivation {
 
   meta = {
     description = "LosOS admin/panes web export for LosOS Desktop";
-    homepage = "https://github.com/dasmatus/losos/pull/628";
+    homepage = "https://github.com/dasmatus/losos/tree/channel/daily";
     license = lib.licenses.eupl12;
     platforms = lib.platforms.linux;
   };
