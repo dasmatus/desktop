@@ -106,7 +106,7 @@ in
   # losos, the terminal client for LosOS boxes (docs/losos-boxes.md),
   # written in the LosOS repository.
   losos = callWithMold ./losos.nix { };
-  # Admin/panes web export (Skia-enabled RN project) sourced from the losos PR branch.
+  # Admin/panes web export from losos #628; not installed from the image yet.
   losos-admin-panes = final.callPackage ./losos-admin-panes.nix { };
   # Finds those boxes over mDNS and offers each one as an application.
   losos-boxes = callWithMold ./losos-boxes.nix { };
